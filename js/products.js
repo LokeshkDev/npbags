@@ -23,7 +23,7 @@ const PRODUCT_CATALOG = [
     ],
     materials: '100% GOTS-Certified Heavyweight Organic Cotton Canvas with vegetable-tanned leather trim and antique brass hardware.',
     dimensions: '15.5" H x 13.0" W x 5.5" D — 18L Capacity',
-    shippingInfo: 'Free standard shipping on orders over $50. Arrives in 2-4 business days. 30-day hassle-free returns.',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day hassle-free returns.',
     colors: [
       { name: 'Warm Oatmeal', hex: '#d9cdb8', img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1000&q=85' },
       { name: 'Olive Green', hex: '#4e5b47', img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=1000&q=85' },
@@ -61,7 +61,7 @@ const PRODUCT_CATALOG = [
     ],
     materials: 'Micro-grain vegan leather, water-resistant twill lining, matte gunmetal hardware.',
     dimensions: '7.8" H x 9.4" W x 2.8" D — 3.5L Capacity',
-    shippingInfo: 'Free standard shipping on orders over $50. Arrives in 2-4 business days. 30-day hassle-free returns.',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day hassle-free returns.',
     colors: [
       { name: 'Saddle Tan', hex: '#9c6644', img: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=1000&q=85' },
       { name: 'Jet Black', hex: '#1c1b1a', img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=85' },
@@ -133,7 +133,7 @@ const PRODUCT_CATALOG = [
     ],
     materials: 'Smooth ultra-soft vegan nappa leather, champagne gold hardware, microfiber interior.',
     dimensions: '6.0" H x 10.5" W x 2.2" D — 2.2L Capacity',
-    shippingInfo: 'Free standard shipping on orders over $50. Arrives in 2-4 business days. 30-day returns.',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day returns.',
     colors: [
       { name: 'Sage Green', hex: '#778a75', img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=1000&q=85' },
       { name: 'Cream Ivory', hex: '#f0ece1', img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1000&q=85' },
@@ -147,6 +147,138 @@ const PRODUCT_CATALOG = [
     ],
     reviews: [
       { name: 'Nadia P.', date: '4 days ago', rating: 5, title: 'Stunning in person!', comment: 'The sage color is even prettier in natural light. Perfect for dinners or day-outs.' }
+    ]
+  },
+  {
+    id: 'the-structured-satchel',
+    name: 'The Structured Satchel',
+    cat: 'Work & travel',
+    price: 54,
+    sale: 68,
+    badge: 'Trending',
+    rating: 4.85,
+    reviewCount: 112,
+    tagline: 'Architectural lines with organized dual partitions for modern professionals.',
+    description: 'Precision crafted from structured pebbled vegan leather. Stands upright gracefully on protective metal feet with padded tablet partition and key clip.',
+    features: [
+      'Dual zippered interior compartments',
+      'Protective gold-finish brass base studs',
+      'Removable crossbody strap and padded top handle',
+      'RFID-safe document pocket'
+    ],
+    materials: 'Pebbled cruelty-free vegan leather, brushed gold hardware, stain-resistant microsuede interior.',
+    dimensions: '11.0" H x 14.2" W x 4.8" D — 12L Capacity',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day returns.',
+    colors: [
+      { name: 'Midnight Charcoal', hex: '#26292b', img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1000&q=85' },
+      { name: 'Warm Oatmeal', hex: '#d9cdb8', img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=85' }
+    ],
+    sizes: ['13" Satchel', '15" Satchel'],
+    gallery: [
+      'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1000&q=85',
+      'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=85'
+    ],
+    reviews: [
+      { name: 'Rohan M.', date: '3 days ago', rating: 5, title: 'Best work bag ever', comment: 'Holds my iPad Pro, notebook, charger, and lunch. Very sturdy.' }
+    ]
+  },
+  {
+    id: 'the-commuter-backpack',
+    name: 'The Commuter Backpack',
+    cat: 'Everyday essentials',
+    price: 64,
+    sale: 78,
+    badge: 'Bestseller',
+    rating: 4.9,
+    reviewCount: 184,
+    tagline: 'Lightweight ergonomic backpack tailored for long commutes and rainy mornings.',
+    description: 'Hydrophobic woven shell with cushioned breathable mesh back panel. Features a dedicated 16" laptop sleeve and quick-draw side water bottle pocket.',
+    features: [
+      'Quick-access exterior vertical zipper',
+      'Air-mesh breathable back padding and ergonomic straps',
+      'Padded sleeve fits laptops up to 16 inches',
+      'Hidden passport and travel card pocket against back'
+    ],
+    materials: 'Recycled 900D ripstop nylon, waterproof YKK Aquaguard zips, recycled polyester lining.',
+    dimensions: '17.5" H x 12.0" W x 6.0" D — 20L Capacity',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day returns.',
+    colors: [
+      { name: 'Jet Black', hex: '#1c1b1a', img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=85' },
+      { name: 'Olive Green', hex: '#4e5b47', img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=1000&q=85' }
+    ],
+    sizes: ['Standard 20L'],
+    gallery: [
+      'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=85',
+      'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=1000&q=85'
+    ],
+    reviews: [
+      { name: 'Aarav P.', date: '1 week ago', rating: 5, title: 'Incredible comfort', comment: 'Even with a heavy laptop, the shoulder straps make it feel weightless.' }
+    ]
+  },
+  {
+    id: 'the-minimalist-sling',
+    name: 'The Minimalist Sling',
+    cat: 'On the go',
+    price: 32,
+    sale: 40,
+    badge: 'New',
+    rating: 4.7,
+    reviewCount: 64,
+    tagline: 'Compact, weatherproof crossbody pack for essential pocket items.',
+    description: 'Ultra-lightweight waist or chest carry with quick-release magnetic buckle. Water-resistant zippers keep your phone, keys, and cards bone-dry.',
+    features: [
+      'Fidlock magnetic quick-snap buckle',
+      'Expandable gusset design accommodates sunglasses case',
+      'Internal stretch mesh organization dividers',
+      'Reflective micro-pullers for nighttime visibility'
+    ],
+    materials: 'High-density matte nylon with water-resistant PU coating and anodized aluminium hardware.',
+    dimensions: '5.5" H x 10.0" W x 2.0" D — 2.0L Capacity',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day returns.',
+    colors: [
+      { name: 'Warm Oatmeal', hex: '#d9cdb8', img: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=1000&q=85' },
+      { name: 'Midnight Charcoal', hex: '#26292b', img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1000&q=85' }
+    ],
+    sizes: ['One Size'],
+    gallery: [
+      'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=1000&q=85',
+      'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=1000&q=85'
+    ],
+    reviews: [
+      { name: 'Maya S.', date: '5 days ago', rating: 5, title: 'Best hands-free bag', comment: 'Great for morning runs and cycling around town.' }
+    ]
+  },
+  {
+    id: 'the-leather-wallet-folio',
+    name: 'The Leather Wallet Folio',
+    cat: 'Finishing touches',
+    price: 28,
+    sale: 36,
+    badge: 'Staff Pick',
+    rating: 4.88,
+    reviewCount: 79,
+    tagline: 'Slimline bifold travel wallet crafted from Italian vegetable-tanned leather.',
+    description: 'Designed to fit passports, currency notes, and up to 10 cards without unnecessary bulk. Features an integrated micro pen and SIM-card extraction tool pocket.',
+    features: [
+      'Fits international passports and folded boarding passes',
+      'RFID-blocking inner liner safeguards tap-and-pay cards',
+      'Smooth hand-burnished and waxed edges',
+      'Hidden micro-pen slot for travel declarations'
+    ],
+    materials: 'Full-grain vegetable tanned leather with wax treatment and waxed linen stitching.',
+    dimensions: '5.8" H x 4.0" W x 0.5" D',
+    shippingInfo: 'Free standard shipping on orders over ₹499. Arrives in 2-4 business days. 30-day returns.',
+    colors: [
+      { name: 'Saddle Tan', hex: '#9c6644', img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=1000&q=85' },
+      { name: 'Jet Black', hex: '#1c1b1a', img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=85' }
+    ],
+    sizes: ['Compact Bifold'],
+    gallery: [
+      'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=1000&q=85',
+      'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1000&q=85'
+    ],
+    reviews: [
+      { name: 'Vikram C.', date: '2 days ago', rating: 5, title: 'Incredible leather smell', comment: 'Quality is exceptional. The passport fits like a glove.' }
     ]
   }
 ];

@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const drawerTotal = drawer.querySelector('[data-cart-total]');
     if (drawerTotal) {
-      drawerTotal.textContent = `$${cart.reduce((sum, item) => sum + item.price * item.qty, 0).toFixed(2)}`;
+      drawerTotal.textContent = `₹${cart.reduce((sum, item) => sum + item.price * item.qty, 0).toFixed(2)}`;
     }
 
     const list = drawer.querySelector('[data-cart-items]');
@@ -75,14 +75,14 @@ document.addEventListener('DOMContentLoaded', () => {
         <img src="${item.image}" alt="${item.name}">
         <div>
           <strong>${item.name}</strong>
-          <small>$${item.price.toFixed(2)} ${item.size ? `· ${item.size}` : ''}</small>
+          <small>₹${item.price.toFixed(2)} ${item.size ? `· ${item.size}` : ''}</small>
           <div class="cart-line-actions">
             <button type="button" data-qty-minus="${i}" aria-label="Decrease quantity for ${item.name}">−</button>
             <span style="font-size:12px;font-weight:700">${item.qty}</span>
             <button type="button" data-qty-plus="${i}" aria-label="Increase quantity for ${item.name}">+</button>
           </div>
         </div>
-        <strong>$${(item.price * item.qty).toFixed(2)}</strong>
+        <strong>₹${(item.price * item.qty).toFixed(2)}</strong>
       </div>
     `).join('');
   }
@@ -125,6 +125,89 @@ document.addEventListener('DOMContentLoaded', () => {
     revealElements.forEach(el => observer.observe(el));
   };
   initScrollReveal();
+
+  // Search Popover System
+  const searchPopover = () => document.querySelector('.search-popover');
+  const searchBackdrop = () => document.querySelector('.search-popover-backdrop');
+  const searchInput = () => document.querySelector('#search-input');
+  const searchClearBtn = () => document.querySelector('#search-clear-btn');
+  const searchSuggestions = () => document.querySelector('#search-suggestions');
+  const searchResultsList = () => document.querySelector('#search-results-list');
+
+  function openSearch() {
+    const popover = searchPopover();
+    const backdrop = searchBackdrop();
+    const input = searchInput();
+    if (!popover) return;
+    popover.classList.add('is-open');
+    if (backdrop) backdrop.classList.add('is-open');
+    if (input) {
+      setTimeout(() => input.focus(), 60);
+    }
+  }
+
+  function closeSearch() {
+    const popover = searchPopover();
+    const backdrop = searchBackdrop();
+    if (!popover) return;
+    popover.classList.remove('is-open');
+    if (backdrop) backdrop.classList.remove('is-open');
+  }
+
+  function handleSearchInput(query) {
+    const clearBtn = searchClearBtn();
+    const suggestions = searchSuggestions();
+    const resultsList = searchResultsList();
+    if (!resultsList) return;
+
+    const trimmed = (query || '').trim().toLowerCase();
+    if (!trimmed) {
+      if (clearBtn) clearBtn.style.display = 'none';
+      if (suggestions) suggestions.style.display = 'block';
+      resultsList.style.display = 'none';
+      resultsList.innerHTML = '';
+      return;
+    }
+
+    if (clearBtn) clearBtn.style.display = 'grid';
+    if (suggestions) suggestions.style.display = 'none';
+    resultsList.style.display = 'flex';
+
+    const catalog = window.PRODUCT_CATALOG || [];
+    const matches = catalog.filter(p =>
+      p.name.toLowerCase().includes(trimmed) ||
+      p.cat.toLowerCase().includes(trimmed) ||
+      (p.tagline && p.tagline.toLowerCase().includes(trimmed)) ||
+      (p.description && p.description.toLowerCase().includes(trimmed)) ||
+      (p.materials && p.materials.toLowerCase().includes(trimmed))
+    );
+
+    if (matches.length === 0) {
+      resultsList.innerHTML = `
+        <div class="search-no-results">
+          <p>No products found for “<strong>${query.trim()}</strong>”</p>
+          <a href="collections.html" class="text-link" style="margin-top:10px">Explore all collections <span>→</span></a>
+        </div>
+      `;
+      return;
+    }
+
+    resultsList.innerHTML = matches.map(p => {
+      const img = p.gallery && p.gallery[0] ? p.gallery[0] : '';
+      return `
+        <a href="product.html?id=${p.id}" class="search-result-item">
+          <div class="search-result-thumb">
+            <img src="${img}" alt="${p.name}">
+          </div>
+          <div class="search-result-info">
+            <div class="search-result-name">${p.name}</div>
+            <div class="search-result-cat">${p.cat}</div>
+          </div>
+          <div class="search-result-price">₹${p.price.toFixed(2)}</div>
+        </a>
+      `;
+    }).join('');
+  }
 
   // 3. Quick View Modal System
   const qvModal = document.querySelector('quick-view-modal');
@@ -179,8 +262,8 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
 
           <div class="qv-price-wrap">
-            <span class="qv-price">$${p.price.toFixed(2)}</span>
-            ${p.sale ? `<span class="qv-price-del">$${p.sale.toFixed(2)}</span>` : ''}
+            <span class="qv-price">₹${p.price.toFixed(2)}</span>
+            ${p.sale ? `<span class="qv-price-del">₹${p.sale.toFixed(2)}</span>` : ''}
             ${discountPill}
           </div>
 
@@ -335,21 +418,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (event.target.closest('[data-cart-open]')) openCart();
     if (event.target.closest('[data-cart-close]')) closeCart();
 
-    // Search dialog
+    // Search Popover Open & Close
     if (event.target.closest('[data-search]')) {
-      const query = window.prompt('What are you looking for? (e.g. tote, travel, crossbody)');
-      if (query && query.trim()) {
-        const cleaned = query.trim().toLowerCase();
-        // check if on page
-        const found = [...document.querySelectorAll('.product-card')].find(card => card.innerText.toLowerCase().includes(cleaned));
-        if (found) {
-          found.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          found.style.outline = '3px solid var(--brand-red)';
-          setTimeout(() => found.style.outline = '', 2500);
-        } else {
-          showToast(`No matches for “${query.trim()}”. Discover our featured new arrivals below.`);
-        }
+      openSearch();
+      return;
+    }
+    if (event.target.closest('[data-search-close]')) {
+      closeSearch();
+      return;
+    }
+    if (event.target.closest('#search-clear-btn')) {
+      const input = searchInput();
+      if (input) {
+        input.value = '';
+        handleSearchInput('');
+        input.focus();
       }
+      return;
+    }
+    if (event.target.closest('.search-tag')) {
+      const tag = event.target.closest('.search-tag').dataset.searchTag;
+      const input = searchInput();
+      if (input) {
+        input.value = tag;
+        handleSearchInput(tag);
+        input.focus();
+      }
+      return;
     }
 
     // Account modal / demo toast
@@ -393,10 +488,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Search input live filtering
+  document.addEventListener('input', (event) => {
+    if (event.target && event.target.id === 'search-input') {
+      handleSearchInput(event.target.value);
+    }
+  });
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeCart();
       closeQuickView();
+      closeSearch();
     }
   });
 

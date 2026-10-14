@@ -9,8 +9,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (!product) return;
 
-  // Set Page Title
-  document.title = `${product.name} — Everyday, Elevated`;
+  // Set Page Title & SEO Meta Tags
+  document.title = `${product.name} — Everyday, Elevated | Your Brand`;
+
+  const metaDesc = document.querySelector('meta[name="description"]');
+  if (metaDesc) {
+    const descContent = `${product.name} (${product.cat}): ${product.tagline || product.description.slice(0, 140)} Price: ₹${product.price.toFixed(2)}. Free delivery on orders over ₹499.`;
+    metaDesc.setAttribute('content', descContent);
+  }
+
+  const ogTitle = document.querySelector('meta[property="og:title"]');
+  if (ogTitle) ogTitle.setAttribute('content', `${product.name} — Everyday, Elevated | Your Brand`);
+
+  const ogDesc = document.querySelector('meta[property="og:description"]');
+  if (ogDesc) ogDesc.setAttribute('content', product.tagline || product.description.slice(0, 150));
+
+  const twitterTitle = document.querySelector('meta[name="twitter:title"]');
+  if (twitterTitle) twitterTitle.setAttribute('content', `${product.name} — Everyday, Elevated | Your Brand`);
+
+  const twitterDesc = document.querySelector('meta[name="twitter:description"]');
+  if (twitterDesc) twitterDesc.setAttribute('content', product.tagline || product.description.slice(0, 150));
+
+  const mainProdImg = (product.gallery && product.gallery[0]) || (product.colors && product.colors[0] && product.colors[0].img);
+  if (mainProdImg) {
+    const ogImg = document.querySelector('meta[property="og:image"]');
+    if (ogImg) ogImg.setAttribute('content', mainProdImg);
+    const twImg = document.querySelector('meta[name="twitter:image"]');
+    if (twImg) twImg.setAttribute('content', mainProdImg);
+  }
 
   // Elements
   const crumbTitle = document.getElementById('pdp-crumb-title');
@@ -59,14 +85,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (titleEl) titleEl.textContent = product.name;
   if (ratingText) ratingText.textContent = product.rating || '4.9';
   if (reviewCountLink) reviewCountLink.textContent = `(${product.reviewCount || 148} reviews)`;
-  if (priceEl) priceEl.textContent = `$${product.price.toFixed(2)}`;
-  if (btnPrice) btnPrice.textContent = `$${product.price.toFixed(2)}`;
+  if (priceEl) priceEl.textContent = `₹${product.price.toFixed(2)}`;
+  if (btnPrice) btnPrice.textContent = `₹${product.price.toFixed(2)}`;
   if (descriptionEl) descriptionEl.textContent = product.description;
 
   // Sale price & discount
   if (product.sale && product.sale > product.price) {
     if (salePriceEl) {
-      salePriceEl.textContent = `$${product.sale.toFixed(2)}`;
+      salePriceEl.textContent = `₹${product.sale.toFixed(2)}`;
       salePriceEl.style.display = 'inline';
     }
     if (discountBadge) {
@@ -153,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const updateQty = (delta) => {
     currentQty = Math.max(1, currentQty + delta);
     if (qtyDisplay) qtyDisplay.textContent = currentQty;
-    if (btnPrice) btnPrice.textContent = `$${(product.price * currentQty).toFixed(2)}`;
+    if (btnPrice) btnPrice.textContent = `₹${(product.price * currentQty).toFixed(2)}`;
   };
   if (qtyMinus) qtyMinus.addEventListener('click', () => updateQty(-1));
   if (qtyPlus) qtyPlus.addEventListener('click', () => updateQty(1));
@@ -208,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (dimensionsEl) dimensionsEl.textContent = product.dimensions || '15" H x 12" W x 5" D';
   if (materialsEl) materialsEl.textContent = product.materials || 'Organic canvas with water-repellent coating.';
-  if (shippingEl) shippingEl.textContent = product.shippingInfo || 'Free standard delivery over $50. Arrives in 2-4 business days.';
+  if (shippingEl) shippingEl.textContent = product.shippingInfo || 'Free standard delivery over ₹499. Arrives in 2-4 business days.';
 
   // Reviews
   if (reviewsList && product.reviews) {
@@ -285,8 +311,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="product-card__category">${p.cat}</div>
             <h3 class="product-card__title"><a href="product.html?id=${p.id}">${p.name}</a></h3>
             <div class="product-price">
-              <span>$${p.price.toFixed(2)}</span>
-              ${p.sale ? `<del>$${p.sale.toFixed(2)}</del>` : ''}
+              <span>₹${p.price.toFixed(2)}</span>
+              ${p.sale ? `<del>₹${p.sale.toFixed(2)}</del>` : ''}
             </div>
             <button class="product-add" data-add-to-cart data-id="${p.id}" data-name="${p.name}" data-price="${p.price}" data-image="${img}">Add to bag +</button>
           </div>
@@ -298,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Mobile Sticky Bottom Bar Scroll Observer
   if (stickyBar && addToBagBtn) {
     if (stickyName) stickyName.textContent = product.name;
-    if (stickyPrice) stickyPrice.textContent = `$${product.price.toFixed(2)}`;
+    if (stickyPrice) stickyPrice.textContent = `₹${product.price.toFixed(2)}`;
     if (stickyAddBtn) stickyAddBtn.addEventListener('click', handleAddToBag);
 
     const observer = new IntersectionObserver(([entry]) => {
