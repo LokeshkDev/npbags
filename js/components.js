@@ -129,6 +129,7 @@ class SiteHeader extends HTMLElement {
               </div>
             </div>
             <a href="${arrivalsHref}">New arrivals</a>
+            <a href="coming-soon.html">Coming soon</a>
             <a href="${storyHref}">Our story</a>
             <a href="${benefitsHref}">Why us</a>
           </nav>
@@ -196,6 +197,10 @@ class SiteHeader extends HTMLElement {
               </div>
 
               <a href="${arrivalsHref}" class="mobile-side-drawer__link" data-drawer-link>New arrivals</a>
+              <a href="coming-soon.html" class="mobile-side-drawer__link" data-drawer-link>
+                <span>Coming soon</span>
+                <span style="font-size:10px;background:rgba(237,28,42,0.1);color:var(--brand-red);font-weight:700;padding:2px 8px;border-radius:999px;margin-left:auto">✦ Preview</span>
+              </a>
               <a href="${storyHref}" class="mobile-side-drawer__link" data-drawer-link>Our story</a>
               <a href="${benefitsHref}" class="mobile-side-drawer__link" data-drawer-link>Why us</a>
             </nav>
@@ -820,6 +825,7 @@ class SiteFooter extends HTMLElement {
                 <div class="footer-links">
                   <a href="collections.html">Collections</a>
                   <a href="collections.html?filter=new">New arrivals</a>
+                  <a href="coming-soon.html">Coming soon <small style="color:var(--brand-red);font-weight:700">✦ Preview</small></a>
                   <a href="index.html#story">Our story</a>
                   <a href="index.html#benefits">Why us</a>
                 </div>
