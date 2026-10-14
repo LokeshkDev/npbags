@@ -62,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnPrice = document.getElementById('pdp-btn-price');
   const buyNowBtn = document.getElementById('pdp-buy-now-btn');
   const wishBtn = document.getElementById('pdp-wish-btn');
+  const shareBtn = document.getElementById('pdp-share-btn');
   const featuresList = document.getElementById('pdp-features-list');
   const dimensionsEl = document.getElementById('pdp-dimensions');
   const materialsEl = document.getElementById('pdp-materials');
@@ -211,14 +212,64 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Wishlist toggle
+  // Wishlist toggle (Floating image button)
   if (wishBtn) {
     wishBtn.addEventListener('click', () => {
-      const isSaved = wishBtn.textContent.trim() === '♥';
-      wishBtn.textContent = isSaved ? '♡' : '♥';
-      wishBtn.style.color = isSaved ? '' : 'var(--brand-red)';
+      const isSaved = wishBtn.classList.toggle('is-active');
+      wishBtn.setAttribute('aria-label', isSaved ? 'Remove from wishlist' : 'Add to wishlist');
+      wishBtn.setAttribute('title', isSaved ? 'Remove from wishlist' : 'Save to wishlist');
+      const tooltip = wishBtn.querySelector('.pdp-img-tooltip');
+      if (tooltip) {
+        tooltip.textContent = isSaved ? 'Saved' : 'Save';
+      }
       if (window.showGlobalToast) {
-        window.showGlobalToast(isSaved ? 'Removed from your wishlist' : 'Saved to your wishlist');
+        window.showGlobalToast(isSaved ? 'Saved to your wishlist' : 'Removed from your wishlist');
+      }
+    });
+  }
+
+  // Share button (Floating image button)
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      const shareUrl = window.location.href;
+      const shareData = {
+        title: `${product.name} | Your Brand`,
+        text: `Take a look at ${product.name} on Your Brand: ${product.tagline || product.name}`,
+        url: shareUrl
+      };
+
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        try {
+          await navigator.share(shareData);
+          return;
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.warn('Share error:', err);
+          } else {
+            return;
+          }
+        }
+      }
+
+      // Fallback: Copy link to clipboard
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+        } else {
+          const input = document.createElement('input');
+          input.value = shareUrl;
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          document.body.removeChild(input);
+        }
+        if (window.showGlobalToast) {
+          window.showGlobalToast('Product link copied to clipboard!');
+        }
+      } catch (err) {
+        if (window.showGlobalToast) {
+          window.showGlobalToast('Could not copy link');
+        }
       }
     });
   }

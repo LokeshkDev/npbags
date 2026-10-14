@@ -78,7 +78,84 @@
   font-weight: 700;
   letter-spacing: .06em;
   text-transform: uppercase;
-  z-index: 2;
+  z-index: 4;
+}
+
+/* Floating Image Actions: Favourite & Share (Desktop & Mobile) */
+.pdp-image-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pdp-img-action-btn {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  transition: transform .2s ease, background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
+  padding: 0;
+}
+.pdp-img-action-btn:hover {
+  background: #ffffff;
+  color: var(--brand-red);
+  border-color: rgba(237, 28, 42, 0.3);
+  transform: scale(1.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+.pdp-img-action-btn:active {
+  transform: scale(0.94);
+}
+.pdp-img-action-btn svg {
+  width: 19px;
+  height: 19px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: fill .2s ease, stroke .2s ease;
+}
+.pdp-img-action-btn.is-active {
+  color: var(--brand-red);
+  border-color: var(--brand-red);
+}
+.pdp-img-action-btn.is-active svg {
+  fill: var(--brand-red);
+  stroke: var(--brand-red);
+}
+.pdp-img-tooltip {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #202b24;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s ease;
+}
+.pdp-img-action-btn:hover .pdp-img-tooltip {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Thumbnails */
@@ -287,32 +364,40 @@
 }
 .pdp-qty-row {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: stretch;
 }
 .pdp-qty-picker {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   border: 1px solid #dcd7ce;
   border-radius: var(--button-radius);
   background: #fff;
-  min-height: 50px;
+  min-height: 52px;
+  height: 52px;
+  flex: 0 0 120px;
+  box-sizing: border-box;
 }
 .pdp-qty-picker button {
-  width: 44px;
+  width: 40px;
   height: 100%;
   border: 0;
   background: transparent;
   font-size: 18px;
   font-weight: 700;
   color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: background .15s ease;
 }
 .pdp-qty-picker button:hover {
   background: #f4efe8;
 }
 .pdp-qty-picker span {
-  min-width: 36px;
+  min-width: 32px;
   text-align: center;
   font-weight: 700;
   font-size: 15px;
@@ -320,28 +405,26 @@
 
 .pdp-add-btn {
   flex: 1;
-}
-.pdp-wish-btn {
-  width: 50px;
-  min-height: 50px;
-  border-radius: var(--button-radius);
-  border: 1px solid #dcd7ce;
-  background: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 20px;
-  color: var(--ink);
-  transition: all .2s ease;
-}
-.pdp-wish-btn:hover {
-  border-color: var(--brand-red);
-  color: var(--brand-red);
+  min-height: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .pdp-buy-now-btn {
   width: 100%;
+  min-height: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #202b24;
   border-color: #202b24;
+  box-sizing: border-box;
 }
 .pdp-buy-now-btn::before {
   background: var(--brand-green-dark);
@@ -547,12 +630,74 @@
   .pdp-gallery {
     position: static;
   }
+  /* Floating Actions on Mobile Image */
+  .pdp-image-actions {
+    top: 12px;
+    right: 12px;
+    gap: 8px;
+  }
+  .pdp-img-action-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .pdp-img-action-btn svg {
+    width: 17px;
+    height: 17px;
+  }
+  .pdp-img-tooltip {
+    display: none !important;
+  }
   .pdp-thumbs {
     gap: 8px;
   }
   .pdp-thumb {
     width: 65px;
     height: 65px;
+  }
+  /* Mobile PDP Quantity & Add to Cart Alignment */
+  .pdp-action-group {
+    gap: 10px;
+  }
+  .pdp-qty-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    width: 100%;
+  }
+  .pdp-qty-picker {
+    height: 48px;
+    min-height: 48px;
+    flex: 0 0 106px;
+    width: 106px;
+    border-radius: var(--button-radius);
+  }
+  .pdp-qty-picker button {
+    width: 34px;
+    font-size: 16px;
+  }
+  .pdp-qty-picker span {
+    font-size: 14px;
+    min-width: 24px;
+  }
+  .pdp-add-btn {
+    flex: 1;
+    height: 48px;
+    min-height: 48px;
+    padding: 0 12px;
+    font-size: 12px;
+    letter-spacing: .02em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+  }
+  .pdp-buy-now-btn {
+    height: 48px;
+    min-height: 48px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .pdp-perks {
     grid-template-columns: 1fr;
