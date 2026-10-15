@@ -19,7 +19,8 @@ module.exports = {
   },
   cors: {
     clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
-    adminUrl: process.env.ADMIN_URL || 'http://localhost:3001'
+    adminUrl: process.env.ADMIN_URL || 'http://localhost:3001',
+    allowedOrigins: process.env.ALLOWED_ORIGINS || ''
   },
   baseUrl: process.env.BASE_URL || 'http://localhost:5000'
 };

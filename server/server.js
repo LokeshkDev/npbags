@@ -23,34 +23,90 @@ const { getStoreSettings } = require('./src/controllers/settingsController');
 
 const app = express();
 
+// CORS configuration - MUST run before other middlewares to guarantee preflight responses
+const configuredOrigins = [
+  env.cors.clientUrl,
+  env.cors.adminUrl,
+  ...(env.cors.allowedOrigins ? env.cors.allowedOrigins.split(',') : []),
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : []),
+  'https://npbags.vercel.app',
+  'https://npbags-admin.vercel.app',
+  'https://npbags-backend.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001'
+]
+  .filter(Boolean)
+  .map(o => o.trim().replace(/\/+$/, ''));
+
+function isOriginAllowed(origin) {
+  // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+  if (!origin) return true;
+
+  const cleanOrigin = origin.trim().replace(/\/+$/, '');
+
+  // 1. Matches configured or wildcard origins
+  if (configuredOrigins.includes(cleanOrigin) || configuredOrigins.includes('*')) {
+    return true;
+  }
+
+  // 2. Allow all Vercel deployments (production, branch preview URLs)
+  if (/^https:\/\/([a-zA-Z0-9_-]+\.)*vercel\.app$/i.test(cleanOrigin)) {
+    return true;
+  }
+
+  // 3. Allow all Render URLs
+  if (/^https:\/\/([a-zA-Z0-9_-]+\.)*onrender\.com$/i.test(cleanOrigin)) {
+    return true;
+  }
+
+  // 4. Allow any localhost or 127.0.0.1 on any port
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cleanOrigin)) {
+    return true;
+  }
+
+  // 5. Permissive fallback for custom domains unless strict mode is enabled
+  if (process.env.CORS_STRICT !== 'true') {
+    return true;
+  }
+
+  return false;
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`[CORS] Blocked unallowed origin: ${origin}`);
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Cache-Control',
+    'X-File-Name'
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range', 'Authorization'],
+  maxAge: 86400,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 // Security and utility middlewares
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'development' ? 'dev' : 'combined'));
-
-// CORS setup
-const allowedOrigins = [
-  env.cors.clientUrl,
-  env.cors.adminUrl,
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001'
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests with no origin (like mobile apps, curl, postman)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || env.nodeEnv === 'development') {
-      return callback(null, true);
-    }
-    return callback(new Error('Blocked by CORS'));
-  },
-  credentials: true
-}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
