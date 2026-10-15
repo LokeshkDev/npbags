@@ -1,0 +1,37 @@
+@font-face {
+  font-family: 'Anybody Thin';
+  src: local('Anybody Thin'), local('Anybody-Thin-SemiBold'), local('Anybody Thin SemiBold'), local('Anybody-Thin'), local('Anybody');
+  font-weight: 100 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Anybody-Thin-SemiBold';
+  src: local('Anybody-Thin-SemiBold'), local('Anybody Thin SemiBold'), local('Anybody Thin'), local('Anybody');
+  font-weight: 100 600;
+  font-display: swap;
+}
+
+:root {
+  --brand-red: #ed1c2a;
+  --brand-red-dark: #c91320;
+  --brand-green: #08a653;
+  --brand-green-dark: #087c40;
+  --ink: #222222;
+  --muted: #777777;
+  --surface: #ffffff;
+  --surface-soft: #faf7f2;
+  --line: #e9e6e2;
+  --font-body: var(--font-dm-sans, "DM Sans"), Arial, sans-serif;
+  --font-heading: "Anybody Thin", "Anybody-Thin-SemiBold", var(--font-anybody, "Anybody"), "Anybody", "DM Sans", sans-serif;
+  --container: 1440px;
+  --button-radius: 10px;
+  --card-radius: 10px;
+  --image-radius: 10px;
+  --section-space: 88px;
+  --shadow-soft: 0 12px 35px rgba(28, 35, 30, .08);
+  --shadow-lg: 0 20px 45px rgba(28, 35, 30, .14);
+  --shadow-modal: 0 30px 70px rgba(0, 0, 0, .22);
+  --app-bar-height: 64px;
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+}

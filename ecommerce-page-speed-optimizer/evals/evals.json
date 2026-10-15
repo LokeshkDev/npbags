@@ -1,0 +1,26 @@
+{
+  "skill_name": "ecommerce-page-speed-optimizer",
+  "evals": [
+    {
+      "id": 1,
+      "name": "hero-lcp-cls-optimization",
+      "prompt": "Our product detail page has a really slow LCP (around 4.8 seconds on mobile) and the layout jumps when the promo banner and image gallery load. Can you audit the PDP, optimize the hero image loading and fix the CLS without breaking our variant selector or checkout buttons?",
+      "expected_output": "Agent discovers the PDP image loading pipeline, establishes baseline metrics, preloads high-priority hero images with proper aspect-ratio containers, reserves layout space for banners, defers non-critical widgets, and validates before/after benchmarks with zero functional regressions on variant selection and checkout.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "pdp-seo-product-schema-audit",
+      "prompt": "Google Search Console is reporting missing structured data on our product pages and we want to optimize metadata and canonical tags across all category and product pages. Please inspect the existing codebase, add compliant JSON-LD Product & Breadcrumb schemas, and verify that metadata is dynamically injected without changing our site design.",
+      "expected_output": "Agent inspects existing meta tags and routing, implements clean JSON-LD Product/Offer/AggregateRating/BreadcrumbList structured data, ensures proper canonical and Open Graph tags, verifies search engine crawlability in robots.txt, and validates the schemas against Google Rich Results standards.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "wcag-accessibility-cart-focus",
+      "prompt": "We need to fix accessibility issues on our store. The cart slide-out drawer doesn't trap keyboard focus, screen readers don't announce when an item is added to the cart, and some button contrasts failed WCAG AA. Please fix these accessibility issues without redesigning the components or affecting cart calculation logic.",
+      "expected_output": "Agent audits focus management in the cart drawer (implementing proper focus trapping and Escape dismissal), adds aria-live polite announcements for cart additions, resolves color contrast deficits to meet 4.5:1 ratios, and tests full keyboard navigation while keeping pricing and cart calculations untouched.",
+      "files": []
+    }
+  ]
+}

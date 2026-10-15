@@ -1,0 +1,24 @@
+{
+  "name": "npgrand-monorepo",
+  "version": "1.0.0",
+  "description": "NP Grand Full-Stack Themed E-Commerce Suite",
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix client/website && npm install --prefix client/admin",
+    "dev:server": "npm run dev --prefix server",
+    "dev:website": "npm run dev --prefix client/website",
+    "dev:admin": "npm run dev --prefix client/admin",
+    "build:website": "npm run build --prefix client/website",
+    "build:admin": "npm run build --prefix client/admin",
+    "db:setup": "npm run db:setup --prefix server",
+    "db:seed": "npm run db:seed --prefix server"
+  },
+  "keywords": [
+    "ecommerce",
+    "nextjs",
+    "express",
+    "mysql"
+  ],
+  "author": "NP Grand",
+  "license": "ISC"
+}
+
