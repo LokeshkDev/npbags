@@ -17,6 +17,67 @@ export const DEMO_DELIVERY = {
 };
 
 export const DEMO_CMS_SECTIONS = {
+  main_navigation: {
+    logo_url: '/assets/brand-logo.png',
+    search_placeholder: 'Search for bags, jewellery, shoes, water bottles...',
+    items: [
+      { label: 'Home', url: '/' },
+      { label: 'Women', url: '/shop?category=Womens' },
+      { label: 'Men', url: '/shop?category=Mens' },
+      { label: 'Kids', url: '/shop?category=Kids' },
+      { label: 'Accessories', url: '/shop?category=Accessories' },
+      { label: 'Bags & Handbags', url: '/shop?category=Everyday+essentials' },
+      { label: 'Footwear', url: '/shop?category=Footwear' },
+      { label: 'Water Bottles', url: '/shop?category=Water+Bottles' },
+      { label: 'Key Chains', url: '/shop?category=Key+Chains' },
+      { label: 'Offers', url: '/shop?filter=sale' },
+      { label: 'New Arrivals', url: '/shop?filter=new' }
+    ]
+  },
+  audience_cards: {
+    cards: [
+      { id: 'women', tag: 'Curated For Her', title: 'For Women', sub: 'Bags, Jewellery & Everyday Accessories', btnText: 'Shop Women', btnClass: 'audience-btn--red', link: '/shop?category=Womens', image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=900&q=85' },
+      { id: 'men', tag: 'Curated For Him', title: 'For Men', sub: 'Stylish Footwear, Bags & Accessories', btnText: 'Shop Men', btnClass: 'audience-btn--green', link: '/shop?category=Mens', image: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=900&q=85' },
+      { id: 'kids', tag: 'Curated For Little Ones', title: 'For Kids', sub: 'Fun Accessories, Bottles & Playful Essentials', btnText: 'Shop Kids', btnClass: 'audience-btn--red', link: '/shop?category=Kids', image: 'https://images.unsplash.com/photo-1519457431-44ccd64a579b?auto=format&fit=crop&w=900&q=85' }
+    ]
+  },
+  jewellery_gallery: {
+    title: 'Jewellery Collections',
+    subtitle: 'Timeless pieces for every occasion',
+    view_all_url: '/shop?category=Accessories',
+    items: [
+      { name: 'Necklaces', image: '/assets/jewellery/jewel-necklaces.png', link: '/shop?category=Accessories&tag=necklaces' },
+      { name: 'Earrings', image: '/assets/jewellery/jewel-earrings.png', link: '/shop?category=Accessories&tag=earrings' },
+      { name: 'Bangles', image: '/assets/jewellery/jewel-bangles.png', link: '/shop?category=Accessories&tag=bangles' },
+      { name: 'Kadas', image: '/assets/jewellery/jewel-kadas.png', link: '/shop?category=Accessories&tag=kadas' },
+      { name: 'Tikkas', image: '/assets/jewellery/jewel-tikkas.png', link: '/shop?category=Accessories&tag=tikkas' },
+      { name: 'Ear Chains', image: '/assets/jewellery/jewel-earchains.png', link: '/shop?category=Accessories&tag=earchains' },
+      { name: 'Malas', image: '/assets/jewellery/jewel-malas.png', link: '/shop?category=Accessories&tag=malas' },
+      { name: 'Chains', image: '/assets/jewellery/jewel-chains.png', link: '/shop?category=Accessories&tag=chains' },
+      { name: 'Nose Pins', image: '/assets/jewellery/jewel-nosepins.png', link: '/shop?category=Accessories&tag=nosepins' },
+      { name: 'Payals', image: '/assets/jewellery/jewel-payals.png', link: '/shop?category=Accessories&tag=payals' },
+      { name: 'Haath Panjas', image: '/assets/jewellery/jewel-haathpanjas.png', link: '/shop?category=Accessories&tag=haathpanjas' },
+      { name: 'Crowns', image: '/assets/jewellery/jewel-crowns.png', link: '/shop?category=Accessories&tag=crowns' }
+    ]
+  },
+  shop_by_price: {
+    title: 'Shop by Price',
+    subtitle: 'Great products at every budget',
+    tiers: [
+      { prefix: 'Under', amount: '₹499', image: '/assets/price/price-handbag.png', alt: 'Under ₹499 Handbag', themeClass: 'price-card--blush', link: '/shop?max_price=499' },
+      { prefix: '₹500 -', amount: '₹999', image: '/assets/price/price-wallet.png', alt: '₹500 - ₹999 Wallet', themeClass: 'price-card--sage', link: '/shop?min_price=500&max_price=999' },
+      { prefix: '₹1,000 -', amount: '₹1,999', image: '/assets/price/price-sneakers.png', alt: '₹1,000 - ₹1,999 Sneakers', themeClass: 'price-card--peach', link: '/shop?min_price=1000&max_price=1999' },
+      { prefix: '₹2,000 -', amount: '₹4,999', image: '/assets/price/price-watch.png', alt: '₹2,000 - ₹4,999 Smart Watch', themeClass: 'price-card--blush', link: '/shop?min_price=2000&max_price=4999' },
+      { prefix: 'Above', amount: '₹5,000', image: '/assets/price/price-bottle.png', alt: 'Above ₹5,000 Bottle', themeClass: 'price-card--sage', link: '/shop?min_price=5000' }
+    ]
+  },
+  campaign_banners: {
+    banners: [
+      { id: 'new-arrivals', title: 'New Arrivals', subtitle: 'Fresh Styles Just for You', ctaText: 'Explore Now', link: '/shop?filter=new', image: '/assets/banners/banner-new-arrivals.png' },
+      { id: 'special-offers', title: 'Special Offers', subtitle: 'Best Deals on Top Brands', ctaText: 'Shop Offers', link: '/shop?filter=sale', image: '/assets/banners/banner-special-offers.png' }
+    ]
+  },
+
   announcement: {
     is_active: true,
     items: [

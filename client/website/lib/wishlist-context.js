@@ -37,14 +37,14 @@ export function WishlistProvider({ children }) {
   };
 
   const isInWishlist = (productId) => {
-    return wishlist.some(item => item.id === productId);
+    return Array.isArray(wishlist) && wishlist.some(item => item.id === productId);
   };
 
   return (
     <WishlistContext.Provider
       value={{
-        wishlist,
-        wishlistCount: wishlist.length,
+        wishlist: Array.isArray(wishlist) ? wishlist : [],
+        wishlistCount: Array.isArray(wishlist) ? wishlist.length : 0,
         toggleWishlist,
         isInWishlist
       }}

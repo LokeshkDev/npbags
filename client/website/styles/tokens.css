@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..800;1,400..800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
 @font-face {
   font-family: 'Anybody Thin';
   src: local('Anybody Thin'), local('Anybody-Thin-SemiBold'), local('Anybody Thin SemiBold'), local('Anybody-Thin'), local('Anybody');
@@ -13,24 +15,56 @@
 }
 
 :root {
-  --brand-red: #ed1c2a;
-  --brand-red-dark: #c91320;
-  --brand-green: #08a653;
-  --brand-green-dark: #087c40;
-  --ink: #222222;
-  --muted: #777777;
-  --surface: #ffffff;
-  --surface-soft: #faf7f2;
-  --line: #e9e6e2;
-  --font-body: var(--font-dm-sans, "DM Sans"), Arial, sans-serif;
-  --font-heading: "Anybody Thin", "Anybody-Thin-SemiBold", var(--font-anybody, "Anybody"), "Anybody", "DM Sans", sans-serif;
+  /* Font Families */
+  --font-cooper: 'Cooper BT', 'Fraunces', 'Cooper Black', serif;
+  --font-audit: 'Audit Sans', 'Outfit', 'Plus Jakarta Sans', 'Inter', sans-serif;
+  --font-serif: var(--font-cooper);
+  --font-sans: var(--font-audit);
+  --font-playfair: 'Cooper BT', 'Fraunces', 'Playfair Display', Georgia, serif;
+  --font-jakarta: 'Audit Sans', 'Outfit', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-inter: 'Audit Sans', 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-dm-sans: 'Inter', sans-serif;
+  --font-anybody: 'Anybody', sans-serif;
+
+  /* NP Grand Brand Palette */
+  --np-green: #065935;
+  --np-green-dark: #033d26;
+  --np-green-light: #e8f4ed;
+  --np-red: #c8102e;
+  --np-red-dark: #9e0b22;
+  --np-cream: #fbf7f2;
+  --np-cream-soft: #faf7f2;
+  --np-sage: #edf5ef;
+  --np-blush: #fdeeed;
+  --np-peach: #fef3e9;
+  --np-text: #1f2937;
+  --np-muted: #6b7280;
+  --np-border: #e5e7eb;
+  --np-white: #ffffff;
+  --np-radius-card: 16px;
+  --np-radius-pill: 999px;
+  --np-shadow-card: 0 5px 18px rgba(15, 45, 30, 0.07);
+  --np-shadow-hover: 0 12px 30px rgba(15, 45, 30, 0.12);
+
+  /* Theme mappings */
+  --brand-red: var(--np-red);
+  --brand-red-dark: var(--np-red-dark);
+  --brand-green: var(--np-green);
+  --brand-green-dark: var(--np-green-dark);
+  --ink: var(--np-text);
+  --muted: var(--np-muted);
+  --surface: var(--np-white);
+  --surface-soft: var(--np-cream);
+  --line: var(--np-border);
+  --font-body: var(--font-jakarta), var(--font-inter), -apple-system, Arial, sans-serif;
+  --font-heading: var(--font-playfair), Georgia, serif;
   --container: 1440px;
-  --button-radius: 10px;
-  --card-radius: 10px;
-  --image-radius: 10px;
-  --section-space: 88px;
-  --shadow-soft: 0 12px 35px rgba(28, 35, 30, .08);
-  --shadow-lg: 0 20px 45px rgba(28, 35, 30, .14);
+  --button-radius: 999px;
+  --card-radius: 16px;
+  --image-radius: 12px;
+  --section-space: 76px;
+  --shadow-soft: 0 8px 24px rgba(15, 45, 30, .07);
+  --shadow-lg: 0 20px 45px rgba(15, 45, 30, .12);
   --shadow-modal: 0 30px 70px rgba(0, 0, 0, .22);
   --app-bar-height: 64px;
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);

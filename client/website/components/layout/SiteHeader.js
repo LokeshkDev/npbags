@@ -3,9 +3,22 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Icon } from '../common/Icons';
 import { useCart } from '../../lib/cart-context';
 import { useWishlist } from '../../lib/wishlist-context';
+
+const defaultNavItems = [
+  { label: 'Home', url: '/' },
+  { label: 'Women', url: '/shop?category=Womens' },
+  { label: 'Men', url: '/shop?category=Mens' },
+  { label: 'Kids', url: '/shop?category=Kids' },
+  { label: 'Accessories', url: '/shop?category=Accessories' },
+  { label: 'Bags & Handbags', url: '/shop?category=Everyday+essentials' },
+  { label: 'Footwear', url: '/shop?category=Footwear' },
+  { label: 'Water Bottles', url: '/shop?category=Water+Bottles' },
+  { label: 'Key Chains', url: '/shop?category=Key+Chains' },
+  { label: 'Offers', url: '/shop?filter=sale' },
+  { label: 'New Arrivals', url: '/shop?filter=new' }
+];
 
 export function SiteHeader({ categories: initialCategories = [], navigationData = null }) {
   const pathname = usePathname();
@@ -14,58 +27,23 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
   const { wishlistCount } = useWishlist();
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-  const [mobileAccordionOpen, setMobileAccordionOpen] = useState(null);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [categories, setCategories] = useState(initialCategories);
-
-  const extractItems = (nav) => {
-    if (!nav) return null;
-    if (Array.isArray(nav.items) && nav.items.length > 0) return nav.items;
-    if (Array.isArray(nav.content?.items) && nav.content.items.length > 0) return nav.content.items;
-    return null;
-  };
-
-  const [navItems, setNavItems] = useState(() => extractItems(navigationData));
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    fetch(`${apiBase}/categories`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && Array.isArray(data.data)) {
-          setCategories(data.data);
-        }
-      })
-      .catch(() => {});
-
-    fetch(`${apiBase}/cms/sections`)
-      .then(res => res.json())
-      .then(data => {
-        const sectionsData = data?.data || data;
-        const mainNav = sectionsData?.main_navigation;
-        if (mainNav && mainNav.is_visible !== false) {
-          const items = extractItems(mainNav);
-          if (items && items.length > 0) {
-            setNavItems(items);
-          }
-        }
-      })
-      .catch(() => {});
+    setMounted(true);
   }, []);
 
   // Close drawers on route change
   useEffect(() => {
     setMobileDrawerOpen(false);
-    setSearchOpen(false);
   }, [pathname]);
 
-  // Handle ESC key to close drawers
+  // Handle ESC key to close drawer
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         setMobileDrawerOpen(false);
-        setSearchOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -75,476 +53,176 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      setSearchOpen(false);
       router.push(`/shop?search=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
 
-  const isShop = pathname.startsWith('/shop');
+  const primaryNavItems = (navigationData?.items && Array.isArray(navigationData.items) && navigationData.items.length > 0)
+    ? navigationData.items
+    : defaultNavItems;
+
+  const brandLogoUrl = navigationData?.logo_url || '/assets/brand-logo.png';
+  const searchPlaceholder = navigationData?.search_placeholder || 'Search for bags, jewellery, shoes, water bottles...';
 
   return (
     <>
-      <header className={`site-header ${mobileDrawerOpen ? 'drawer-active' : ''}`}>
-        <div className="container header-inner">
-          <button
-            className="icon-button mobile-menu"
-            aria-label="Open navigation"
-            aria-expanded={mobileDrawerOpen}
-            onClick={() => setMobileDrawerOpen(prev => !prev)}
-          >
-            <Icon name="menu" />
-          </button>
-
-          <Link href="/" className="brand" aria-label="NP Grand home">
-            <img className="brand-logo" src="/assets/brand-logo.png" alt="NP Grand logo" />
-          </Link>
-
-          <nav className="nav" aria-label="Main navigation">
-            {navItems && navItems.length > 0 ? (
-              navItems.map((item, idx) => {
-                if (item.has_submenu && Array.isArray(item.subitems) && item.subitems.length > 0) {
-                  return (
-                    <div key={item.id || idx} className="nav-dropdown">
-                      <Link
-                        href={item.url || '/shop'}
-                        className={`nav-dropdown__trigger ${pathname.startsWith(item.url || '/shop') ? 'is-active' : ''}`}
-                        aria-expanded="false"
-                        aria-haspopup="true"
-                      >
-                        <span>{item.label}</span>
-                        <Icon name="chevronDown" size={13} className="dropdown-chevron" />
-                      </Link>
-
-                      <div className="nav-dropdown__menu" role="menu">
-                        <div className="nav-dropdown__inner">
-                          <div className="nav-dropdown__col">
-                            <span className="nav-dropdown__eyebrow">{item.label}</span>
-                            <ul className="nav-dropdown__list">
-                              {item.subitems.map((sub, sIdx) => (
-                                <li key={sub.id || sIdx}>
-                                  <Link href={sub.url} className="nav-dropdown__link">
-                                    <span className="nav-dropdown__link-name">{sub.label}</span>
-                                  </Link>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div className="nav-dropdown__col nav-dropdown__col--featured">
-                            <span className="nav-dropdown__eyebrow">Curated Highlight</span>
-                            <Link href="/product/the-everyday-tote" className="nav-dropdown__card">
-                              <div className="nav-dropdown__card-media">
-                                <img src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=600&q=85" alt="The Everyday Tote" loading="lazy" />
-                                <span className="nav-dropdown__card-badge">Bestseller</span>
-                              </div>
-                              <div className="nav-dropdown__card-info">
-                                <div className="nav-dropdown__card-title">The Everyday Tote</div>
-                                <div className="nav-dropdown__card-meta">Organic Canvas • 18L Capacity</div>
-                                <div className="nav-dropdown__card-footer">
-                                  <span className="nav-dropdown__card-price">₹48.00</span>
-                                  <span className="nav-dropdown__card-cta">Shop now ↗</span>
-                                </div>
-                              </div>
-                            </Link>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <Link
-                    key={item.id || idx}
-                    href={item.url}
-                    className={pathname === item.url ? 'is-active' : ''}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })
-            ) : (
-              <>
-                {/* Collections with Dropdown */}
-                <div className="nav-dropdown">
-                  <Link
-                    href="/shop"
-                    className={`nav-dropdown__trigger ${isShop ? 'is-active' : ''}`}
-                    aria-expanded="false"
-                    aria-haspopup="true"
-                  >
-                    <span>Collections</span>
-                    <Icon name="chevronDown" size={13} className="dropdown-chevron" />
-                  </Link>
-
-                  <div className="nav-dropdown__menu" role="menu">
-                    <div className="nav-dropdown__inner">
-                      <div className="nav-dropdown__col">
-                        <span className="nav-dropdown__eyebrow">Shop By Category</span>
-                        <ul className="nav-dropdown__list">
-                          <li>
-                            <Link href="/shop" className="nav-dropdown__link">
-                              <span className="nav-dropdown__link-name">All Collections</span>
-                              <span className="nav-dropdown__badge">Explore</span>
-                            </Link>
-                          </li>
-                          {categories.length > 0 ? (
-                            categories.filter(c => !c.parent_id).map(main => {
-                              const subs = categories.filter(s => s.parent_id === main.id);
-                              return (
-                                <React.Fragment key={main.id}>
-                                  <li>
-                                    <Link href={`/shop?category=${encodeURIComponent(main.slug || main.name)}`} className="nav-dropdown__link">
-                                      <span className="nav-dropdown__link-name" style={{ fontWeight: 600 }}>{main.name}</span>
-                                      {main.product_count > 0 && <span className="nav-dropdown__count">({main.product_count})</span>}
-                                    </Link>
-                                  </li>
-                                  {subs.map(sub => (
-                                    <li key={sub.id} style={{ paddingLeft: '14px' }}>
-                                      <Link href={`/shop?category=${encodeURIComponent(sub.slug || sub.name)}`} className="nav-dropdown__link" style={{ fontSize: '12px' }}>
-                                        <span className="nav-dropdown__link-name" style={{ color: 'var(--muted)' }}>↳ {sub.name}</span>
-                                        {sub.product_count > 0 && <span className="nav-dropdown__count" style={{ fontSize: '11px' }}>({sub.product_count})</span>}
-                                      </Link>
-                                    </li>
-                                  ))}
-                                </React.Fragment>
-                              );
-                            })
-                          ) : (
-                            <>
-                              <li>
-                                <Link href="/shop?category=Everyday+essentials" className="nav-dropdown__link">
-                                  <span className="nav-dropdown__link-name">Everyday Essentials</span>
-                                  <span className="nav-dropdown__count">(2 items)</span>
-                                </Link>
-                              </li>
-                              <li>
-                                <Link href="/shop?category=On+the+go" className="nav-dropdown__link">
-                                  <span className="nav-dropdown__link-name">On The Go</span>
-                                  <span className="nav-dropdown__count">(2 items)</span>
-                                </Link>
-                              </li>
-                              <li>
-                                <Link href="/shop?category=Travel+edit" className="nav-dropdown__link">
-                                  <span className="nav-dropdown__link-name">Travel Edit</span>
-                                  <span className="nav-dropdown__count">(1 item)</span>
-                                </Link>
-                              </li>
-                            </>
-                          )}
-                        </ul>
-                      </div>
-
-                      <div className="nav-dropdown__col nav-dropdown__col--featured">
-                        <span className="nav-dropdown__eyebrow">Curated Highlight</span>
-                        <Link href="/product/the-everyday-tote" className="nav-dropdown__card">
-                          <div className="nav-dropdown__card-media">
-                            <img src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=600&q=85" alt="The Everyday Tote" loading="lazy" />
-                            <span className="nav-dropdown__card-badge">Bestseller</span>
-                          </div>
-                          <div className="nav-dropdown__card-info">
-                            <div className="nav-dropdown__card-title">The Everyday Tote</div>
-                            <div className="nav-dropdown__card-meta">Organic Canvas • 18L Capacity</div>
-                            <div className="nav-dropdown__card-footer">
-                              <span className="nav-dropdown__card-price">₹48.00</span>
-                              <span className="nav-dropdown__card-cta">Shop now ↗</span>
-                            </div>
-                          </div>
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <Link href="/shop?filter=new" className={pathname === '/shop' ? '' : ''}>New arrivals</Link>
-                <Link href="/about">Our story</Link>
-                <Link href="/#benefits">Why us</Link>
-                <Link href="/blog">Editorial</Link>
-                <Link href="/contact">Contact</Link>
-              </>
-            )}
-          </nav>
-
-          <div className="header-actions">
-            <button
-              className="icon-button"
-              aria-label="Search"
-              onClick={() => setSearchOpen(true)}
-            >
-              <Icon name="search" />
-            </button>
-
-            <Link
-              href="/wishlist"
-              className="icon-button desktop-account"
-              aria-label="Wishlist"
-              title="Saved items"
-            >
-              <Icon name="heart" />
-              {wishlistCount > 0 && <span className="cart-count">{wishlistCount}</span>}
-            </Link>
-
-            <Link
-              href="/account"
-              className="icon-button desktop-account"
-              aria-label="Account"
-            >
-              <Icon name="user" />
-            </Link>
-
-            <button
-              className="icon-button"
-              aria-label="Shopping bag"
-              onClick={openCart}
-            >
-              <Icon name="bag" />
-              <span className="cart-count">{cartCount}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile Side Popover Drawer */}
-        <div
-          className={`mobile-side-backdrop ${mobileDrawerOpen ? 'is-open' : ''}`}
-          onClick={() => setMobileDrawerOpen(false)}
-        />
-        <aside
-          className={`mobile-side-drawer ${mobileDrawerOpen ? 'is-open' : ''}`}
-          id="mobile-side-drawer"
-          aria-label="Mobile navigation"
-          aria-hidden={!mobileDrawerOpen}
-        >
-          <div className="mobile-side-drawer__header">
-            <Link href="/" className="brand" aria-label="NP Grand home">
-              <img className="brand-logo" src="/assets/brand-logo.png" alt="NP Grand logo" />
-            </Link>
+      <header className="site-header">
+        <div className="container header-row">
+          {/* Left: Brand Logo */}
+          <div className="brand-wrap">
             <button
               type="button"
-              className="icon-button mobile-side-drawer__close"
-              aria-label="Close navigation"
-              onClick={() => setMobileDrawerOpen(false)}
+              className="mobile-menu-btn"
+              aria-label="Open mobile navigation"
+              onClick={() => setMobileDrawerOpen(prev => !prev)}
             >
-              <Icon name="close" />
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
             </button>
+
+            <Link href="/" className="brand-link" aria-label="NP Grand Shopping Home">
+              <img src={brandLogoUrl} alt="NP GRAND SHOPPING" className="brand-logo-img" />
+            </Link>
           </div>
 
-          <div className="mobile-side-drawer__body">
-            <nav className="mobile-side-drawer__nav" aria-label="Mobile navigation links">
-              {navItems && navItems.length > 0 ? (
-                navItems.map((item, idx) => {
-                  const itemId = item.id || `m_${idx}`;
-                  const isItemOpen = mobileAccordionOpen === itemId;
-
-                  if (item.has_submenu && Array.isArray(item.subitems) && item.subitems.length > 0) {
-                    return (
-                      <div key={itemId} className={`mobile-drawer-accordion ${isItemOpen ? 'is-open' : ''}`}>
-                        <div className="mobile-drawer-accordion__row">
-                          <Link
-                            href={item.url || '/shop'}
-                            className={`mobile-side-drawer__link ${pathname.startsWith(item.url || '/shop') ? 'is-active' : ''}`}
-                            onClick={() => setMobileDrawerOpen(false)}
-                          >
-                            <span>{item.label}</span>
-                          </Link>
-                          <button
-                            type="button"
-                            className="mobile-drawer-accordion__toggle"
-                            aria-expanded={isItemOpen}
-                            aria-label={`Toggle ${item.label} submenu`}
-                            onClick={() => setMobileAccordionOpen(prev => prev === itemId ? null : itemId)}
-                          >
-                            <Icon name="chevronDown" size={18} className="mobile-drawer-chevron" />
-                          </button>
-                        </div>
-
-                        <div className="mobile-drawer-submenu" role="region" aria-label={`${item.label} subcategories`}>
-                          {item.subitems.map((sub, sIdx) => (
-                            <Link
-                              key={sub.id || sIdx}
-                              href={sub.url}
-                              className="mobile-drawer-sublink"
-                              onClick={() => setMobileDrawerOpen(false)}
-                            >
-                              <span>{sub.label}</span>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <Link
-                      key={itemId}
-                      href={item.url}
-                      className={`mobile-side-drawer__link ${pathname === item.url ? 'is-active' : ''}`}
-                      onClick={() => setMobileDrawerOpen(false)}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })
-              ) : (
-                <>
-                  {/* Collapsible Collections Submenu */}
-                  <div className={`mobile-drawer-accordion ${mobileAccordionOpen === 'collections' ? 'is-open' : ''}`}>
-                    <div className="mobile-drawer-accordion__row">
-                      <Link href="/shop" className={`mobile-side-drawer__link ${isShop ? 'is-active' : ''}`} onClick={() => setMobileDrawerOpen(false)}>
-                        <span>Collections</span>
-                      </Link>
-                      <button
-                        type="button"
-                        className="mobile-drawer-accordion__toggle"
-                        aria-expanded={mobileAccordionOpen === 'collections'}
-                        aria-label="Toggle Collections submenu"
-                        onClick={() => setMobileAccordionOpen(prev => prev === 'collections' ? null : 'collections')}
-                      >
-                        <Icon name="chevronDown" size={18} className="mobile-drawer-chevron" />
-                      </button>
-                    </div>
-
-                    <div className="mobile-drawer-submenu" role="region" aria-label="Collections subcategories">
-                      <Link href="/shop" className="mobile-drawer-sublink" onClick={() => setMobileDrawerOpen(false)}>
-                        <span>All Collections</span>
-                        <span className="mobile-drawer-sublink__pill">All</span>
-                      </Link>
-                      {categories.length > 0 ? (
-                        categories.filter(c => !c.parent_id).map(main => {
-                          const subs = categories.filter(s => s.parent_id === main.id);
-                          return (
-                            <React.Fragment key={main.id}>
-                              <Link href={`/shop?category=${encodeURIComponent(main.slug || main.name)}`} className="mobile-drawer-sublink" onClick={() => setMobileDrawerOpen(false)}>
-                                <span style={{ fontWeight: 600 }}>{main.name}</span>
-                                {main.product_count > 0 && <span className="mobile-drawer-sublink__count">({main.product_count})</span>}
-                              </Link>
-                              {subs.map(sub => (
-                                <Link key={sub.id} href={`/shop?category=${encodeURIComponent(sub.slug || sub.name)}`} className="mobile-drawer-sublink" style={{ paddingLeft: '28px', fontSize: '13px' }} onClick={() => setMobileDrawerOpen(false)}>
-                                  <span style={{ color: 'var(--muted)' }}>↳ {sub.name}</span>
-                                  {sub.product_count > 0 && <span className="mobile-drawer-sublink__count" style={{ fontSize: '11px' }}>({sub.product_count})</span>}
-                                </Link>
-                              ))}
-                            </React.Fragment>
-                          );
-                        })
-                      ) : (
-                        <>
-                          <Link href="/shop?category=Everyday+essentials" className="mobile-drawer-sublink" onClick={() => setMobileDrawerOpen(false)}>
-                            <span>Everyday Essentials</span>
-                            <span className="mobile-drawer-sublink__count">(2)</span>
-                          </Link>
-                          <Link href="/shop?category=On+the+go" className="mobile-drawer-sublink" onClick={() => setMobileDrawerOpen(false)}>
-                            <span>On The Go</span>
-                            <span className="mobile-drawer-sublink__count">(2)</span>
-                          </Link>
-                          <Link href="/shop?category=Travel+edit" className="mobile-drawer-sublink" onClick={() => setMobileDrawerOpen(false)}>
-                            <span>Travel Edit</span>
-                            <span className="mobile-drawer-sublink__count">(1)</span>
-                          </Link>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <Link href="/shop?filter=new" className="mobile-side-drawer__link" onClick={() => setMobileDrawerOpen(false)}>New arrivals</Link>
-                  <Link href="/about" className="mobile-side-drawer__link" onClick={() => setMobileDrawerOpen(false)}>Our story</Link>
-                  <Link href="/#benefits" className="mobile-side-drawer__link" onClick={() => setMobileDrawerOpen(false)}>Why us</Link>
-                  <Link href="/blog" className="mobile-side-drawer__link" onClick={() => setMobileDrawerOpen(false)}>Editorial</Link>
-                  <Link href="/contact" className="mobile-side-drawer__link" onClick={() => setMobileDrawerOpen(false)}>Contact</Link>
-                </>
-              )}
-            </nav>
-
-            <div className="mobile-side-drawer__shortcuts">
-              <span className="mobile-side-drawer__shortcuts-title">Quick Actions</span>
-              <div className="mobile-side-drawer__shortcuts-grid">
-                <Link href="/wishlist" className="mobile-shortcut-btn">
-                  <Icon name="heart" />
-                  <span>Wishlist ({wishlistCount})</span>
-                </Link>
-                <Link href="/account" className="mobile-shortcut-btn">
-                  <Icon name="user" />
-                  <span>Account</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          <div className="mobile-side-drawer__footer">
-            <div className="mobile-side-drawer__perk">
-              <span className="perk-star">✦</span>
-              <span>Free delivery on qualifying orders over <strong>₹499</strong></span>
-            </div>
-          </div>
-        </aside>
-
-        {/* Search Popover */}
-        <div
-          className={`search-popover-backdrop ${searchOpen ? 'is-open' : ''}`}
-          onClick={() => setSearchOpen(false)}
-        />
-        <div
-          className={`search-popover ${searchOpen ? 'is-open' : ''}`}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search store"
-        >
-          <div className="container search-popover__inner">
-            <form onSubmit={handleSearchSubmit} className="search-popover__bar">
-              <span className="search-popover__icon">
-                <Icon name="search" />
+          {/* Center: Wide Search Bar Pill */}
+          <form className="header-search" role="search" onSubmit={handleSearchSubmit}>
+            <div className="header-search__box">
+              <span className="header-search__icon-left" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
               </span>
               <input
                 type="search"
-                className="search-popover__input"
-                placeholder="Search for everyday totes, crossbodies, backpacks..."
+                className="header-search__input"
+                placeholder={searchPlaceholder}
+                aria-label="Search catalog"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus={searchOpen}
               />
-              {searchQuery && (
-                <button
-                  type="button"
-                  className="search-popover__clear"
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                >
-                  ✕
-                </button>
-              )}
-              <button
-                type="button"
-                className="search-popover__close"
-                onClick={() => setSearchOpen(false)}
-                aria-label="Close search"
-              >
-                <Icon name="close" />
+              <button type="submit" className="header-search__submit" aria-label="Search">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#111827" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+                  <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+                  <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+                  <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+                </svg>
               </button>
-            </form>
-
-            <div className="search-popover__content">
-              <div className="search-popover__suggestions">
-                <div className="search-popover__label">Trending Searches</div>
-                <div className="search-tags">
-                  {['Tote', 'Crossbody', 'Weekender', 'Backpack', 'Satchel', 'Sling'].map(tag => (
-                    <button
-                      key={tag}
-                      type="button"
-                      className="search-tag"
-                      onClick={() => {
-                        setSearchOpen(false);
-                        router.push(`/shop?search=${tag}`);
-                      }}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
+          </form>
+
+          {/* Right: Action Utilities */}
+          <div className="header-utilities">
+            <Link href="/account" className="header-util-btn" title="My Account">
+              <div className="header-util-icon-wrap">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </div>
+              <span className="header-util-label">My Account</span>
+            </Link>
+
+            <Link href="/wishlist" className="header-util-btn" title="Wishlist">
+              <div className="header-util-icon-wrap">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                </svg>
+                {mounted && wishlistCount > 0 && (
+                  <span className="cart-count-badge" suppressHydrationWarning>{wishlistCount}</span>
+                )}
+              </div>
+              <span className="header-util-label">Wishlist</span>
+            </Link>
+
+            <button
+              type="button"
+              className="header-util-btn"
+              title="Cart"
+              onClick={openCart}
+              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              <div className="header-util-icon-wrap">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="9" cy="21" r="1" />
+                  <circle cx="20" cy="21" r="1" />
+                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                </svg>
+                <span className="cart-count-badge" suppressHydrationWarning>{mounted ? (cartCount || 0) : 0}</span>
+              </div>
+              <span className="header-util-label">Cart</span>
+            </button>
           </div>
         </div>
+
+        {/* Primary Navigation Strip */}
+        <nav className="primary-nav" aria-label="Primary product categories">
+          <div className="container primary-nav__inner">
+            <ul className="primary-nav__list">
+              {primaryNavItems.map((item, idx) => {
+                const isActive = item.url === '/' ? pathname === '/' : pathname.startsWith(item.url);
+                return (
+                  <li key={idx}>
+                    <Link
+                      href={item.url}
+                      className={`nav-link ${isActive ? 'is-active' : ''}`}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </nav>
       </header>
+
+      {/* Mobile Side Popover Drawer */}
+      <div
+        className={`mobile-side-backdrop ${mobileDrawerOpen ? 'is-open' : ''}`}
+        onClick={() => setMobileDrawerOpen(false)}
+      />
+      <div className={`mobile-side-drawer ${mobileDrawerOpen ? 'is-open' : ''}`} aria-hidden={!mobileDrawerOpen}>
+        <div className="mobile-drawer-header">
+          <Link href="/" className="mobile-drawer-brand" onClick={() => setMobileDrawerOpen(false)}>
+            <img src="/assets/brand-logo.png" alt="NP GRAND SHOPPING" className="brand-logo-img" style={{ height: '42px' }} />
+          </Link>
+          <button
+            type="button"
+            className="mobile-drawer-close"
+            aria-label="Close menu"
+            onClick={() => setMobileDrawerOpen(false)}
+          >
+            ✕
+          </button>
+        </div>
+
+        <nav className="mobile-drawer-nav">
+          <ul className="mobile-drawer-list">
+            {primaryNavItems.map((item, idx) => {
+              const isActive = item.url === '/' ? pathname === '/' : pathname.startsWith(item.url);
+              return (
+                <li key={idx}>
+                  <Link
+                    href={item.url}
+                    className={`mobile-drawer-link ${isActive ? 'is-active' : ''}`}
+                    onClick={() => setMobileDrawerOpen(false)}
+                  >
+                    <span>{item.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      </div>
     </>
   );
 }
 
+export default SiteHeader;

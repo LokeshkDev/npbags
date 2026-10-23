@@ -1,7 +1,7 @@
-import { DM_Sans, Anybody } from 'next/font/google';
 import '../styles/tokens.css';
 import '../styles/global.css';
 import '../styles/components.css';
+import '../styles/screenshot-theme.css';
 import '../styles/shop.css';
 import '../styles/pdp.css';
 import '../styles/categories.css';
@@ -20,22 +20,9 @@ import { MobileAppNav } from '../components/layout/MobileAppNav';
 import { Toast } from '../components/layout/Toast';
 import { getCMSSections } from '../lib/api';
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-dm-sans',
-  display: 'swap'
-});
-
-const anybody = Anybody({
-  subsets: ['latin'],
-  variable: '--font-anybody',
-  display: 'swap'
-});
-
 export const metadata = {
-  title: 'Your Brand — Everyday, Elevated | Premium Bags & Handcrafted Essentials',
-  description: 'Shop handcrafted everyday totes, versatile crossbody bags, commuter backpacks, and travel essentials made with premium sustainable materials. Enjoy complimentary delivery across India on qualifying orders over ₹499.',
+  title: 'NP Grand Shopping — Everyday, Elevated | Premium Bags, Jewellery & Essentials',
+  description: 'Shop curated handbags, jewellery, footwear, water bottles, and lifestyle essentials for women, men, and kids with premium craftsmanship and complimentary delivery over ₹499.',
   icons: {
     icon: '/assets/brand-logo.png',
     apple: '/assets/brand-logo.png'
@@ -46,8 +33,16 @@ export default async function RootLayout({ children }) {
   const sections = await getCMSSections();
 
   return (
-    <html lang="en" className={`${dmSans.variable} ${anybody.variable}`}>
-      <body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..800;1,9..144,400..800&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400..800;1,400..800&family=Inter:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body suppressHydrationWarning>
         <AuthProvider>
           <CartProvider>
             <WishlistProvider>
@@ -68,4 +63,3 @@ export default async function RootLayout({ children }) {
     </html>
   );
 }
-

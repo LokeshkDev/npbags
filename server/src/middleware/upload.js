@@ -48,6 +48,17 @@ const upload = multer({
   fileFilter
 });
 
+let sharp = null;
+try {
+  sharp = require('../../../client/website/node_modules/sharp');
+} catch (e) {
+  try {
+    sharp = require('sharp');
+  } catch (err) {
+    sharp = null;
+  }
+}
+
 /**
  * Helper to process an uploaded file: uploads to Cloudflare R2 if configured,
  * or returns local /uploads path if using disk fallback.
@@ -59,10 +70,30 @@ async function processUploadedFile(file, folder = 'products') {
   if (!file) return null;
 
   if (isR2Configured && file.buffer) {
-    const ext = path.extname(file.originalname).toLowerCase();
+    let uploadBuf = file.buffer;
+    let mimeType = file.mimetype;
+    let ext = path.extname(file.originalname).toLowerCase();
+
+    // Automatically optimize images down from MB to KB without losing resolution
+    if (sharp && ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      try {
+        let pipeline = sharp(file.buffer);
+        const meta = await pipeline.metadata();
+        const maxDim = (folder === 'banners' || folder === 'cms') ? 1800 : 1200;
+        if (meta.width && meta.width > maxDim) {
+          pipeline = pipeline.resize({ width: maxDim, withoutEnlargement: true });
+        }
+        uploadBuf = await pipeline.webp({ quality: 82 }).toBuffer();
+        mimeType = 'image/webp';
+        ext = '.webp';
+      } catch (err) {
+        console.warn('[Upload] Image optimization skipped:', err.message);
+      }
+    }
+
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const key = `${folder}/${uniqueSuffix}${ext}`;
-    return await uploadToR2(file.buffer, key, file.mimetype);
+    return await uploadToR2(uploadBuf, key, mimeType);
   }
 
   // Fallback to local disk

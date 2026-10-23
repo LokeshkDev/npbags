@@ -166,6 +166,13 @@ export async function getAdminCMSSections() {
   return adminFetch('/admin/cms/sections');
 }
 
+export async function reorderAdminCMSSections(order) {
+  return adminFetch('/admin/cms/sections-reorder', {
+    method: 'PUT',
+    body: JSON.stringify({ order })
+  });
+}
+
 export async function updateAdminCMSSection(sectionKey, data) {
   return adminFetch(`/admin/cms/sections/${sectionKey}`, {
     method: 'PUT',

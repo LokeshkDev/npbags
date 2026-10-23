@@ -1,37 +1,51 @@
 import React from 'react';
-import { Icon } from '../common/Icons';
+
+const defaultTrustItems = [
+  {
+    title: 'Wide Range',
+    desc: 'Latest Collections',
+    image: '/assets/trust/trust-wide-range.png'
+  },
+  {
+    title: 'Secure Payments',
+    desc: '100% Safe & Secure',
+    image: '/assets/trust/trust-secure-payments.png'
+  },
+  {
+    title: 'Easy Returns',
+    desc: 'Hassle Free Returns',
+    image: '/assets/trust/trust-easy-returns.png'
+  },
+  {
+    title: 'Fast Delivery',
+    desc: 'Across India',
+    image: '/assets/trust/trust-fast-delivery.png'
+  }
+];
 
 export function TrustStrip({ data }) {
   if (data && data.is_visible === false) return null;
 
-  const defaultIcons = ['delivery', 'shieldCheck', 'star', 'bag'];
-
-  const items = (data && data.items && data.items.length)
+  const trustItems = (data?.items && Array.isArray(data.items) && data.items.length > 0)
     ? data.items
-    : [
-        { icon: 'delivery', title: 'Easy everyday style', subtitle: 'Pieces made to be lived in' },
-        { icon: 'shieldCheck', title: 'Thoughtful quality', subtitle: 'Details you can feel' },
-        { icon: 'star', title: 'Customer-first service', subtitle: 'Here when you need us' },
-        { icon: 'bag', title: 'Secure checkout', subtitle: 'Shop with confidence' }
-      ];
+    : defaultTrustItems;
 
   return (
-    <section className="trust-strip reveal-on-scroll is-revealed">
-      <div className="container trust-grid">
-        {items.map((item, idx) => {
-          const iconKey = item.icon && defaultIcons.includes(item.icon) ? item.icon : defaultIcons[idx % defaultIcons.length];
-          return (
-            <div className="trust-item stagger-item is-revealed" key={idx}>
-              <span className="trust-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name={iconKey} size={22} />
-              </span>
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.subtitle}</small>
-              </span>
+    <section className="trust-strip" aria-label="Service Guarantees">
+      <div className="container">
+        <div className="trust-strip__grid">
+          {trustItems.map((item, idx) => (
+            <div key={idx} className="trust-item">
+              <div className="trust-icon-bubble" aria-hidden="true">
+                <img src={item.image} alt={item.title} className="trust-icon-img" />
+              </div>
+              <div>
+                <strong className="trust-title">{item.title}</strong>
+                <p className="trust-desc">{item.desc}</p>
+              </div>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </section>
   );

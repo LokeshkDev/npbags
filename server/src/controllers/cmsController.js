@@ -5,8 +5,9 @@ const { processUploadedFile } = require('../middleware/upload');
 // Get all CMS sections for storefront
 async function getCMSSections(req, res, next) {
   try {
-    const rows = await query(`SELECT section_key, title, subtitle, content, is_visible FROM cms_sections`);
+    const rows = await query(`SELECT section_key, title, subtitle, content, is_visible, COALESCE(display_order, 0) AS display_order FROM cms_sections ORDER BY display_order ASC, section_key ASC`);
     const sections = {};
+    const sectionOrder = [];
     rows.forEach(r => {
       let content = r.content;
       if (typeof content === 'string') {
@@ -16,11 +17,14 @@ async function getCMSSections(req, res, next) {
         title: r.title,
         subtitle: r.subtitle,
         is_visible: Boolean(r.is_visible),
+        display_order: Number(r.display_order) || 0,
         content: content,
         ...(typeof content === 'object' && content !== null ? content : {})
       };
+      sectionOrder.push(r.section_key);
     });
 
+    sections._order = sectionOrder;
     return sendSuccess(res, sections);
   } catch (error) {
     next(error);
@@ -30,7 +34,7 @@ async function getCMSSections(req, res, next) {
 // Admin: Get all sections with metadata for management
 async function getAdminCMSSections(req, res, next) {
   try {
-    const rows = await query(`SELECT * FROM cms_sections ORDER BY section_key ASC`);
+    const rows = await query(`SELECT *, COALESCE(display_order, 0) AS display_order FROM cms_sections ORDER BY display_order ASC, section_key ASC`);
     const formatted = rows.map(r => {
       let content = r.content;
       if (typeof content === 'string') {
@@ -39,6 +43,7 @@ async function getAdminCMSSections(req, res, next) {
       return {
         ...r,
         is_visible: Boolean(r.is_visible),
+        display_order: Number(r.display_order) || 0,
         content
       };
     });
@@ -52,7 +57,7 @@ async function getAdminCMSSections(req, res, next) {
 async function updateCMSSection(req, res, next) {
   try {
     const { section_key } = req.params;
-    const { title, subtitle, content, is_visible } = req.body;
+    const { title, subtitle, content, is_visible, display_order } = req.body;
 
     const existing = await query(`SELECT section_key FROM cms_sections WHERE section_key = ?`, [section_key]);
 
@@ -60,9 +65,9 @@ async function updateCMSSection(req, res, next) {
 
     if (existing.length === 0) {
       await query(
-        `INSERT INTO cms_sections (section_key, title, subtitle, content, is_visible)
-         VALUES (?, ?, ?, ?, ?)`,
-        [section_key, title || null, subtitle || null, contentJson, is_visible !== undefined ? is_visible : true]
+        `INSERT INTO cms_sections (section_key, title, subtitle, content, is_visible, display_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [section_key, title || null, subtitle || null, contentJson, is_visible !== undefined ? is_visible : true, display_order !== undefined ? display_order : 0]
       );
     } else {
       await query(
@@ -70,13 +75,32 @@ async function updateCMSSection(req, res, next) {
            title = COALESCE(?, title),
            subtitle = COALESCE(?, subtitle),
            content = COALESCE(?, content),
-           is_visible = COALESCE(?, is_visible)
+           is_visible = COALESCE(?, is_visible),
+           display_order = COALESCE(?, display_order)
          WHERE section_key = ?`,
-        [title || null, subtitle || null, content ? contentJson : null, is_visible !== undefined ? is_visible : null, section_key]
+        [title || null, subtitle || null, content ? contentJson : null, is_visible !== undefined ? is_visible : null, display_order !== undefined ? display_order : null, section_key]
       );
     }
 
     return sendSuccess(res, { section_key }, `Section '${section_key}' updated successfully`);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Admin: Reorder sections placement
+async function reorderCMSSections(req, res, next) {
+  try {
+    const { order } = req.body; // array of section_keys in order
+    if (!Array.isArray(order) || order.length === 0) {
+      return sendError(res, 'Order must be an array of section keys.', 400);
+    }
+
+    for (let i = 0; i < order.length; i++) {
+      await query(`UPDATE cms_sections SET display_order = ? WHERE section_key = ?`, [i, order[i]]);
+    }
+
+    return sendSuccess(res, { order }, 'Homepage sections placement updated successfully');
   } catch (error) {
     next(error);
   }
@@ -156,6 +180,7 @@ module.exports = {
   getCMSSections,
   getAdminCMSSections,
   updateCMSSection,
+  reorderCMSSections,
   uploadCMSImage,
   getDeliverySettings,
   updateDeliverySettings

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon } from '../common/Icons';
@@ -11,6 +11,11 @@ export function MobileAppNav() {
   const pathname = usePathname();
   const { count: cartCount, openCart } = useCart();
   const { wishlistCount } = useWishlist();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const isHome = pathname === '/';
   const isShop = pathname.startsWith('/shop');
@@ -26,15 +31,15 @@ export function MobileAppNav() {
 
       <Link href="/shop" className={`mobile-app-bar__item ${isShop ? 'is-active' : ''}`}>
         <span className="mobile-app-bar__icon"><Icon name="grid" /></span>
-        <span className="mobile-app-bar__label">Shop</span>
+        <span className="mobile-app-bar__label">Categories</span>
       </Link>
 
       <Link href="/wishlist" className={`mobile-app-bar__item ${isWishlist ? 'is-active' : ''}`}>
         <span className="mobile-app-bar__icon">
           <Icon name="heart" />
-          {wishlistCount > 0 && <span className="mobile-app-bar__badge">{wishlistCount}</span>}
+          {mounted && wishlistCount > 0 && <span className="mobile-app-bar__badge" suppressHydrationWarning>{wishlistCount}</span>}
         </span>
-        <span className="mobile-app-bar__label">Saved</span>
+        <span className="mobile-app-bar__label">Wishlist</span>
       </Link>
 
       <button
@@ -44,9 +49,9 @@ export function MobileAppNav() {
       >
         <span className="mobile-app-bar__icon">
           <Icon name="bag" />
-          <span className="mobile-app-bar__badge">{cartCount}</span>
+          <span className="mobile-app-bar__badge" suppressHydrationWarning>{mounted ? (cartCount || 0) : 0}</span>
         </span>
-        <span className="mobile-app-bar__label">Bag</span>
+        <span className="mobile-app-bar__label">Cart</span>
       </button>
 
       <Link href="/account" className={`mobile-app-bar__item ${isAccount ? 'is-active' : ''}`}>

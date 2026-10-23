@@ -13,15 +13,19 @@
 }
 
 :root {
-  --brand-red: #ed1c2a;
-  --brand-red-dark: #c91320;
-  --brand-green: #08a653;
-  --brand-green-dark: #087c40;
-  --ink: #222222;
-  --muted: #777777;
+  --brand-red: #c8102e;
+  --brand-red-dark: #9e0b22;
+  --brand-green: #065935;
+  --brand-green-dark: #033d26;
+  --np-green: #065935;
+  --np-green-dark: #033d26;
+  --np-red: #c8102e;
+  --np-red-dark: #9e0b22;
+  --ink: #111827;
+  --muted: #64748b;
   --surface: #ffffff;
   --surface-soft: #faf7f2;
-  --line: #e9e6e2;
+  --line: #e2e8f0;
   --font-body: var(--font-dm-sans, "DM Sans"), Arial, sans-serif;
   --font-heading: "Anybody Thin", "Anybody-Thin-SemiBold", var(--font-anybody, "Anybody"), "Anybody", "DM Sans", sans-serif;
   --container: 1440px;

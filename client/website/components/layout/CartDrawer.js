@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Icon } from '../common/Icons';
@@ -16,6 +16,22 @@ export function CartDrawer() {
     closeCart,
     updateQty
   } = useCart();
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('drawer-open');
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') closeCart();
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.classList.remove('drawer-open');
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    } else {
+      document.body.classList.remove('drawer-open');
+    }
+  }, [isOpen, closeCart]);
 
   const handleCheckout = () => {
     closeCart();
@@ -50,7 +66,7 @@ export function CartDrawer() {
         </div>
 
         <div className="cart-items" data-cart-items>
-          {cart.length === 0 ? (
+          {(!cart || cart.length === 0) ? (
             <div className="cart-empty">Your bag is waiting for something lovely.</div>
           ) : (
             cart.map((item, i) => (

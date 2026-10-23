@@ -2,216 +2,218 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Icon } from '../common/Icons';
+
+const DEFAULT_HERO_IMAGE = '/assets/banners/hero-banner.svg';
 
 export function HeroBanner({ data }) {
-  const slides = (data && data.slides && data.slides.length)
-    ? data.slides
+  if (data && data.is_visible === false) return null;
+
+  // Extract up to 3 slides from CMS data
+  const rawSlides = Array.isArray(data?.content?.slides) && data.content.slides.length > 0
+    ? data.content.slides
+    : Array.isArray(data?.slides) && data.slides.length > 0
+      ? data.slides
+      : null;
+
+  const slides = rawSlides
+    ? rawSlides.filter((s) => Boolean(s && (s.image || s.banner_image))).slice(0, 3)
+    : [];
+
+  // Fallback to single banner_image if no slides array
+  const finalSlides = slides.length > 0
+    ? slides.map((s, idx) => ({
+        id: s.id || idx,
+        image: s.image || s.banner_image,
+        link: s.link || s.button_url || '/shop',
+        title: s.title || `NP Grand Banner ${idx + 1}`
+      }))
     : [
         {
-          eyebrow: 'Made for your everyday',
-          title: 'Your everyday.<br><em>Elevated.</em>',
-          text: 'Thoughtfully chosen essentials that bring a little more style, comfort and confidence to every day.',
-          image: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1800&q=85',
-          ctaPrimary: { text: 'Shop the collection', link: '/shop' },
-          ctaSecondary: { text: 'Discover our story', link: '#story' },
-          note: 'Considered design. Everyday quality.'
-        },
-        {
-          eyebrow: 'New Season Arrival',
-          title: 'Crafted for motion.<br><em>Built for living.</em>',
-          text: 'Lightweight, versatile silhouettes tailored for seamless transit between workdays and weekends.',
-          image: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=1800&q=85',
-          ctaPrimary: { text: 'Explore New Arrivals', link: '/shop?filter=new' },
-          ctaSecondary: { text: 'Browse Collections', link: '/shop' },
-          note: '100% Sustainable finishes. Water-resistant.'
-        },
-        {
-          eyebrow: 'Curated Travel Edit',
-          title: 'The Weekend<br><em>Getaway Capsule.</em>',
-          text: 'Spacious compartments, durable brass hardware, and minimalist luxury that travels effortlessly with you.',
-          image: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=1800&q=85',
-          ctaPrimary: { text: 'Shop Travel Edit', link: '/shop?category=Travel+edit' },
-          ctaSecondary: { text: 'Why Shop With Us', link: '#benefits' },
-          note: 'Complimentary shipping on orders over ₹499.'
+          id: 1,
+          image: data?.content?.banner_image || data?.banner_image || DEFAULT_HERO_IMAGE,
+          link: data?.content?.button_url || data?.button_url || '/shop',
+          title: 'NP Grand Shopping — Banner'
         }
       ];
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const touchStartX = useRef(0);
+  const timerRef = useRef(null);
 
-  const nextSlide = () => {
-    setCurrentIndex(prev => (prev + 1) % slides.length);
+  // Drag state refs
+  const dragStartXRef = useRef(0);
+  const dragDeltaXRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const wasDraggedRef = useRef(false);
+
+  const totalSlides = finalSlides.length;
+
+  // Auto-play timer for multi-slide carousel
+  useEffect(() => {
+    if (totalSlides <= 1 || isPaused) return;
+
+    timerRef.current = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % totalSlides);
+    }, 4500);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [totalSlides, isPaused]);
+
+  const goToSlide = (idx) => {
+    setCurrentIndex(idx);
   };
 
   const prevSlide = () => {
-    setCurrentIndex(prev => (prev - 1 + slides.length) % slides.length);
+    setCurrentIndex((prev) => (prev - 1 + totalSlides) % totalSlides);
   };
 
-  useEffect(() => {
-    if (isPaused || slides.length <= 1) return;
-    const timer = setInterval(nextSlide, 5200);
-    return () => clearInterval(timer);
-  }, [isPaused, slides.length]);
-
-  const handleTouchStart = (e) => {
-    touchStartX.current = e.touches[0].clientX;
-    setIsPaused(true);
+  const nextSlide = () => {
+    setCurrentIndex((prev) => (prev + 1) % totalSlides);
   };
 
-  const handleTouchEnd = (e) => {
-    const endX = e.changedTouches[0].clientX;
-    const diff = touchStartX.current - endX;
-    if (diff > 45) {
+  // Drag handlers for mouse (Desktop) and touch (Mobile / Tablet)
+  const handleMouseDown = (e) => {
+    if (totalSlides <= 1) return;
+    isDraggingRef.current = true;
+    wasDraggedRef.current = false;
+    dragStartXRef.current = e.pageX;
+    dragDeltaXRef.current = 0;
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDraggingRef.current) return;
+    dragDeltaXRef.current = e.pageX - dragStartXRef.current;
+    if (Math.abs(dragDeltaXRef.current) > 8) {
+      wasDraggedRef.current = true;
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    if (dragDeltaXRef.current < -35) {
       nextSlide();
-    } else if (diff < -45) {
+    } else if (dragDeltaXRef.current > 35) {
       prevSlide();
     }
-    setIsPaused(false);
+    setTimeout(() => {
+      wasDraggedRef.current = false;
+    }, 50);
   };
 
+  const handleTouchStart = (e) => {
+    if (totalSlides <= 1) return;
+    dragStartXRef.current = e.touches[0].pageX;
+    dragDeltaXRef.current = 0;
+    isDraggingRef.current = true;
+    wasDraggedRef.current = false;
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDraggingRef.current) return;
+    dragDeltaXRef.current = e.touches[0].pageX - dragStartXRef.current;
+    if (Math.abs(dragDeltaXRef.current) > 8) {
+      wasDraggedRef.current = true;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    isDraggingRef.current = false;
+    if (dragDeltaXRef.current < -35) {
+      nextSlide();
+    } else if (dragDeltaXRef.current > 35) {
+      prevSlide();
+    }
+    setTimeout(() => {
+      wasDraggedRef.current = false;
+    }, 50);
+  };
+
+  const handleClickCapture = (e) => {
+    if (wasDraggedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  // Single slide (no slider controls)
+  if (totalSlides === 1) {
+    const single = finalSlides[0];
+    return (
+      <section className="hero-banner" aria-label="Hero Banner">
+        <Link href={single.link} className="hero-banner__link">
+          <img
+            src={single.image}
+            alt={single.title}
+            className="hero-banner__img"
+          />
+        </Link>
+      </section>
+    );
+  }
+
+  // Multi-slide slider (up to 3 slides with drag / swipe)
   return (
     <section
-      className="hero hero--carousel"
-      aria-label="Featured Highlights"
+      className="hero-banner hero-slider"
+      aria-label="Hero Slider"
       onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
+      onMouseLeave={() => {
+        setIsPaused(false);
+        isDraggingRef.current = false;
+      }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onClickCapture={handleClickCapture}
+      onDragStart={(e) => e.preventDefault()}
+      style={{ cursor: 'grab', userSelect: 'none' }}
     >
-      <div className="hero__track">
-        {slides.map((s, idx) => {
+      <div className="hero-slider__track">
+        {finalSlides.map((slide, idx) => {
           const isActive = idx === currentIndex;
-
-          // Normalize fields between Admin CMS schema and theme demo schema
-          const eyebrow = s.eyebrow || s.kicker || '';
-          const title = s.title || s.heading || '';
-          const text = s.text || s.lead || '';
-          const primaryText = s.ctaPrimary?.text || s.primaryText || '';
-          const primaryLink = s.ctaPrimary?.link || s.primaryUrl || s.target_link || s.link || s.link_url || '';
-          const secondaryText = s.ctaSecondary?.text || s.secondaryText || '';
-          const secondaryLink = s.ctaSecondary?.link || s.secondaryUrl || '';
-          const note = s.note || '';
-
-          // If no title, description, or action buttons are provided:
-          // Display the pure original image with NO color overlay and wrap in target link if available
-          const isPureImageBanner = !title.trim() && !text.trim() && !primaryText.trim() && !secondaryText.trim() && !eyebrow.trim();
-          const targetUrl = primaryLink || '/shop';
-
           return (
             <div
-              key={idx}
-              className={`hero__slide ${isActive ? 'is-active' : ''}`}
+              key={slide.id || idx}
+              className={`hero-slider__slide ${isActive ? 'is-active' : ''}`}
               aria-hidden={!isActive}
             >
-              {isPureImageBanner ? (
-                /* Pure clean image banner with target link and no color overlay */
-                <Link
-                  href={targetUrl}
-                  className="hero__media"
-                  style={{ display: 'block', width: '100%', height: '100%', textDecoration: 'none' }}
-                  aria-label="Promotional banner link"
-                >
-                  <img
-                    src={s.image}
-                    alt={title || eyebrow || 'Hero banner'}
-                    loading={idx === 0 ? 'eager' : 'lazy'}
-                  />
-                </Link>
-              ) : (
-                /* Standard rich carousel banner with theme typography & overlay */
-                <>
-                  <div className="hero__media">
-                    <img
-                      src={s.image}
-                      alt={eyebrow || title}
-                      loading={idx === 0 ? 'eager' : 'lazy'}
-                    />
-                  </div>
-                  <div className="hero__overlay" />
-                  <div className="hero__content">
-                    <div className={`hero__copy ${isActive ? 'hero__copy--flow' : ''}`}>
-                      {eyebrow && <div className="eyebrow hero__anim hero__anim--1">{eyebrow}</div>}
-                      {title && (
-                        <h1
-                          className="hero__anim hero__anim--2"
-                          dangerouslySetInnerHTML={{ __html: title }}
-                        />
-                      )}
-                      {text && <p className="hero__anim hero__anim--3">{text}</p>}
-                      {(primaryText || secondaryText) && (
-                        <div className="hero__actions hero__anim hero__anim--4">
-                          {primaryText && (
-                            <Link className="btn" href={primaryLink || '/shop'}>
-                              {primaryText} <span aria-hidden="true">→</span>
-                            </Link>
-                          )}
-                          {secondaryText && (
-                            <Link className="btn btn--outline" href={secondaryLink || '#story'}>
-                              {secondaryText}
-                            </Link>
-                          )}
-                        </div>
-                      )}
-                      {note && (
-                        <div className="hero__note hero__anim hero__anim--5">
-                          <span className="hero__note-dot" /> {note}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
+              <Link href={slide.link} className="hero-banner__link">
+                <img
+                  src={slide.image}
+                  alt={slide.title}
+                  className="hero-banner__img"
+                  loading={idx === 0 ? 'eager' : 'lazy'}
+                />
+              </Link>
             </div>
           );
         })}
       </div>
 
-      {slides.length > 1 && (
-        <>
+      {/* Pagination Indicator Dots in Theme Green & Red */}
+      <div className="hero-slider__dots" role="tablist" aria-label="Hero slider pagination">
+        {finalSlides.map((slide, idx) => (
           <button
+            key={idx}
             type="button"
-            className="hero__control hero__control--prev"
-            aria-label="Previous slide"
-            onClick={prevSlide}
-          >
-            <Icon name="chevronLeft" size={20} />
-          </button>
-
-          <button
-            type="button"
-            className="hero__control hero__control--next"
-            aria-label="Next slide"
-            onClick={nextSlide}
-          >
-            <Icon name="chevronRight" size={20} />
-          </button>
-
-          <div className="hero__dots" role="tablist" aria-label="Slide indicators">
-            {slides.map((_, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className={`hero__dot ${idx === currentIndex ? 'is-active' : ''}`}
-                role="tab"
-                aria-selected={idx === currentIndex}
-                aria-label={`Slide ${idx + 1}`}
-                onClick={() => setCurrentIndex(idx)}
-              >
-                <span className="hero__dot-fill" />
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="hero__peek-indicator">
-        <span>Scroll to explore</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-          <path d="M7 10l5 5 5-5" />
-        </svg>
+            className={`hero-slider__dot ${idx === currentIndex ? 'is-active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              goToSlide(idx);
+            }}
+            aria-label={`Go to slide ${idx + 1}`}
+            aria-selected={idx === currentIndex}
+          />
+        ))}
       </div>
     </section>
   );
 }
+
+export default HeroBanner;

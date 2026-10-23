@@ -40,6 +40,7 @@ router.put('/orders/:id/status', orderController.updateOrderStatus);
 
 // CMS & Homepage Sections
 router.get('/cms/sections', cmsController.getAdminCMSSections);
+router.put('/cms/sections-reorder', cmsController.reorderCMSSections);
 router.put('/cms/sections/:section_key', cmsController.updateCMSSection);
 router.post('/cms/upload', upload.single('image'), cmsController.uploadCMSImage);
 
