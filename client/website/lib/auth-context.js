@@ -62,6 +62,13 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('storefront_user');
   };
 
+  const updateUser = (updatedUser) => {
+    setUser(updatedUser);
+    try {
+      localStorage.setItem('storefront_user', JSON.stringify(updatedUser));
+    } catch (e) {}
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -71,7 +78,8 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!user,
         login,
         register,
-        logout
+        logout,
+        updateUser
       }}
     >
       {children}

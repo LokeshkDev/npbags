@@ -170,7 +170,7 @@ export function SiteFooter({ data }) {
 
         {/* Bottom Bar */}
         <div className="footer-bottom">
-          <p className="footer-copyright">© {currentYear} NP Grand Shopping. All Rights Reserved.</p>
+          <p className="footer-copyright" suppressHydrationWarning>© {currentYear} NP Grand Shopping. All Rights Reserved.</p>
           <div className="footer-payments" aria-label="Accepted payments">
             <span className="pay-badge">VISA</span>
             <span className="pay-badge">Mastercard</span>

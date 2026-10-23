@@ -12,6 +12,7 @@ const bannerController = require('../controllers/bannerController');
 const blogController = require('../controllers/blogController');
 const contactController = require('../controllers/contactController');
 const settingsController = require('../controllers/settingsController');
+const customerController = require('../controllers/customerController');
 
 // All admin routes require authentication and admin role
 router.use(authenticate, requireAdmin);
@@ -72,6 +73,14 @@ router.get('/subscribers', contactController.getSubscribersAdmin);
 // Store Settings
 router.get('/settings', settingsController.getStoreSettings);
 router.put('/settings', upload.single('logo'), settingsController.updateStoreSettings);
+
+// Customers & Registered Users CRUD + Reset Password
+router.get('/customers', customerController.getAllCustomersAdmin);
+router.get('/customers/:id', customerController.getCustomerByIdAdmin);
+router.post('/customers', customerController.createCustomerAdmin);
+router.put('/customers/:id', customerController.updateCustomerAdmin);
+router.delete('/customers/:id', customerController.deleteCustomerAdmin);
+router.post('/customers/:id/reset-password', customerController.resetCustomerPasswordAdmin);
 
 module.exports = router;
 

@@ -21,15 +21,20 @@ async function submitContactMessage(req, res, next) {
 
 async function subscribeNewsletter(req, res, next) {
   try {
-    const { email } = req.body;
-    if (!email) return sendError(res, 'Email is required.', 400);
+    const { email, phone, whatsapp_number } = req.body;
+    const whatsapp = (phone || whatsapp_number || '').trim();
+    const emailVal = (email || (whatsapp ? `${whatsapp.replace(/[^0-9]/g, '')}@whatsapp.npgrand.com` : '')).toLowerCase().trim();
+
+    if (!whatsapp && !email) {
+      return sendError(res, 'WhatsApp number is required.', 400);
+    }
 
     await query(
-      `INSERT INTO newsletter_subscribers (email) VALUES (?) ON DUPLICATE KEY UPDATE is_active = TRUE`,
-      [email.toLowerCase().trim()]
+      `INSERT INTO newsletter_subscribers (email, phone) VALUES (?, ?) ON DUPLICATE KEY UPDATE phone = VALUES(phone), is_active = TRUE`,
+      [emailVal, whatsapp || null]
     );
 
-    return sendSuccess(res, null, 'Thank you for joining our community!', 201);
+    return sendSuccess(res, null, 'Thank you! You have joined our WhatsApp updates successfully.', 201);
   } catch (error) {
     next(error);
   }

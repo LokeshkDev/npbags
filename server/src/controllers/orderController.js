@@ -36,6 +36,24 @@ async function createOrder(req, res, next) {
       const qty = parseInt(item.qty || item.quantity, 10) || 1;
       const itemTotal = itemPrice * qty;
 
+      // Always query true primary image from product_images table in DB
+      const imgs = await query(
+        `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1`,
+        [prod.id]
+      );
+      const dbPrimaryImg = imgs.length > 0 && imgs[0].image_url ? imgs[0].image_url : null;
+
+      // Only preserve item.image if it's a real specific variant image (and not a fallback to best-handbag.png)
+      let primaryImg = null;
+      if (item.image && typeof item.image === 'string' && !item.image.includes('best-handbag.png') && item.image.trim() !== '') {
+        primaryImg = item.image.trim();
+      } else {
+        primaryImg = dbPrimaryImg;
+      }
+      if (!primaryImg) {
+        primaryImg = dbPrimaryImg || '/assets/bestsellers/best-handbag.png';
+      }
+
       subtotal += itemTotal;
       validatedItems.push({
         product_id: prod.id,
@@ -44,7 +62,7 @@ async function createOrder(req, res, next) {
         price: itemPrice,
         quantity: qty,
         total: itemTotal,
-        image_url: item.image || null
+        image_url: primaryImg
       });
     }
 
@@ -142,8 +160,27 @@ async function getOrderDetails(req, res, next) {
     }
 
     const order = orders[0];
-    const items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
-    order.items = items;
+    const items = await query(
+      `SELECT oi.*,
+        (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1) AS db_primary_image
+       FROM order_items oi
+       WHERE oi.order_id = ?`,
+      [order.id]
+    );
+    order.items = items.map(it => {
+      let finalImg = it.image_url;
+      if (!finalImg || finalImg.includes('best-handbag.png')) {
+        finalImg = it.db_primary_image || finalImg;
+      }
+      if (!finalImg) {
+        finalImg = it.db_primary_image || it.image_url || '/assets/bestsellers/best-handbag.png';
+      }
+      return {
+        ...it,
+        image_url: finalImg,
+        image: finalImg
+      };
+    });
 
     if (typeof order.shipping_address === 'string') {
       try {
@@ -160,13 +197,32 @@ async function getOrderDetails(req, res, next) {
 async function getMyOrders(req, res, next) {
   try {
     const orders = await query(
-      `SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC`,
-      [req.user.id]
+      `SELECT * FROM orders WHERE user_id = ? OR LOWER(customer_email) = LOWER(?) ORDER BY created_at DESC`,
+      [req.user.id, req.user.email]
     );
 
     for (const order of orders) {
-      const items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
-      order.items = items;
+      const items = await query(
+        `SELECT oi.*,
+          (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1) AS db_primary_image
+         FROM order_items oi
+         WHERE oi.order_id = ?`,
+        [order.id]
+      );
+      order.items = items.map(it => {
+        let finalImg = it.image_url;
+        if (!finalImg || finalImg.includes('best-handbag.png')) {
+          finalImg = it.db_primary_image || finalImg;
+        }
+        if (!finalImg) {
+          finalImg = it.db_primary_image || it.image_url || '/assets/bestsellers/best-handbag.png';
+        }
+        return {
+          ...it,
+          image_url: finalImg,
+          image: finalImg
+        };
+      });
       if (typeof order.shipping_address === 'string') {
         try { order.shipping_address = JSON.parse(order.shipping_address); } catch (e) {}
       }
@@ -249,8 +305,27 @@ async function getAllOrdersAdmin(req, res, next) {
     const orders = await query(sql, params);
 
     for (const order of orders) {
-      const items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
-      order.items = items;
+      const items = await query(
+        `SELECT oi.*,
+          (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1) AS db_primary_image
+         FROM order_items oi
+         WHERE oi.order_id = ?`,
+        [order.id]
+      );
+      order.items = items.map(it => {
+        let finalImg = it.image_url;
+        if (!finalImg || finalImg.includes('best-handbag.png')) {
+          finalImg = it.db_primary_image || finalImg;
+        }
+        if (!finalImg) {
+          finalImg = it.db_primary_image || it.image_url || '/assets/bestsellers/best-handbag.png';
+        }
+        return {
+          ...it,
+          image_url: finalImg,
+          image: finalImg
+        };
+      });
       if (typeof order.shipping_address === 'string') {
         try { order.shipping_address = JSON.parse(order.shipping_address); } catch (e) {}
       }

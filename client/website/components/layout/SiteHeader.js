@@ -68,8 +68,9 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
     <>
       <header className="site-header">
         <div className="container header-row">
-          {/* Left: Brand Logo */}
-          <div className="brand-wrap">
+          {/* Top Line for Mobile (Flex 3-Item Layout) */}
+          <div className="header-top-bar">
+            {/* Left: Hamburger Menu Button */}
             <button
               type="button"
               className="mobile-menu-btn"
@@ -83,12 +84,50 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
               </svg>
             </button>
 
-            <Link href="/" className="brand-link" aria-label="NP Grand Shopping Home">
-              <img src={brandLogoUrl} alt="NP GRAND SHOPPING" className="brand-logo-img" />
-            </Link>
+            {/* Center: Brand Logo Lockup */}
+            <div className="brand-wrap">
+              <Link href="/" className="brand-link" aria-label="NP Grand Shopping Home">
+                <img src={brandLogoUrl} alt="NP GRAND SHOPPING" className="brand-logo-img" />
+                <span className="brand-title-wrap">
+                  <span className="brand-title-grand">GRAND</span>
+                  <span className="brand-title-shopping">SHOPPING</span>
+                </span>
+              </Link>
+            </div>
+
+            {/* Right: Action Utilities */}
+            <div className="header-utilities">
+              <Link href="/account" className="header-util-btn" title="My Account">
+                <div className="header-util-icon-wrap">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                </div>
+                <span className="header-util-label">My Account</span>
+              </Link>
+
+              <button
+                type="button"
+                className="header-util-btn"
+                title="Cart"
+                onClick={openCart}
+                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                <div className="header-util-icon-wrap">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="9" cy="21" r="1" />
+                    <circle cx="20" cy="21" r="1" />
+                    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                  </svg>
+                  <span className="cart-count-badge" suppressHydrationWarning>{mounted ? (cartCount || 0) : 0}</span>
+                </div>
+                <span className="header-util-label">Cart</span>
+              </button>
+            </div>
           </div>
 
-          {/* Center: Wide Search Bar Pill */}
+          {/* Center / Row 2: Wide Search Bar Pill */}
           <form className="header-search" role="search" onSubmit={handleSearchSubmit}>
             <div className="header-search__box">
               <span className="header-search__icon-left" aria-hidden="true">
@@ -115,49 +154,6 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
               </button>
             </div>
           </form>
-
-          {/* Right: Action Utilities */}
-          <div className="header-utilities">
-            <Link href="/account" className="header-util-btn" title="My Account">
-              <div className="header-util-icon-wrap">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </div>
-              <span className="header-util-label">My Account</span>
-            </Link>
-
-            <Link href="/wishlist" className="header-util-btn" title="Wishlist">
-              <div className="header-util-icon-wrap">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                </svg>
-                {mounted && wishlistCount > 0 && (
-                  <span className="cart-count-badge" suppressHydrationWarning>{wishlistCount}</span>
-                )}
-              </div>
-              <span className="header-util-label">Wishlist</span>
-            </Link>
-
-            <button
-              type="button"
-              className="header-util-btn"
-              title="Cart"
-              onClick={openCart}
-              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-            >
-              <div className="header-util-icon-wrap">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="9" cy="21" r="1" />
-                  <circle cx="20" cy="21" r="1" />
-                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                </svg>
-                <span className="cart-count-badge" suppressHydrationWarning>{mounted ? (cartCount || 0) : 0}</span>
-              </div>
-              <span className="header-util-label">Cart</span>
-            </button>
-          </div>
         </div>
 
         {/* Primary Navigation Strip */}
@@ -190,7 +186,11 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
       <div className={`mobile-side-drawer ${mobileDrawerOpen ? 'is-open' : ''}`} aria-hidden={!mobileDrawerOpen}>
         <div className="mobile-drawer-header">
           <Link href="/" className="mobile-drawer-brand" onClick={() => setMobileDrawerOpen(false)}>
-            <img src="/assets/brand-logo.png" alt="NP GRAND SHOPPING" className="brand-logo-img" style={{ height: '42px' }} />
+            <img src={brandLogoUrl} alt="NP GRAND SHOPPING" className="brand-logo-img" style={{ height: '38px' }} />
+            <span className="brand-title-wrap">
+              <span className="brand-title-grand">GRAND</span>
+              <span className="brand-title-shopping">SHOPPING</span>
+            </span>
           </Link>
           <button
             type="button"
@@ -207,19 +207,36 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
             {primaryNavItems.map((item, idx) => {
               const isActive = item.url === '/' ? pathname === '/' : pathname.startsWith(item.url);
               return (
-                <li key={idx}>
+                <li key={idx} className="mobile-drawer-item">
                   <Link
                     href={item.url}
                     className={`mobile-drawer-link ${isActive ? 'is-active' : ''}`}
                     onClick={() => setMobileDrawerOpen(false)}
                   >
                     <span>{item.label}</span>
+                    <span className="mobile-drawer-arrow" aria-hidden="true">&rarr;</span>
                   </Link>
                 </li>
               );
             })}
           </ul>
         </nav>
+
+        <div className="mobile-drawer-footer">
+          <Link href="/account" className="mobile-drawer-action-btn" onClick={() => setMobileDrawerOpen(false)}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            <span>My Account</span>
+          </Link>
+          <Link href="/wishlist" className="mobile-drawer-action-btn" onClick={() => setMobileDrawerOpen(false)}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+            </svg>
+            <span>Wishlist</span>
+          </Link>
+        </div>
       </div>
     </>
   );

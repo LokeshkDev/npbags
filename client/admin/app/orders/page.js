@@ -105,7 +105,24 @@ export default function AdminOrdersPage() {
                   ) : (
                     orders.map(o => (
                       <tr key={o.id}>
-                        <td><strong>{o.order_number}</strong></td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            {o.items && o.items[0] && (
+                              <img
+                                src={o.items[0].image_url || o.items[0].image || '/assets/bestsellers/best-handbag.png'}
+                                alt=""
+                                onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                                style={{ width: '38px', height: '46px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--line)', background: '#f5f5f5', flexShrink: 0 }}
+                              />
+                            )}
+                            <div>
+                              <strong>{o.order_number}</strong>
+                              {o.items && o.items.length > 1 && (
+                                <div style={{ fontSize: '11px', color: 'var(--muted)' }}>+{o.items.length - 1} more items</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
                         <td style={{ color: 'var(--muted)' }}>{new Date(o.created_at).toLocaleDateString()}</td>
                         <td>
                           <div><strong>{o.customer_name}</strong></div>
@@ -188,12 +205,25 @@ export default function AdminOrdersPage() {
             <h4 style={{ marginBottom: '12px', fontSize: '15px' }}>Items Ordered</h4>
             <div style={{ display: 'grid', gap: '10px', marginBottom: '20px' }}>
               {selectedOrder.items?.map((item, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', border: '1px solid var(--line)', borderRadius: '6px' }}>
-                  <div>
-                    <strong>{item.quantity}x {item.product_name}</strong>
-                    {item.variant_info && <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{item.variant_info}</div>}
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: '1px solid var(--line)', borderRadius: '8px', background: '#ffffff', gap: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <img
+                      src={item.image_url || item.image || '/assets/bestsellers/best-handbag.png'}
+                      alt={item.product_name}
+                      onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                      style={{ width: '48px', height: '58px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--line)', background: '#f9f9f9', flexShrink: 0 }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--ink)' }}>
+                        {item.quantity}x {item.product_name}
+                      </div>
+                      {item.variant_info && <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>{item.variant_info}</div>}
+                      <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>
+                        Unit: ₹{parseFloat(item.price || 0).toFixed(2)}
+                      </div>
+                    </div>
                   </div>
-                  <strong>₹{item.total}</strong>
+                  <strong style={{ fontSize: '14px', whiteSpace: 'nowrap' }}>₹{parseFloat(item.total || 0).toFixed(2)}</strong>
                 </div>
               ))}
             </div>

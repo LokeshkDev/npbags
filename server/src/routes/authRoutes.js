@@ -8,6 +8,8 @@ router.post('/login', authController.login);
 router.post('/admin/login', authController.adminLogin);
 router.get('/me', authenticate, authController.getMe);
 router.put('/me', authenticate, authController.updateProfile);
+router.get('/addresses', authenticate, authController.getUserAddresses);
+router.post('/addresses', authenticate, authController.saveUserAddress);
 
 module.exports = router;
 

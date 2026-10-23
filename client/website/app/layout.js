@@ -16,7 +16,6 @@ import { SiteHeader } from '../components/layout/SiteHeader';
 import { SiteFooter } from '../components/layout/SiteFooter';
 import { CartDrawer } from '../components/layout/CartDrawer';
 import { QuickViewModal } from '../components/layout/QuickViewModal';
-import { MobileAppNav } from '../components/layout/MobileAppNav';
 import { Toast } from '../components/layout/Toast';
 import { getCMSSections } from '../lib/api';
 
@@ -53,7 +52,6 @@ export default async function RootLayout({ children }) {
                 <SiteFooter data={sections?.footer_section} />
                 <CartDrawer />
                 <QuickViewModal />
-                <MobileAppNav />
                 <Toast />
               </QuickViewProvider>
             </WishlistProvider>

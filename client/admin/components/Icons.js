@@ -128,6 +128,19 @@ export function Icon({ name, className = '', size = 20, strokeWidth = 2.2, fill 
         <circle cx="7" cy="7" r=".5" fill="currentColor" stroke="none" />
       </>
     ),
+    key: (
+      <>
+        <circle cx="7.5" cy="15.5" r="5.5" />
+        <path d="m21 2-9.6 9.6" />
+        <path d="m15.5 7.5 3 3L22 7l-3-3" />
+      </>
+    ),
+    lock: (
+      <>
+        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </>
+    ),
     tag: (
       <>
         <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />

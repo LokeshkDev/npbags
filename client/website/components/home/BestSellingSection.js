@@ -5,84 +5,29 @@ import Link from 'next/link';
 import { useCart } from '../../lib/cart-context';
 import { useWishlist } from '../../lib/wishlist-context';
 
-const screenshotBestSellers = [
-  {
-    id: 101,
-    name: 'Women Handbag',
-    category_name: 'Bags & Handbags',
-    price: 1499,
-    rating: 4.8,
-    reviews: '(4.5)',
-    image: '/assets/bestsellers/best-handbag.png',
-    slug: 'women-handbag'
-  },
-  {
-    id: 102,
-    name: 'Designer Earrings',
-    category_name: 'Jewellery',
-    price: 699,
-    rating: 4.9,
-    reviews: '(4.3)',
-    image: '/assets/bestsellers/best-earrings.png',
-    slug: 'designer-earrings'
-  },
-  {
-    id: 103,
-    name: "Men's Casual Shoes",
-    category_name: 'Footwear',
-    price: 1299,
-    rating: 4.7,
-    reviews: '(4.4)',
-    image: '/assets/bestsellers/best-shoes.png',
-    slug: 'mens-casual-shoes'
-  },
-  {
-    id: 104,
-    name: 'Kids Water Bottle',
-    category_name: 'Water Bottles',
-    price: 499,
-    rating: 4.9,
-    reviews: '(4.6)',
-    image: '/assets/bestsellers/best-bottle.png',
-    slug: 'kids-water-bottle'
-  },
-  {
-    id: 105,
-    name: 'Key Chain',
-    category_name: 'Accessories',
-    price: 299,
-    rating: 4.6,
-    reviews: '(4.4)',
-    image: '/assets/bestsellers/best-keychain.png',
-    slug: 'key-chain'
-  },
-  {
-    id: 106,
-    name: "Men's Slippers",
-    category_name: 'Footwear',
-    price: 799,
-    rating: 4.7,
-    reviews: '(4.5)',
-    image: '/assets/bestsellers/best-slippers.png',
-    slug: 'mens-slippers'
-  }
-];
-
 export function BestSellingSection({ products: apiProducts = [] }) {
   const { addToCart } = useCart();
   const { isInWishlist, toggleWishlist } = useWishlist();
 
-  const products = (Array.isArray(apiProducts) && apiProducts.length >= 6)
-    ? apiProducts.slice(0, 6).map((p, idx) => ({
-        id: p.id || 100 + idx,
-        name: p.name || screenshotBestSellers[idx]?.name,
-        price: p.price || screenshotBestSellers[idx]?.price,
-        rating: p.rating || 4.8,
-        reviews: `(${p.rating || 4.5})`,
-        image: p.image || p.primary_image || screenshotBestSellers[idx]?.image,
-        slug: p.slug || screenshotBestSellers[idx]?.slug
-      }))
-    : screenshotBestSellers;
+  const products = (Array.isArray(apiProducts) && apiProducts.length > 0)
+    ? apiProducts.map((p, idx) => {
+        const rawImg = p.primary_image || (p.images && p.images[0]) || p.image || '/assets/bestsellers/best-handbag.png';
+        const ratingVal = p.rating ? Number(p.rating).toFixed(1) : '4.8';
+        return {
+          id: p.id,
+          name: p.name,
+          category_name: p.category_name || 'Accessories',
+          price: p.price,
+          rating: ratingVal,
+          reviews: `(${ratingVal})`,
+          image: rawImg,
+          primary_image: p.primary_image || rawImg,
+          slug: p.slug || p.id
+        };
+      })
+    : [];
+
+  if (products.length === 0) return null;
 
   return (
     <section className="bestsellers-section" aria-label="Best Sellers">
@@ -109,6 +54,7 @@ export function BestSellingSection({ products: apiProducts = [] }) {
                   type="button"
                   className={`wishlist-btn ${isFav ? 'is-active' : ''}`}
                   aria-label="Add to wishlist"
+                  suppressHydrationWarning
                   onClick={() => toggleWishlist(product)}
                 >
                   <svg viewBox="0 0 24 24" width="16" height="16" fill={isFav ? '#c8102e' : 'none'} stroke={isFav ? '#c8102e' : '#111827'} strokeWidth="1.8">
@@ -130,7 +76,7 @@ export function BestSellingSection({ products: apiProducts = [] }) {
                   <button
                     type="button"
                     className="add-cart-btn"
-                    onClick={() => addToCart(product, 1)}
+                    onClick={() => addToCart(product, { qty: 1, image: product.primary_image || product.image })}
                   >
                     Add to Cart
                   </button>

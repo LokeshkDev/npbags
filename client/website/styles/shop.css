@@ -263,13 +263,130 @@
   fill: currentColor;
 }
 
-/* Ensure products on shop page are completely visible with smooth entrance */
+/* Ensure products on shop page match the Best Sellers card design with clean row alignment */
 .shop-grid .product-card,
 .product-card--shop {
   opacity: 1 !important;
   transform: none !important;
   visibility: visible !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  background-color: #ffffff !important;
+  border-radius: 16px !important;
+  border: 1px solid #f0f0f0 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05) !important;
+  overflow: hidden !important;
+  position: relative !important;
+  transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+  padding: 0 !important;
   animation: shopCardFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.shop-grid .product-card:hover {
+  transform: translateY(-5px) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.1) !important;
+}
+.shop-grid .product-card .product-media {
+  width: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+  max-height: 220px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background-color: #f6f1ec !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.shop-grid .product-card .product-media img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+  transition: transform 0.3s ease !important;
+}
+.shop-grid .product-card:hover .product-media img {
+  transform: scale(1.04) !important;
+}
+.shop-grid .product-card .product-info {
+  padding: 14px 14px 16px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+}
+.shop-grid .product-card .product-title {
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  color: #111827 !important;
+  margin: 0 0 6px 0 !important;
+  line-height: 1.35 !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  flex-shrink: 0;
+}
+.shop-grid .product-card .product-title a {
+  color: inherit !important;
+  text-decoration: none !important;
+}
+.shop-grid .product-card .product-title a:hover {
+  color: var(--np-red, #c8102e) !important;
+}
+.shop-grid .product-card .product-price {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  color: var(--np-red, #c8102e) !important;
+  margin-top: auto !important;
+  margin-bottom: 6px !important;
+  line-height: 1.2 !important;
+  display: flex !important;
+  align-items: baseline !important;
+  flex-shrink: 0;
+}
+.shop-grid .product-card .product-rating {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  margin-bottom: 12px !important;
+  flex-shrink: 0;
+}
+.shop-grid .product-card .rating-stars {
+  color: #f59e0b !important;
+  font-size: 13px !important;
+  letter-spacing: 1px !important;
+}
+.shop-grid .product-card .rating-reviews {
+  font-size: 12px !important;
+  color: #6b7280 !important;
+  font-weight: 500 !important;
+}
+.shop-grid .product-card .add-cart-btn {
+  position: relative !important;
+  width: 100% !important;
+  background-color: var(--np-red, #c8102e) !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 9px 12px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  margin-top: 0 !important;
+  overflow: hidden !important;
+  isolation: isolate !important;
+  transition: all 0.25s ease !important;
+  display: block !important;
+  text-align: center !important;
+  flex-shrink: 0;
+}
+.shop-grid .product-card .add-cart-btn:hover {
+  background-color: var(--brand-green, #065935) !important;
 }
 @keyframes shopCardFadeIn {
   from { opacity: 0; transform: translateY(12px); }
@@ -332,8 +449,11 @@
   grid-template-columns: repeat(6, 1fr);
   gap: 14px;
 }
-.shop-grid.grid-cols-6 .product-card h3 {
-  font-size: 12.5px;
+.shop-grid.grid-cols-6 .product-card h3,
+.shop-grid.grid-cols-6 .product-card .product-card__title {
+  font-size: 12px !important;
+  min-height: 34px !important;
+  max-height: 34px !important;
 }
 .shop-grid.grid-cols-6 .product-price {
   font-size: 12.5px;

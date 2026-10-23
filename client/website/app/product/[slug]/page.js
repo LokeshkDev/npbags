@@ -7,7 +7,6 @@ import { Icon } from '../../../components/common/Icons';
 import { ProductCard } from '../../../components/product/ProductCard';
 import { useCart } from '../../../lib/cart-context';
 import { useWishlist } from '../../../lib/wishlist-context';
-import { DEMO_PRODUCTS } from '../../../lib/demo-data';
 
 export default function ProductDetailPage({ params }) {
   const router = useRouter();
@@ -22,8 +21,9 @@ export default function ProductDetailPage({ params }) {
   const [qty, setQty] = useState(1);
   const [activeTab, setActiveTab] = useState('details'); // 'details', 'materials', 'shipping', 'reviews'
   const [copiedShare, setCopiedShare] = useState(false);
+  const [suggestedProducts, setSuggestedProducts] = useState([]);
 
-  // Fetch product from API with fallback to DEMO_PRODUCTS
+  // Fetch product from API
   useEffect(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
     fetch(`${apiBase}/products/${slug}`)
@@ -32,19 +32,25 @@ export default function ProductDetailPage({ params }) {
         if (data && data.data) {
           setupProduct(data.data);
         } else {
-          fallbackSetup();
+          setProduct(null);
         }
       })
       .catch(() => {
-        fallbackSetup();
+        setProduct(null);
       });
 
-    function fallbackSetup() {
-      const found = DEMO_PRODUCTS.find(p => p.slug === slug || p.id === slug) || DEMO_PRODUCTS[0];
-      setupProduct(found);
-    }
+    // Fetch suggested products (4 to 5 items)
+    fetch(`${apiBase}/products?limit=12`)
+      .then(res => res.json())
+      .then(data => {
+        const prods = data?.data?.products || (Array.isArray(data?.data) ? data.data : []);
+        const filtered = prods.filter(item => item.id !== slug && item.slug !== slug);
+        setSuggestedProducts(filtered.slice(0, 5));
+      })
+      .catch(() => {});
 
     function setupProduct(p) {
+      if (!p) return;
       setProduct(p);
       const firstColor = p.colors && p.colors[0];
       const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
@@ -119,7 +125,7 @@ export default function ProductDetailPage({ params }) {
       comment: 'Subtle branding, gorgeous color, and extremely comfortable straps.'
     }
   ];
-  const related = product.related_products || DEMO_PRODUCTS.filter(p => p.id !== product.id).slice(0, 4);
+  const related = product.related_products || [];
 
   const activeColorObj = (product.colors || []).find(c => c.name === selectedColor) || (product.colors && product.colors[0]);
   const currentStock = activeColorObj?.stock_quantity !== undefined
@@ -252,6 +258,7 @@ export default function ProductDetailPage({ params }) {
                   onClick={() => toggleWishlist(product)}
                   aria-label="Add to wishlist"
                   title="Save to wishlist"
+                  suppressHydrationWarning
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
@@ -455,7 +462,7 @@ export default function ProductDetailPage({ params }) {
         </div>
 
         {/* Tabs / Accordion for Details, Specs, Shipping, Reviews */}
-        <section className="pdp-tabs-section reveal-on-scroll" id="pdp-tabs">
+        <section className="pdp-tabs-section" id="pdp-tabs">
           <div className="pdp-tab-headers" role="tablist">
             <button
               className={`pdp-tab-btn ${activeTab === 'details' ? 'is-active' : ''}`}
@@ -611,20 +618,33 @@ export default function ProductDetailPage({ params }) {
           </div>
         </section>
 
-        {/* You May Also Like Section */}
-        {related && related.length > 0 && (
-          <section className="section reveal-on-scroll" style={{ paddingTop: '56px' }}>
-            <div className="section-heading">
+        {/* Suggested & Recommended Products (4 to 5 products) */}
+        {suggestedProducts && suggestedProducts.length > 0 && (
+          <section className="pdp-suggested-section" style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--line)' }}>
+            <div className="section-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '22px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <div className="eyebrow">Pair with perfection</div>
-                <h2>You may also like</h2>
+                <div style={{ color: '#065935', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  Recommended For You
+                </div>
+                <h2 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
+                  Suggested & Trending Essentials
+                </h2>
+                <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px', margin: 0 }}>
+                  Customers who viewed this item also loved these handcrafted pieces
+                </p>
               </div>
-              <Link className="text-link" href="/shop">
-                View all collections <span>→</span>
+              <Link href="/shop" style={{ color: '#065935', fontWeight: 700, fontSize: '13px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span>View all collections</span>
+                <span>→</span>
               </Link>
             </div>
-            <div className="product-grid grid-cols-4">
-              {related.map((p, idx) => (
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+              gap: '16px'
+            }}>
+              {suggestedProducts.slice(0, 5).map((p, idx) => (
                 <ProductCard product={p} index={idx} key={p.id} />
               ))}
             </div>

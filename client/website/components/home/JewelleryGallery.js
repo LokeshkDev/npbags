@@ -90,6 +90,14 @@ export function JewelleryGallery({ data }) {
                     <span className="jewellery-label">{item.name}</span>
                   </Link>
                 ))}
+                {row1Items.map((item, idx) => (
+                  <Link key={`r1-dup-${idx}`} href={item.link || '/shop'} className="jewellery-item jewellery-item--dup" role="listitem" aria-hidden="true" tabIndex={-1}>
+                    <div className="jewellery-circle">
+                      <img src={item.image} alt={item.name || 'Jewellery'} loading="lazy" />
+                    </div>
+                    <span className="jewellery-label">{item.name}</span>
+                  </Link>
+                ))}
               </div>
             </div>
 
@@ -98,6 +106,14 @@ export function JewelleryGallery({ data }) {
               <div className="jewellery-carousel-track jewellery-carousel-track--rtl" role="list">
                 {row2Items.map((item, idx) => (
                   <Link key={`r2-${idx}`} href={item.link || '/shop'} className="jewellery-item" role="listitem">
+                    <div className="jewellery-circle">
+                      <img src={item.image} alt={item.name || 'Jewellery'} loading="lazy" />
+                    </div>
+                    <span className="jewellery-label">{item.name}</span>
+                  </Link>
+                ))}
+                {row2Items.map((item, idx) => (
+                  <Link key={`r2-dup-${idx}`} href={item.link || '/shop'} className="jewellery-item jewellery-item--dup" role="listitem" aria-hidden="true" tabIndex={-1}>
                     <div className="jewellery-circle">
                       <img src={item.image} alt={item.name || 'Jewellery'} loading="lazy" />
                     </div>

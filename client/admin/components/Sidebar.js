@@ -22,6 +22,7 @@ export function Sidebar() {
     { label: 'Coupons', href: '/coupons', icon: 'coupon' },
     { label: 'Articles & Blogs', href: '/blogs', icon: 'blog' },
     { title: 'Customers & CRM' },
+    { label: 'Customers', href: '/customers', icon: 'user' },
     { label: 'Inquiries & Forms', href: '/messages', icon: 'mail' },
     { label: 'Store Settings', href: '/settings', icon: 'settings' }
   ];

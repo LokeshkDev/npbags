@@ -7,11 +7,11 @@ async function safeFetch(endpoint, options = {}, fallback = null) {
     const url = `${API_BASE}${endpoint}`;
     const res = await fetch(url, {
       ...options,
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         ...(options.headers || {})
-      },
-      next: { revalidate: 10 }
+      }
     });
 
     if (!res.ok) {
@@ -43,13 +43,12 @@ export async function getStoreSettings() {
 export async function getProducts(params = {}) {
   const query = new URLSearchParams(params).toString();
   const endpoint = `/products${query ? `?${query}` : ''}`;
-  const fallback = { products: DEMO_PRODUCTS, pagination: { total: DEMO_PRODUCTS.length, page: 1, limit: 24, pages: 1 } };
+  const fallback = { products: [], pagination: { total: 0, page: 1, limit: 24, pages: 1 } };
   return safeFetch(endpoint, {}, fallback);
 }
 
 export async function getProductByIdOrSlug(idOrSlug) {
-  const fallback = DEMO_PRODUCTS.find(p => p.id === idOrSlug || p.slug === idOrSlug) || DEMO_PRODUCTS[0];
-  return safeFetch(`/products/${idOrSlug}`, {}, fallback);
+  return safeFetch(`/products/${idOrSlug}`, {}, null);
 }
 
 export async function getCategories() {
@@ -80,10 +79,11 @@ export async function submitContact(data) {
   });
 }
 
-export async function subscribeNewsletter(email) {
+export async function subscribeNewsletter(contact) {
+  const isPhone = /^[0-9+ -]{7,16}$/.test(String(contact || '').trim());
   return safeFetch('/contact/newsletter', {
     method: 'POST',
-    body: JSON.stringify({ email })
+    body: JSON.stringify(isPhone ? { phone: String(contact).trim(), whatsapp_number: String(contact).trim() } : { email: String(contact).trim() })
   });
 }
 
@@ -104,6 +104,40 @@ export async function registerUser(userData) {
 export async function getMyProfile(token) {
   return safeFetch('/auth/me', {
     headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function updateMyProfile(data, token) {
+  return safeFetch('/auth/me', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function getMyOrders(token) {
+  return safeFetch('/orders/my-orders', {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getUserAddresses(token) {
+  return safeFetch('/auth/addresses', {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function saveUserAddress(data, token) {
+  return safeFetch('/auth/addresses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
   });
 }
 

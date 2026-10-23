@@ -288,3 +288,40 @@ export async function updateAdminStoreSettings(formData) {
   });
 }
 
+// Customers & Registered Users
+export async function getAdminCustomers(search = '') {
+  const query = search ? `?search=${encodeURIComponent(search)}` : '';
+  return adminFetch(`/admin/customers${query}`);
+}
+
+export async function getAdminCustomerById(id) {
+  return adminFetch(`/admin/customers/${id}`);
+}
+
+export async function createAdminCustomer(data) {
+  return adminFetch('/admin/customers', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminCustomer(id, data) {
+  return adminFetch(`/admin/customers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminCustomer(id) {
+  return adminFetch(`/admin/customers/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function resetAdminCustomerPassword(id, newPassword) {
+  return adminFetch(`/admin/customers/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ new_password: newPassword })
+  });
+}
+

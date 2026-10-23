@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { DEMO_CATEGORIES, DEMO_PRODUCTS } from '../../lib/demo-data';
 
 export default function CategoriesPage() {
-  const [categories, setCategories] = useState(DEMO_CATEGORIES);
-  const [products, setProducts] = useState(DEMO_PRODUCTS);
+  const [categories, setCategories] = useState([]);
+  const [products, setProducts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
   const [loading, setLoading] = useState(true);
 

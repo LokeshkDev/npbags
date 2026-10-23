@@ -9,14 +9,19 @@ import { TrustStrip } from '../components/home/TrustStrip';
 import { CampaignBanners } from '../components/home/CampaignBanners';
 import { NewsletterSection } from '../components/home/NewsletterSection';
 
+export const dynamic = 'force-dynamic';
+
 export default async function HomePage() {
-  const [sections, bestSellingData, categoriesData] = await Promise.all([
+  const [sections, bestSellingData, allProductsData, categoriesData] = await Promise.all([
     getCMSSections(),
     getProducts({ is_best_selling: '1' }),
+    getProducts({ limit: 12 }),
     getCategories()
   ]);
 
-  const bestSellers = bestSellingData?.products || [];
+  const bestSellers = (Array.isArray(bestSellingData?.products) && bestSellingData.products.length > 0)
+    ? bestSellingData.products
+    : (allProductsData?.products || []);
   const categories = categoriesData || [];
 
   // Default fallback order if _order is not defined in DB (Desktop: Hero Banner first, Category Strip second)

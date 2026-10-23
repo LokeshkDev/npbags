@@ -51,10 +51,10 @@ export function CartProvider({ children }) {
   const toggleCart = () => setIsOpen(prev => !prev);
 
   const addToCart = (product, options = {}) => {
-    const qtyToAdd = options.qty || 1;
-    const size = options.size || (product.sizes && product.sizes[0]) || '';
-    const color = options.color || (product.colors && product.colors[0] ? product.colors[0].name : '');
-    const image = options.image || product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || '';
+    const qtyToAdd = typeof options === 'number' ? options : (options.qty || 1);
+    const size = (typeof options === 'object' && options.size) || (product.sizes && product.sizes[0]) || '';
+    const color = (typeof options === 'object' && options.color) || (product.colors && product.colors[0] ? product.colors[0].name : '');
+    const image = (typeof options === 'object' && options.image) || product.primary_image || (product.images && product.images[0]) || (product.gallery && product.gallery[0]) || (product.colors && product.colors[0]?.img) || product.image || '';
 
     const price = product.sale_price > 0 && product.sale_price < product.price
       ? parseFloat(product.sale_price)
