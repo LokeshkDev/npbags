@@ -133,7 +133,7 @@ export default function AdminProductsPage() {
     setEditingProduct(null);
     setProductImages([]);
     setVariants([
-      { color_name: 'Standard', color_hex: '#111827', stock_quantity: 50, image_url: '', sku: '' }
+      { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
     ]);
     setFormData({
       name: '',
@@ -221,6 +221,7 @@ export default function AdminProductsPage() {
         id: v.id,
         color_name: v.color_name || 'Standard',
         color_hex: v.color_hex || '#111827',
+        size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
         stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
         sku: v.sku || '',
         image_url: v.image_url || ''
@@ -229,13 +230,14 @@ export default function AdminProductsPage() {
       setVariants(p.colors.map(c => ({
         color_name: c.name || 'Standard',
         color_hex: c.hex || '#111827',
+        size_name: '',
         stock_quantity: c.stock_quantity !== undefined ? c.stock_quantity : 50,
         sku: '',
         image_url: c.img || ''
       })));
     } else {
       setVariants([
-        { color_name: 'Standard', color_hex: '#111827', stock_quantity: 50, image_url: '', sku: '' }
+        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
       ]);
     }
 
@@ -273,11 +275,21 @@ export default function AdminProductsPage() {
             id: v.id,
             color_name: v.color_name || 'Standard',
             color_hex: v.color_hex || '#111827',
+            size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
             stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
             sku: v.sku || '',
             image_url: v.image_url || ''
           })));
         }
+        setFormData(prev => ({
+          ...prev,
+          materials: detailed.materials !== undefined ? (detailed.materials || '') : prev.materials,
+          care_instructions: detailed.care_instructions !== undefined ? (detailed.care_instructions || '') : prev.care_instructions,
+          shipping_info: detailed.shipping_info !== undefined ? (detailed.shipping_info || '') : prev.shipping_info,
+          seo_title: detailed.seo_title || prev.seo_title,
+          seo_description: detailed.seo_description || prev.seo_description,
+          seo_keywords: detailed.seo_keywords || prev.seo_keywords
+        }));
       }
     } catch (err) {
       console.warn('Could not refresh product details:', err);
@@ -288,7 +300,7 @@ export default function AdminProductsPage() {
   const handleAddVariant = () => {
     setVariants([
       ...variants,
-      { color_name: '', color_hex: '#1e293b', stock_quantity: 50, image_url: '', sku: '' }
+      { color_name: '', color_hex: '#1e293b', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
     ]);
   };
 
@@ -485,7 +497,6 @@ export default function AdminProductsPage() {
     data.set('is_featured', formData.is_featured ? '1' : '0');
 
     data.append('variants', JSON.stringify(variants));
-    data.append('retained_image_ids', JSON.stringify(productImages.map(img => img.id).filter(Boolean)));
 
     if (selectedFile) {
       data.append('images', selectedFile);
@@ -1117,8 +1128,8 @@ export default function AdminProductsPage() {
                   key={idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.2fr 90px 100px 1.5fr auto',
-                    gap: '10px',
+                    gridTemplateColumns: '1.1fr 85px 105px 95px 1.4fr auto',
+                    gap: '8px',
                     alignItems: 'center',
                     background: '#ffffff',
                     padding: '10px 12px',
@@ -1149,6 +1160,18 @@ export default function AdminProductsPage() {
                       />
                       <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'monospace' }}>{v.color_hex}</span>
                     </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Size (Optional)</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. 18L, M"
+                      style={{ height: '36px', fontSize: '12px' }}
+                      value={v.size_name || ''}
+                      onChange={(e) => handleVariantChange(idx, 'size_name', e.target.value)}
+                    />
                   </div>
 
                   <div>

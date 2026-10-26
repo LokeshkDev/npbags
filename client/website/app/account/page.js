@@ -4,6 +4,8 @@ import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
+import { useWishlist } from '../../lib/wishlist-context';
+import { useCart } from '../../lib/cart-context';
 import { updateMyProfile, getMyOrders, getUserAddresses, saveUserAddress } from '../../lib/api';
 
 function AccountContent() {
@@ -13,6 +15,8 @@ function AccountContent() {
   const fromCheckout = redirectParam === '/checkout';
 
   const { user, token, isAuthenticated, login, register, logout, updateUser } = useAuth();
+  const { wishlist, toggleWishlist } = useWishlist();
+  const { addToCart } = useCart();
 
   // Auth form states
   const [mode, setMode] = useState('login'); // 'login' or 'register'
@@ -24,9 +28,16 @@ function AccountContent() {
   const [authLoading, setAuthLoading] = useState(false);
 
   // Profile dashboard states
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'profile', 'address'
+  const tabParam = searchParams.get('tab') || '';
+  const [activeTab, setActiveTab] = useState(tabParam === 'wishlist' ? 'wishlist' : 'orders'); // 'orders', 'wishlist', 'profile', 'address'
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+
+  useEffect(() => {
+    if (tabParam && ['orders', 'wishlist', 'profile', 'address'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
 
   // Edit profile form states
   const [profileName, setProfileName] = useState('');
@@ -383,6 +394,10 @@ function AccountContent() {
                 <div style={{ fontSize: '20px', fontWeight: 700, color: '#065935' }}>{orders.length}</div>
               </div>
               <div style={{ textAlign: 'right', borderRight: '1px solid #ebe6df', paddingRight: '20px' }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 600 }}>Wishlist</div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: '#e63946' }}>{wishlist.length}</div>
+              </div>
+              <div style={{ textAlign: 'right', borderRight: '1px solid #ebe6df', paddingRight: '20px' }}>
                 <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 600 }}>Total Spend</div>
                 <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--brand-red)' }}>₹{totalSpent.toFixed(0)}</div>
               </div>
@@ -448,6 +463,40 @@ function AccountContent() {
                 borderRadius: '12px'
               }}>
                 {orders.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('wishlist')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '12px 20px',
+                fontSize: '14.5px',
+                fontWeight: activeTab === 'wishlist' ? 700 : 500,
+                color: activeTab === 'wishlist' ? '#065935' : '#6b7280',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: activeTab === 'wishlist' ? '3px solid #065935' : '3px solid transparent',
+                marginBottom: '-2px',
+                cursor: 'pointer',
+                transition: 'color 0.2s ease',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <span>❤️</span>
+              <span>Saved Wishlist</span>
+              <span style={{
+                background: activeTab === 'wishlist' ? '#e63946' : '#e5e2db',
+                color: activeTab === 'wishlist' ? '#ffffff' : '#4b5563',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '12px'
+              }}>
+                {wishlist.length}
               </span>
             </button>
 
@@ -995,6 +1044,142 @@ function AccountContent() {
             </div>
           )}
 
+          {/* TAB 4: SAVED WISHLIST / FAVORITES */}
+          {activeTab === 'wishlist' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Saved Wishlist</h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--muted)' }}>
+                    Products you have marked as favourite ({wishlist.length} {wishlist.length === 1 ? 'item' : 'items'})
+                  </p>
+                </div>
+                {wishlist.length > 0 && (
+                  <Link href="/shop" style={{ fontSize: '13px', color: '#065935', fontWeight: 600, textDecoration: 'none' }}>
+                    Continue Shopping →
+                  </Link>
+                )}
+              </div>
+
+              {wishlist.length === 0 ? (
+                <div style={{
+                  background: '#ffffff',
+                  padding: '50px 24px',
+                  borderRadius: '16px',
+                  border: '1px solid #ebe6df',
+                  textAlign: 'center',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.03)'
+                }}>
+                  <div style={{ fontSize: '42px', marginBottom: '14px' }}>❤️</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Your wishlist is currently empty</h3>
+                  <p style={{ color: 'var(--muted)', fontSize: '14px', maxWidth: '420px', margin: '0 auto 20px', lineHeight: 1.6 }}>
+                    Explore our collections and tap the favourite / heart icon on any piece you love to save it here.
+                  </p>
+                  <Link href="/shop" className="btn" style={{ background: '#065935', color: '#ffffff', padding: '12px 28px', fontSize: '13.5px', textDecoration: 'none', display: 'inline-block' }}>
+                    Explore Collections →
+                  </Link>
+                </div>
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+                  gap: '20px'
+                }}>
+                  {wishlist.map((item) => {
+                    const img = item.primary_image || (item.gallery && item.gallery[0]) || (item.images && item.images[0]) || (item.colors && item.colors[0]?.img) || '';
+                    const itemPrice = typeof item.price === 'number' ? item.price : parseFloat(item.price || 0);
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          background: '#ffffff',
+                          borderRadius: '14px',
+                          border: '1px solid #ebe6df',
+                          overflow: 'hidden',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          position: 'relative'
+                        }}
+                      >
+                        {/* Remove from Wishlist button */}
+                        <button
+                          type="button"
+                          onClick={() => toggleWishlist(item)}
+                          title="Remove from wishlist"
+                          aria-label="Remove from wishlist"
+                          style={{
+                            position: 'absolute',
+                            top: '12px',
+                            right: '12px',
+                            width: '34px',
+                            height: '34px',
+                            borderRadius: '50%',
+                            background: '#ffffff',
+                            border: '1px solid #ebe6df',
+                            color: '#e63946',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            zIndex: 2,
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                          </svg>
+                        </button>
+
+                        {/* Image */}
+                        <Link href={`/product/${item.slug || item.id}`} style={{ display: 'block', background: '#f6f3ef', aspectRatio: '1', overflow: 'hidden' }}>
+                          <img
+                            src={img}
+                            alt={item.name}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                        </Link>
+
+                        {/* Details */}
+                        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                          <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.06em', marginBottom: '4px' }}>
+                            {item.category_name || item.cat || 'NP Grand'}
+                          </div>
+                          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 10px', color: 'var(--ink)', lineHeight: 1.3 }}>
+                            <Link href={`/product/${item.slug || item.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                              {item.name}
+                            </Link>
+                          </h3>
+                          <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--brand-red)', marginBottom: '14px', marginTop: 'auto' }}>
+                            ₹{itemPrice.toFixed(2)}
+                          </div>
+                          <button
+                            type="button"
+                            className="btn"
+                            style={{
+                              width: '100%',
+                              padding: '10px',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              background: '#065935',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => addToCart(item, { qty: 1, image: img })}
+                          >
+                            Add to Bag +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
     );
@@ -1018,6 +1203,26 @@ function AccountContent() {
             boxShadow: '0 2px 8px rgba(6, 89, 53, 0.08)'
           }}>
             🔒 <strong>Sign in required</strong> to proceed with your checkout.
+          </div>
+        )}
+
+        {wishlist.length > 0 && (
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #ebe6df',
+            borderRadius: '12px',
+            padding: '12px 18px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+          }}>
+            <span>❤️ You have <strong>{wishlist.length} saved {wishlist.length === 1 ? 'item' : 'items'}</strong> in your wishlist.</span>
+            <Link href="/wishlist" style={{ color: '#065935', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap', marginLeft: '10px' }}>
+              View Wishlist →
+            </Link>
           </div>
         )}
 

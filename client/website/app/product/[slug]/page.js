@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Icon } from '../../../components/common/Icons';
-import { ProductCard } from '../../../components/product/ProductCard';
 import { useCart } from '../../../lib/cart-context';
 import { useWishlist } from '../../../lib/wishlist-context';
 
@@ -19,9 +18,15 @@ export default function ProductDetailPage({ params }) {
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
   const [qty, setQty] = useState(1);
-  const [activeTab, setActiveTab] = useState('details'); // 'details', 'materials', 'shipping', 'reviews'
+  const [activeTab, setActiveTab] = useState('details'); // 'details', 'materials', 'shipping'
   const [copiedShare, setCopiedShare] = useState(false);
-  const [suggestedProducts, setSuggestedProducts] = useState([]);
+
+  // Image Zoom Lightbox state
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   // Fetch product from API
   useEffect(() => {
@@ -39,25 +44,16 @@ export default function ProductDetailPage({ params }) {
         setProduct(null);
       });
 
-    // Fetch suggested products (4 to 5 items)
-    fetch(`${apiBase}/products?limit=12`)
-      .then(res => res.json())
-      .then(data => {
-        const prods = data?.data?.products || (Array.isArray(data?.data) ? data.data : []);
-        const filtered = prods.filter(item => item.id !== slug && item.slug !== slug);
-        setSuggestedProducts(filtered.slice(0, 5));
-      })
-      .catch(() => {});
-
     function setupProduct(p) {
       if (!p) return;
       setProduct(p);
       const firstColor = p.colors && p.colors[0];
       const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
-      const defaultImg = firstColorImg || p.primary_image || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '';
+      const defaultImg = p.primary_image || firstColorImg || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '';
       setActiveImage(defaultImg);
       setSelectedColor(firstColor ? firstColor.name : '');
-      setSelectedSize(p.sizes && p.sizes[0] ? p.sizes[0] : 'Standard');
+      const validSizes = (p.sizes || []).filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size');
+      setSelectedSize(validSizes.length > 0 ? validSizes[0] : '');
       setQty(1);
 
       // Dynamically update document title and SEO meta tags from admin product data
@@ -121,6 +117,118 @@ export default function ProductDetailPage({ params }) {
     }
   }, [gallery, activeImage]);
 
+  // Lightbox Navigation & Zoom Handlers
+  const currentImgIndex = gallery.indexOf(activeImage) >= 0 ? gallery.indexOf(activeImage) : 0;
+
+  const handlePrevImage = () => {
+    if (gallery.length <= 1) return;
+    const prevIdx = (currentImgIndex - 1 + gallery.length) % gallery.length;
+    setActiveImage(gallery[prevIdx]);
+    setZoomLevel(1);
+    setPanPosition({ x: 0, y: 0 });
+  };
+
+  const handleNextImage = () => {
+    if (gallery.length <= 1) return;
+    const nextIdx = (currentImgIndex + 1) % gallery.length;
+    setActiveImage(gallery[nextIdx]);
+    setZoomLevel(1);
+    setPanPosition({ x: 0, y: 0 });
+  };
+
+  const handleZoomIn = () => {
+    setZoomLevel(prev => Math.min(3, +(prev + 0.5).toFixed(1)));
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel(prev => {
+      const next = Math.max(1, +(prev - 0.5).toFixed(1));
+      if (next === 1) setPanPosition({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleResetZoom = () => {
+    setZoomLevel(1);
+    setPanPosition({ x: 0, y: 0 });
+  };
+
+  const closeLightbox = () => {
+    setIsLightboxOpen(false);
+    setZoomLevel(1);
+    setPanPosition({ x: 0, y: 0 });
+  };
+
+  // Drag and Pan handlers when zoomed in
+  const handleMouseDown = (e) => {
+    if (zoomLevel <= 1) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging || zoomLevel <= 1) return;
+    setPanPosition({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      setZoomLevel(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
+    } else {
+      setZoomLevel(prev => {
+        const next = Math.max(1, +(prev - 0.25).toFixed(2));
+        if (next === 1) setPanPosition({ x: 0, y: 0 });
+        return next;
+      });
+    }
+  };
+
+  const handleDoubleClick = (e) => {
+    e.stopPropagation();
+    if (zoomLevel > 1) {
+      handleResetZoom();
+    } else {
+      setZoomLevel(2);
+    }
+  };
+
+  // Keyboard navigation & body scroll lock
+  useEffect(() => {
+    if (isLightboxOpen) {
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          closeLightbox();
+        } else if (e.key === 'ArrowRight') {
+          handleNextImage();
+        } else if (e.key === 'ArrowLeft') {
+          handlePrevImage();
+        } else if (e.key === '+' || e.key === '=') {
+          handleZoomIn();
+        } else if (e.key === '-') {
+          handleZoomOut();
+        } else if (e.key === '0') {
+          handleResetZoom();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = '';
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [isLightboxOpen, gallery, activeImage]);
+
   const inWish = isInWishlist(product?.id);
 
   if (!product) {
@@ -136,31 +244,6 @@ export default function ProductDetailPage({ params }) {
   const hasSale = salePrice > 0 && salePrice < price;
   const currentUnitPrice = hasSale ? salePrice : price;
   const totalPrice = (currentUnitPrice * qty).toFixed(2);
-
-  const reviews = product.reviews || [
-    {
-      name: 'Priya Sharma',
-      date: '2 days ago',
-      rating: 5,
-      title: 'Flawless craftsmanship & fast dispatch!',
-      comment: 'The stitching and zipper feel incredibly premium. Fits my 15-inch laptop with room to spare.'
-    },
-    {
-      name: 'Rohan Mehta',
-      date: '1 week ago',
-      rating: 5,
-      title: 'Exceeded all expectations',
-      comment: 'Very practical everyday companion. Water-resistant material saved my gadgets in the rain.'
-    },
-    {
-      name: 'Ananya Roy',
-      date: '3 weeks ago',
-      rating: 5,
-      title: 'Minimalist & highly functional',
-      comment: 'Subtle branding, gorgeous color, and extremely comfortable straps.'
-    }
-  ];
-  const related = product.related_products || [];
 
   const activeColorObj = (product.colors || []).find(c => c.name === selectedColor) || (product.colors && product.colors[0]);
   const currentStock = activeColorObj?.stock_quantity !== undefined
@@ -313,6 +396,22 @@ export default function ProductDetailPage({ params }) {
                   </svg>
                   <span className="pdp-img-tooltip">{copiedShare ? 'Copied!' : 'Share'}</span>
                 </button>
+
+                <button
+                  type="button"
+                  className="pdp-img-action-btn pdp-zoom-action-btn"
+                  onClick={() => setIsLightboxOpen(true)}
+                  aria-label="Zoom image popup"
+                  title="Click to zoom image"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    <line x1="11" y1="8" x2="11" y2="14"/>
+                    <line x1="8" y1="11" x2="14" y2="11"/>
+                  </svg>
+                  <span className="pdp-img-tooltip">Zoom</span>
+                </button>
               </div>
 
               <img
@@ -320,7 +419,24 @@ export default function ProductDetailPage({ params }) {
                 id="pdp-main-img"
                 src={activeImage}
                 alt={product.name}
+                onClick={() => setIsLightboxOpen(true)}
+                title="Click to open zoom popup"
+                style={{ cursor: 'zoom-in' }}
               />
+
+              <div
+                className="pdp-image-zoom-hint"
+                onClick={() => setIsLightboxOpen(true)}
+                title="Click to zoom image"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <line x1="11" y1="8" x2="11" y2="14"/>
+                  <line x1="8" y1="11" x2="14" y2="11"/>
+                </svg>
+                <span>Click to zoom</span>
+              </div>
             </div>
 
             {/* Thumbnails */}
@@ -345,24 +461,6 @@ export default function ProductDetailPage({ params }) {
           <div className="pdp-info">
             <div className="pdp-category">{product.category_name || product.cat || 'NP Grand'}</div>
             <h1 className="pdp-title">{product.name}</h1>
-
-            <div className="pdp-rating-row">
-              <div className="pdp-stars" aria-label={`Rating: ${product.rating || '4.9'} out of 5 stars`}>
-                {[...Array(5)].map((_, i) => (
-                  <svg key={i} viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                ))}
-              </div>
-              <span>{product.rating || '4.9'}</span>
-              <span
-                className="pdp-review-link"
-                onClick={() => {
-                  setActiveTab('reviews');
-                  document.getElementById('pdp-tabs')?.scrollIntoView({ behavior: 'smooth' });
-                }}
-              >
-                ({reviews.length || product.reviews_count || 148} reviews)
-              </span>
-            </div>
 
             <div className="pdp-price-row">
               <span className="pdp-price">₹{currentUnitPrice.toFixed(2)}</span>
@@ -398,14 +496,14 @@ export default function ProductDetailPage({ params }) {
               </div>
             )}
 
-            {/* Sizes */}
-            {product.sizes && product.sizes.length > 0 && (
+            {/* Sizes (Hidden if no size is specified in admin) */}
+            {product.sizes && product.sizes.filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size').length > 0 && (
               <div className="pdp-option-block">
                 <div className="pdp-option-title">
                   Size / Capacity: <span>{selectedSize}</span>
                 </div>
                 <div className="pdp-size-chips">
-                  {product.sizes.map((s, i) => (
+                  {product.sizes.filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size').map((s, i) => (
                     <button
                       key={s || i}
                       type="button"
@@ -523,14 +621,6 @@ export default function ProductDetailPage({ params }) {
             >
               Delivery & Returns
             </button>
-            <button
-              className={`pdp-tab-btn ${activeTab === 'reviews' ? 'is-active' : ''}`}
-              role="tab"
-              aria-selected={activeTab === 'reviews'}
-              onClick={() => setActiveTab('reviews')}
-            >
-              Customer Reviews ({reviews.length})
-            </button>
           </div>
 
           <div className="pdp-tab-panels">
@@ -586,11 +676,11 @@ export default function ProductDetailPage({ params }) {
               <div style={{ maxWidth: '760px' }}>
                 <h3 style={{ fontSize: '20px', marginBottom: '12px' }}>Sustainable &amp; Lasting Materials</h3>
                 <p style={{ fontSize: '14.5px', lineHeight: '1.7', marginBottom: '20px', whiteSpace: 'pre-line' }}>
-                  {product.materials || 'Crafted with premium materials selected for durability, comfort, and exceptional everyday quality.'}
+                  {product.materials || 'Crafted with 100% GOTS-certified heavyweight organic cotton canvas and vegetable-tanned full grain leather trims. Features custom matte gunmetal zinc alloy hardware and YKK® AquaGuard® weather-sealed zippers.'}
                 </p>
                 <h4 style={{ fontSize: '16px', marginBottom: '8px' }}>Care Instructions:</h4>
                 <p style={{ fontSize: '13.5px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
-                  {product.care_instructions || 'Store in a clean, dry place away from direct sunlight. Clean gently with a soft cloth or mild solution when needed to preserve finish and texture.'}
+                  {product.care_instructions || 'Spot clean with warm water and mild organic detergent. Air dry in shade. Avoid machine washing or harsh chemical bleaches to preserve water-repellent coating and natural leather patina.'}
                 </p>
               </div>
             </div>
@@ -608,83 +698,8 @@ export default function ProductDetailPage({ params }) {
                 </p>
               </div>
             </div>
-
-            {/* Customer Reviews */}
-            <div className={`pdp-tab-panel ${activeTab === 'reviews' ? 'is-active' : ''}`} role="tabpanel">
-              <div className="pdp-reviews-layout">
-                <div className="pdp-rating-card">
-                  <div>
-                    <div className="pdp-score-large">{product.rating || '4.9'}</div>
-                    <div className="pdp-stars" style={{ marginTop: '6px' }}>
-                      {[...Array(5)].map((_, i) => (
-                        <svg key={i} viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                      ))}
-                    </div>
-                    <small style={{ color: 'var(--muted)', display: 'block', marginTop: '6px' }}>
-                      Based on verified customer orders
-                    </small>
-                  </div>
-                  <div className="pdp-bars">
-                    <div className="pdp-bar-row"><span>5★</span><div className="pdp-bar-line"><div className="pdp-bar-fill" style={{ width: '92%' }}></div></div><span>92%</span></div>
-                    <div className="pdp-bar-row"><span>4★</span><div className="pdp-bar-line"><div className="pdp-bar-fill" style={{ width: '8%' }}></div></div><span>8%</span></div>
-                    <div className="pdp-bar-row"><span>3★</span><div className="pdp-bar-line"><div className="pdp-bar-fill" style={{ width: '0%' }}></div></div><span>0%</span></div>
-                  </div>
-                </div>
-
-                <div className="pdp-reviews-list">
-                  {reviews.map((r, i) => (
-                    <div key={i} className="pdp-review-card">
-                      <div className="pdp-review-header">
-                        <span className="pdp-review-author">{r.user_name || r.name}</span>
-                        <span className="pdp-review-date">{r.date_label || r.date || 'Verified buyer'}</span>
-                      </div>
-                      <div className="pdp-stars" style={{ marginBottom: '8px' }}>
-                        {[...Array(Math.max(1, Math.min(5, Math.round(Number(r.rating) || 5))))].map((_, idx) => (
-                          <svg key={idx} viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                        ))}
-                      </div>
-                      <h4 className="pdp-review-title">{r.title}</h4>
-                      <p className="pdp-review-comment">{r.comment}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         </section>
-
-        {/* Suggested & Recommended Products (4 to 5 products) */}
-        {suggestedProducts && suggestedProducts.length > 0 && (
-          <section className="pdp-suggested-section" style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--line)' }}>
-            <div className="section-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '22px', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <div style={{ color: '#065935', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Recommended For You
-                </div>
-                <h2 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
-                  Suggested & Trending Essentials
-                </h2>
-                <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px', margin: 0 }}>
-                  Customers who viewed this item also loved these handcrafted pieces
-                </p>
-              </div>
-              <Link href="/shop" style={{ color: '#065935', fontWeight: 700, fontSize: '13px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span>View all collections</span>
-                <span>→</span>
-              </Link>
-            </div>
-
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
-              gap: '16px'
-            }}>
-              {suggestedProducts.slice(0, 5).map((p, idx) => (
-                <ProductCard product={p} index={idx} key={p.id} />
-              ))}
-            </div>
-          </section>
-        )}
       </div>
 
       {/* Mobile Sticky Bottom Purchase Bar matching theme */}
@@ -697,6 +712,185 @@ export default function ProductDetailPage({ params }) {
           Add to bag +
         </button>
       </aside>
+
+      {/* Lightbox Zoom Popup Modal */}
+      {isLightboxOpen && (
+        <div
+          className="pdp-lightbox-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Product Image Zoom Lightbox"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeLightbox();
+          }}
+        >
+          {/* Header Bar */}
+          <div className="pdp-lightbox-header">
+            <div className="pdp-lightbox-title-box">
+              <span className="pdp-lightbox-title">{product.name}</span>
+              {gallery.length > 0 && (
+                <span className="pdp-lightbox-counter">
+                  {currentImgIndex + 1} / {gallery.length}
+                </span>
+              )}
+            </div>
+
+            {/* Toolbar: Zoom In, Zoom Out, Reset, Close */}
+            <div className="pdp-lightbox-toolbar">
+              <button
+                type="button"
+                className="pdp-lightbox-btn"
+                onClick={handleZoomOut}
+                disabled={zoomLevel <= 1}
+                title="Zoom Out (-)"
+                aria-label="Zoom Out"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <line x1="8" y1="11" x2="14" y2="11"/>
+                </svg>
+              </button>
+
+              <span className="pdp-lightbox-zoom-val">{Math.round(zoomLevel * 100)}%</span>
+
+              <button
+                type="button"
+                className="pdp-lightbox-btn"
+                onClick={handleZoomIn}
+                disabled={zoomLevel >= 3}
+                title="Zoom In (+)"
+                aria-label="Zoom In"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <line x1="11" y1="8" x2="11" y2="14"/>
+                  <line x1="8" y1="11" x2="14" y2="11"/>
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                className="pdp-lightbox-btn"
+                onClick={handleResetZoom}
+                disabled={zoomLevel === 1 && panPosition.x === 0 && panPosition.y === 0}
+                title="Reset Zoom (0)"
+                aria-label="Reset Zoom"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                  <path d="M3 3v5h5"/>
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                className="pdp-lightbox-btn pdp-lightbox-btn-close"
+                onClick={closeLightbox}
+                title="Close (Esc)"
+                aria-label="Close Lightbox"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Interactive Viewport */}
+          <div
+            className={`pdp-lightbox-viewport ${zoomLevel > 1 ? 'is-zoomed' : ''} ${isDragging ? 'is-dragging' : ''}`}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) closeLightbox();
+            }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onWheel={handleWheel}
+          >
+            {/* Nav Arrows */}
+            {gallery.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="pdp-lightbox-nav prev"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePrevImage();
+                  }}
+                  aria-label="Previous image"
+                  title="Previous (Left arrow)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="pdp-lightbox-nav next"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNextImage();
+                  }}
+                  aria-label="Next image"
+                  title="Next (Right arrow)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                </button>
+              </>
+            )}
+
+            {/* Centered Scalable Image */}
+            <div
+              className="pdp-lightbox-img-wrap"
+              style={{
+                transform: `translate3d(${panPosition.x}px, ${panPosition.y}px, 0) scale(${zoomLevel})`
+              }}
+              onDoubleClick={handleDoubleClick}
+            >
+              <img
+                src={activeImage}
+                alt={product.name}
+                className="pdp-lightbox-img"
+                draggable={false}
+              />
+            </div>
+
+            {zoomLevel > 1 && (
+              <div className="pdp-lightbox-hint">
+                Drag to explore &bull; Double-click or click Reset to restore
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Thumbnails Strip */}
+          {gallery.length > 1 && (
+            <div className="pdp-lightbox-footer">
+              <div className="pdp-lightbox-thumbs">
+                {gallery.map((imgUrl, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className={`pdp-lightbox-thumb ${activeImage === imgUrl ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setActiveImage(imgUrl);
+                      handleResetZoom();
+                    }}
+                    aria-label={`View image ${i + 1}`}
+                  >
+                    <img src={imgUrl} alt={`${product.name} thumbnail ${i + 1}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

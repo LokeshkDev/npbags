@@ -118,6 +118,15 @@ async function getAllProducts(req, res, next) {
       );
       prod.variants = variants;
 
+      // Fallback primary_image from variants if product_images has no rows
+      if (!prod.primary_image && variants.length > 0) {
+        const vWithImg = variants.find(v => v.image_url && v.image_url.trim());
+        if (vWithImg) {
+          prod.primary_image = vWithImg.image_url.trim();
+          prod.images = [prod.primary_image];
+        }
+      }
+
       // Group colors for swatches
       const colorsMap = {};
       variants.forEach((v, vIdx) => {
@@ -137,8 +146,8 @@ async function getAllProducts(req, res, next) {
       });
       prod.colors = Object.values(colorsMap);
 
-      // Unique sizes
-      prod.sizes = [...new Set(variants.map(v => v.size_name).filter(Boolean))];
+      // Unique sizes (filter out empty and generic fallback labels)
+      prod.sizes = [...new Set(variants.map(v => (v.size_name ? v.size_name.trim() : '')).filter(s => s && s.toLowerCase() !== 'standard' && s.toLowerCase() !== 'one size'))];
 
       // Format features if string
       if (typeof prod.features === 'string') {
@@ -208,6 +217,17 @@ async function getProductBySlugOrId(req, res, next) {
     );
     product.variants = variants;
 
+    // Fallback primary_image from variants if product_images has no rows
+    if (!product.primary_image && variants.length > 0) {
+      const vWithImg = variants.find(v => v.image_url && v.image_url.trim());
+      if (vWithImg) {
+        product.primary_image = vWithImg.image_url.trim();
+        if (product.gallery.length === 0) {
+          product.gallery = [product.primary_image];
+        }
+      }
+    }
+
     // Colors mapping
     const colorsMap = {};
     variants.forEach((v, vIdx) => {
@@ -226,7 +246,8 @@ async function getProductBySlugOrId(req, res, next) {
       }
     });
     product.colors = Object.values(colorsMap);
-    product.sizes = [...new Set(variants.map(v => v.size_name).filter(Boolean))];
+    // Unique sizes (filter out empty and generic fallback labels)
+    product.sizes = [...new Set(variants.map(v => (v.size_name ? v.size_name.trim() : '')).filter(s => s && s.toLowerCase() !== 'standard' && s.toLowerCase() !== 'one size'))];
 
     // Merge gallery with variant images to guarantee all color images are in gallery
     const gallerySet = new Set(images.map(i => i.image_url));
@@ -404,7 +425,7 @@ async function createProduct(req, res, next) {
           id,
           v.color_name || 'Standard',
           v.color_hex || '#000000',
-          v.size_name || 'Standard',
+          (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null,
           v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 50,
           v.sku || null,
           v.image_url || null
@@ -550,53 +571,27 @@ async function updateProduct(req, res, next) {
       ]
     );
 
-    // If retained_image_ids is provided, prune any images that were deleted from gallery in admin
-    if (req.body.retained_image_ids !== undefined) {
-      try {
-        const retainedIds = typeof req.body.retained_image_ids === 'string'
-          ? JSON.parse(req.body.retained_image_ids)
-          : req.body.retained_image_ids;
-        if (Array.isArray(retainedIds)) {
-          let removedImgs = [];
-          if (retainedIds.length > 0) {
-            removedImgs = await query(
-              `SELECT id, image_url FROM product_images WHERE product_id = ? AND id NOT IN (?)`,
-              [id, retainedIds]
-            );
-          } else {
-            removedImgs = await query(
-              `SELECT id, image_url FROM product_images WHERE product_id = ?`,
-              [id]
-            );
-          }
-          for (const rm of removedImgs) {
-            await deleteUploadedFile(rm.image_url);
-            await query(`DELETE FROM product_images WHERE id = ?`, [rm.id]);
-            await query(`UPDATE product_variants SET image_url = NULL WHERE product_id = ? AND image_url = ?`, [id, rm.image_url]);
-          }
-        }
-      } catch (err) {
-        console.error('Error pruning deleted images in updateProduct:', err);
-      }
-    }
-
     // If new files uploaded
     if (req.files && req.files.length > 0) {
+      // Demote existing primary images so newly uploaded cover image takes priority
+      await query(`UPDATE product_images SET is_primary = 0 WHERE product_id = ?`, [id]);
+      await query(`UPDATE product_images SET display_order = display_order + ? WHERE product_id = ?`, [req.files.length, id]);
+
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
         const imageUrl = await processUploadedFile(file, 'products');
         await query(
           `INSERT INTO product_images (product_id, image_url, is_primary, display_order)
-           VALUES (?, ?, 0, ?)`,
-          [id, imageUrl, i]
+           VALUES (?, ?, ?, ?)`,
+          [id, imageUrl, i === 0 ? 1 : 0, i]
         );
       }
     }
 
-    // Ensure at least one remaining image is primary if images exist
+    // Ensure at least one image is primary if images exist
     const checkPrimary = await query(`SELECT id FROM product_images WHERE product_id = ? AND is_primary = 1`, [id]);
     if (checkPrimary.length === 0) {
-      const firstImg = await query(`SELECT id FROM product_images WHERE product_id = ? ORDER BY display_order ASC LIMIT 1`, [id]);
+      const firstImg = await query(`SELECT id FROM product_images WHERE product_id = ? ORDER BY display_order ASC, id ASC LIMIT 1`, [id]);
       if (firstImg.length > 0) {
         await query(`UPDATE product_images SET is_primary = 1 WHERE id = ?`, [firstImg[0].id]);
       }
@@ -620,7 +615,7 @@ async function updateProduct(req, res, next) {
               id,
               v.color_name || 'Standard',
               v.color_hex || '#000000',
-              v.size_name || 'Standard',
+              (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null,
               v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 50,
               v.sku || null,
               v.image_url || null
