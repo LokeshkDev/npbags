@@ -48,15 +48,68 @@ export default function AdminProductsPage() {
     tagline: '',
     description: '',
     materials: '',
+    care_instructions: '',
     dimension_w: '',
     dimension_h: '',
     dimension_l: '',
     dimensions: '',
     shipping_info: '',
+    seo_title: '',
+    seo_description: '',
+    seo_keywords: '',
     is_featured: true,
     is_new_arrival: false,
     is_best_selling: false
   });
+
+  const generateSlug = (val) => {
+    return (val || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+  };
+
+  const autoGenerateSeo = (currentForm = formData) => {
+    const name = (currentForm.name || '').trim();
+    const desc = (currentForm.description || currentForm.tagline || '').trim();
+    const cat = categories.find(c => String(c.id) === String(currentForm.category_id));
+    const catName = cat ? cat.name : '';
+
+    const seoTitle = name ? `${name} | NP Grand Shopping` : '';
+
+    let seoDesc = '';
+    if (desc) {
+      const plain = desc.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      seoDesc = plain.length > 155 ? `${plain.substring(0, 152)}...` : plain;
+    } else if (name) {
+      seoDesc = `Buy ${name} online at NP Grand Shopping. Premium quality with fast delivery across India.`;
+    }
+
+    const kw = new Set();
+    if (name) {
+      name.toLowerCase().split(/\s+/).forEach(w => {
+        const clean = w.replace(/[^a-z0-9]/g, '');
+        if (clean.length > 2 && !['the', 'and', 'for', 'with', 'all'].includes(clean)) kw.add(clean);
+      });
+    }
+    if (catName) kw.add(catName.toLowerCase());
+    if (currentForm.badge) kw.add(currentForm.badge.toLowerCase());
+    if (currentForm.materials) {
+      currentForm.materials.toLowerCase().split(/[,&]/).forEach(m => {
+        const clean = m.trim().replace(/[^a-z0-9 ]/g, '');
+        if (clean.length > 2) kw.add(clean);
+      });
+    }
+    kw.add('np grand');
+    kw.add('online shopping');
+
+    return {
+      seo_title: seoTitle,
+      seo_description: seoDesc,
+      seo_keywords: Array.from(kw).slice(0, 12).join(', ')
+    };
+  };
 
   const loadData = () => {
     getAdminProducts({ limit: 100 })
@@ -92,11 +145,15 @@ export default function AdminProductsPage() {
       tagline: '',
       description: '',
       materials: '',
+      care_instructions: '',
       dimension_w: '',
       dimension_h: '',
       dimension_l: '',
       dimensions: '',
       shipping_info: '',
+      seo_title: '',
+      seo_description: '',
+      seo_keywords: '',
       is_featured: true,
       is_new_arrival: false,
       is_best_selling: false
@@ -130,6 +187,10 @@ export default function AdminProductsPage() {
 
   const openEditModal = async (p) => {
     setEditingProduct(p);
+    const defaultSeoTitle = p.seo_title || (p.name ? `${p.name} | NP Grand Shopping` : '');
+    const defaultSeoDesc = p.seo_description || (p.description ? p.description.slice(0, 155) : (p.name ? `Buy ${p.name} online at NP Grand Shopping.` : ''));
+    const defaultSeoKw = p.seo_keywords || (p.name ? p.name.toLowerCase().split(/\s+/).filter(w => w.length > 2).join(', ') : '');
+
     setFormData({
       name: p.name || '',
       slug: p.slug || p.id || '',
@@ -140,11 +201,15 @@ export default function AdminProductsPage() {
       tagline: p.tagline || '',
       description: p.description || '',
       materials: p.materials || '',
+      care_instructions: p.care_instructions || '',
       dimension_w: p.dimension_w !== null && p.dimension_w !== undefined ? p.dimension_w : '',
       dimension_h: p.dimension_h !== null && p.dimension_h !== undefined ? p.dimension_h : '',
       dimension_l: p.dimension_l !== null && p.dimension_l !== undefined ? p.dimension_l : '',
       dimensions: p.dimensions || '',
       shipping_info: p.shipping_info || '',
+      seo_title: defaultSeoTitle,
+      seo_description: defaultSeoDesc,
+      seo_keywords: defaultSeoKw,
       is_featured: Boolean(p.is_featured),
       is_new_arrival: Boolean(p.is_new_arrival),
       is_best_selling: Boolean(p.is_best_selling)
@@ -260,14 +325,42 @@ export default function AdminProductsPage() {
 
   // Gallery image actions
   const handleDeleteImage = async (imageId) => {
+    const targetImg = productImages.find(img => img.id === imageId);
+    const targetUrl = targetImg?.image_url;
+
     if (!editingProduct) {
       setProductImages(productImages.filter(img => img.id !== imageId));
+      if (targetUrl) {
+        setVariants(prev => prev.map(v => v.image_url === targetUrl ? { ...v, image_url: '' } : v));
+      }
       return;
     }
+
     if (confirm('Delete this image from product gallery?')) {
       try {
         await deleteProductImage(editingProduct.id, imageId);
-        setProductImages(productImages.filter(img => img.id !== imageId));
+        const remainingImgs = productImages.filter(img => img.id !== imageId);
+        setProductImages(remainingImgs);
+
+        // Also clear this URL from any variants so saving won't re-upload or re-link it
+        if (targetUrl) {
+          setVariants(prev => prev.map(v => v.image_url === targetUrl ? { ...v, image_url: '' } : v));
+        }
+
+        // Update editingProduct in local state
+        setEditingProduct(prev => {
+          if (!prev) return null;
+          const newGallery = (prev.gallery || []).filter(u => u !== targetUrl);
+          const newImages = (prev.images || []).filter(u => u !== targetUrl);
+          const newPrimary = prev.primary_image === targetUrl ? (remainingImgs[0]?.image_url || newGallery[0] || null) : prev.primary_image;
+          return {
+            ...prev,
+            gallery: newGallery,
+            images: newImages,
+            primary_image: newPrimary
+          };
+        });
+
         loadData();
       } catch (err) {
         alert(err.message || 'Error deleting image');
@@ -392,6 +485,7 @@ export default function AdminProductsPage() {
     data.set('is_featured', formData.is_featured ? '1' : '0');
 
     data.append('variants', JSON.stringify(variants));
+    data.append('retained_image_ids', JSON.stringify(productImages.map(img => img.id).filter(Boolean)));
 
     if (selectedFile) {
       data.append('images', selectedFile);
@@ -617,10 +711,24 @@ export default function AdminProductsPage() {
                 value={formData.name}
                 onChange={(e) => {
                   const val = e.target.value;
-                  const newFormData = { ...formData, name: val };
-                  if (!editingProduct) {
-                    newFormData.slug = val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                  const autoSlug = generateSlug(val);
+                  const newFormData = { ...formData, name: val, slug: autoSlug };
+
+                  // Auto-update SEO title if blank or currently synced with previous title
+                  const prevAutoTitle = formData.name ? `${formData.name} | NP Grand Shopping` : '';
+                  if (!formData.seo_title || formData.seo_title === prevAutoTitle) {
+                    newFormData.seo_title = val ? `${val} | NP Grand Shopping` : '';
                   }
+
+                  // Auto-populate keywords if empty
+                  if (!formData.seo_keywords && val) {
+                    const seo = autoGenerateSeo(newFormData);
+                    newFormData.seo_keywords = seo.seo_keywords;
+                    if (!formData.seo_description) {
+                      newFormData.seo_description = seo.seo_description;
+                    }
+                  }
+
                   setFormData(newFormData);
                 }}
               />
@@ -649,9 +757,20 @@ export default function AdminProductsPage() {
             </div>
           </div>
 
-          {/* Slug (URL Handle) */}
+          {/* Slug (URL Handle) with Auto-generation */}
           <div className="form-group">
-            <label className="form-label">Product Slug (URL Handle) *</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ margin: 0 }}>Product Slug (URL Handle) *</label>
+              <button
+                type="button"
+                className="admin-btn admin-btn-outline"
+                style={{ padding: '2px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => setFormData({ ...formData, slug: generateSlug(formData.name) })}
+                title="Regenerate slug from current product title"
+              >
+                ⚡ Auto Slug from Title
+              </button>
+            </div>
             <input
               type="text"
               required
@@ -839,27 +958,137 @@ export default function AdminProductsPage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          {/* Materials & Care Instructions (Shown in PDP Materials & Care Tab) */}
+          <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', marginBottom: '18px', border: '1px solid #e2e8f0' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>Materials & Care Instructions</strong>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '2px 0 0' }}>
+                These details display directly under the &quot;Materials &amp; Care&quot; tab on the product detail page.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Materials &amp; Fabric</label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Crafted with 100% GOTS-certified heavyweight organic cotton canvas and vegetable-tanned full grain leather trims."
+                  className="form-control"
+                  value={formData.materials}
+                  onChange={(e) => setFormData({ ...formData, materials: e.target.value })}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Care Instructions</label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Spot clean with warm water and mild organic detergent. Air dry in shade. Avoid machine washing."
+                  className="form-control"
+                  value={formData.care_instructions}
+                  onChange={(e) => setFormData({ ...formData, care_instructions: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: '18px' }}>
+            <label className="form-label">Shipping &amp; Delivery Information</label>
+            <input
+              type="text"
+              placeholder="e.g. Free standard insured shipping across India on all orders over ₹499. Dispatches within 24 hours."
+              className="form-control"
+              value={formData.shipping_info}
+              onChange={(e) => setFormData({ ...formData, shipping_info: e.target.value })}
+            />
+          </div>
+
+          {/* SEO Metadata & Search Preview */}
+          <div style={{ background: '#f0fdf4', padding: '16px', borderRadius: '8px', marginBottom: '18px', border: '1px solid #bbf7d0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <strong style={{ fontSize: '14px', color: '#166534' }}>Search Engine Optimization (SEO)</strong>
+                  <span style={{ fontSize: '11px', background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>Google Ready</span>
+                </div>
+                <p style={{ fontSize: '12px', color: '#15803d', margin: '2px 0 0' }}>
+                  Configure Google title, meta description, and search keywords for this product.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="admin-btn admin-btn-outline"
+                style={{ padding: '6px 12px', fontSize: '12px', background: '#ffffff', borderColor: '#86efac', color: '#166534', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => {
+                  const seo = autoGenerateSeo();
+                  setFormData({
+                    ...formData,
+                    seo_title: seo.seo_title,
+                    seo_description: seo.seo_description,
+                    seo_keywords: seo.seo_keywords
+                  });
+                }}
+              >
+                <span>⚡ Auto-Generate SEO from Details</span>
+              </button>
+            </div>
+
             <div className="form-group">
-              <label className="form-label">Materials</label>
+              <label className="form-label" style={{ color: '#166534' }}>SEO Meta Title</label>
               <input
                 type="text"
-                placeholder="GOTS-certified canvas, vegan leather..."
+                placeholder="e.g. The Everyday Tote | NP Grand Shopping"
                 className="form-control"
-                value={formData.materials}
-                onChange={(e) => setFormData({ ...formData, materials: e.target.value })}
+                value={formData.seo_title}
+                onChange={(e) => setFormData({ ...formData, seo_title: e.target.value })}
+                maxLength={70}
               />
+              <div style={{ fontSize: '11px', color: '#15803d', marginTop: '2px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Recommended: 50-60 characters for best Google display</span>
+                <span>{(formData.seo_title || '').length}/70</span>
+              </div>
             </div>
+
             <div className="form-group">
-              <label className="form-label">Shipping Info</label>
+              <label className="form-label" style={{ color: '#166534' }}>SEO Meta Description</label>
+              <textarea
+                rows={2}
+                placeholder="e.g. Crafted with organic cotton canvas. Shop The Everyday Tote online at NP Grand Shopping with fast delivery and easy returns."
+                className="form-control"
+                value={formData.seo_description}
+                onChange={(e) => setFormData({ ...formData, seo_description: e.target.value })}
+                maxLength={160}
+              />
+              <div style={{ fontSize: '11px', color: '#15803d', marginTop: '2px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Recommended: 150-160 characters</span>
+                <span>{(formData.seo_description || '').length}/160</span>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" style={{ color: '#166534' }}>SEO Meta Keywords (comma separated)</label>
               <input
                 type="text"
-                placeholder="Dispatches within 24 hours, free delivery over ₹499"
+                placeholder="e.g. tote bag, organic canvas, everyday carry, shopping, accessories"
                 className="form-control"
-                value={formData.shipping_info}
-                onChange={(e) => setFormData({ ...formData, shipping_info: e.target.value })}
+                value={formData.seo_keywords}
+                onChange={(e) => setFormData({ ...formData, seo_keywords: e.target.value })}
               />
             </div>
+
+            {/* Google Search Live Preview */}
+            {(formData.name || formData.seo_title) && (
+              <div style={{ marginTop: '12px', padding: '10px 14px', background: '#ffffff', borderRadius: '6px', border: '1px solid #dcfce7' }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#65a30d', fontWeight: 700, marginBottom: '4px' }}>Google Search Preview</div>
+                <div style={{ fontSize: '15px', color: '#1a0dab', fontWeight: 500, lineHeight: 1.3, textDecoration: 'underline' }}>
+                  {formData.seo_title || `${formData.name || 'Product'} | NP Grand Shopping`}
+                </div>
+                <div style={{ fontSize: '12px', color: '#006621', lineHeight: 1.4 }}>
+                  https://npgrandshopping.com/product/{formData.slug || 'product-slug'}
+                </div>
+                <div style={{ fontSize: '12px', color: '#545454', lineHeight: 1.4, marginTop: '2px' }}>
+                  {formData.seo_description || (formData.description ? formData.description.slice(0, 150) : 'Buy authentic products online from NP Grand Shopping.')}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Color Options with Image Upload & Qty per Color */}
@@ -961,12 +1190,39 @@ export default function AdminProductsPage() {
                         />
                       </label>
                       {v.image_url && (
-                        <img
-                          src={v.image_url}
-                          alt="Variant"
-                          style={{ width: '34px', height: '34px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #cbd5e1', flexShrink: 0 }}
-                          title={v.image_url}
-                        />
+                        <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                          <img
+                            src={v.image_url}
+                            alt="Variant"
+                            style={{ width: '34px', height: '34px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                            title={v.image_url}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleVariantChange(idx, 'image_url', '')}
+                            style={{
+                              position: 'absolute',
+                              top: '-6px',
+                              right: '-6px',
+                              background: '#ef4444',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '50%',
+                              width: '16px',
+                              height: '16px',
+                              fontSize: '11px',
+                              lineHeight: '15px',
+                              textAlign: 'center',
+                              cursor: 'pointer',
+                              padding: 0,
+                              fontWeight: 'bold',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                            }}
+                            title="Remove image from this variant"
+                          >
+                            ×
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

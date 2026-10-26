@@ -295,11 +295,15 @@ async function createProduct(req, res, next) {
       description,
       features,
       materials,
+      care_instructions,
       dimensions,
       dimension_w,
       dimension_h,
       dimension_l,
       shipping_info,
+      seo_title,
+      seo_description,
+      seo_keywords,
       is_featured,
       is_new_arrival,
       is_best_selling,
@@ -337,10 +341,11 @@ async function createProduct(req, res, next) {
     await query(
       `INSERT INTO products (
          id, slug, name, category_id, price, sale_price, badge, tagline,
-         description, features, materials, dimensions, dimension_w, dimension_h, dimension_l,
-         shipping_info, is_featured, is_new_arrival, is_best_selling, is_active
+         description, features, materials, care_instructions, dimensions, dimension_w, dimension_h, dimension_l,
+         shipping_info, seo_title, seo_description, seo_keywords,
+         is_featured, is_new_arrival, is_best_selling, is_active
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
       [
         id,
         slug,
@@ -353,11 +358,15 @@ async function createProduct(req, res, next) {
         description || null,
         typeof features === 'string' ? features : JSON.stringify(features || []),
         materials || null,
+        care_instructions || null,
         finalDimensions || null,
         w,
         h,
         l,
         shipping_info || null,
+        seo_title || null,
+        seo_description || null,
+        seo_keywords || null,
         isFeaturedVal,
         isNewArrivalVal,
         isBestSellingVal
@@ -444,11 +453,15 @@ async function updateProduct(req, res, next) {
       description,
       features,
       materials,
+      care_instructions,
       dimensions,
       dimension_w,
       dimension_h,
       dimension_l,
       shipping_info,
+      seo_title,
+      seo_description,
+      seo_keywords,
       is_featured,
       is_new_arrival,
       is_best_selling,
@@ -489,12 +502,16 @@ async function updateProduct(req, res, next) {
          tagline = COALESCE(?, tagline),
          description = COALESCE(?, description),
          features = COALESCE(?, features),
-         materials = COALESCE(?, materials),
+         materials = IF(? IS NOT NULL, ?, materials),
+         care_instructions = IF(? IS NOT NULL, ?, care_instructions),
          dimensions = COALESCE(?, dimensions),
          dimension_w = COALESCE(?, dimension_w),
          dimension_h = COALESCE(?, dimension_h),
          dimension_l = COALESCE(?, dimension_l),
-         shipping_info = COALESCE(?, shipping_info),
+         shipping_info = IF(? IS NOT NULL, ?, shipping_info),
+         seo_title = IF(? IS NOT NULL, ?, seo_title),
+         seo_description = IF(? IS NOT NULL, ?, seo_description),
+         seo_keywords = IF(? IS NOT NULL, ?, seo_keywords),
          is_featured = COALESCE(?, is_featured),
          is_new_arrival = COALESCE(?, is_new_arrival),
          is_best_selling = COALESCE(?, is_best_selling),
@@ -509,12 +526,22 @@ async function updateProduct(req, res, next) {
         tagline || null,
         description || null,
         features ? (typeof features === 'string' ? features : JSON.stringify(features)) : null,
-        materials || null,
+        materials !== undefined ? materials : null,
+        materials !== undefined ? materials : null,
+        care_instructions !== undefined ? care_instructions : null,
+        care_instructions !== undefined ? care_instructions : null,
         finalDimensions || null,
         w,
         h,
         l,
-        shipping_info || null,
+        shipping_info !== undefined ? shipping_info : null,
+        shipping_info !== undefined ? shipping_info : null,
+        seo_title !== undefined ? seo_title : null,
+        seo_title !== undefined ? seo_title : null,
+        seo_description !== undefined ? seo_description : null,
+        seo_description !== undefined ? seo_description : null,
+        seo_keywords !== undefined ? seo_keywords : null,
+        seo_keywords !== undefined ? seo_keywords : null,
         isFeaturedVal,
         isNewArrivalVal,
         isBestSellingVal,
@@ -522,6 +549,36 @@ async function updateProduct(req, res, next) {
         id
       ]
     );
+
+    // If retained_image_ids is provided, prune any images that were deleted from gallery in admin
+    if (req.body.retained_image_ids !== undefined) {
+      try {
+        const retainedIds = typeof req.body.retained_image_ids === 'string'
+          ? JSON.parse(req.body.retained_image_ids)
+          : req.body.retained_image_ids;
+        if (Array.isArray(retainedIds)) {
+          let removedImgs = [];
+          if (retainedIds.length > 0) {
+            removedImgs = await query(
+              `SELECT id, image_url FROM product_images WHERE product_id = ? AND id NOT IN (?)`,
+              [id, retainedIds]
+            );
+          } else {
+            removedImgs = await query(
+              `SELECT id, image_url FROM product_images WHERE product_id = ?`,
+              [id]
+            );
+          }
+          for (const rm of removedImgs) {
+            await deleteUploadedFile(rm.image_url);
+            await query(`DELETE FROM product_images WHERE id = ?`, [rm.id]);
+            await query(`UPDATE product_variants SET image_url = NULL WHERE product_id = ? AND image_url = ?`, [id, rm.image_url]);
+          }
+        }
+      } catch (err) {
+        console.error('Error pruning deleted images in updateProduct:', err);
+      }
+    }
 
     // If new files uploaded
     if (req.files && req.files.length > 0) {
@@ -533,6 +590,15 @@ async function updateProduct(req, res, next) {
            VALUES (?, ?, 0, ?)`,
           [id, imageUrl, i]
         );
+      }
+    }
+
+    // Ensure at least one remaining image is primary if images exist
+    const checkPrimary = await query(`SELECT id FROM product_images WHERE product_id = ? AND is_primary = 1`, [id]);
+    if (checkPrimary.length === 0) {
+      const firstImg = await query(`SELECT id FROM product_images WHERE product_id = ? ORDER BY display_order ASC LIMIT 1`, [id]);
+      if (firstImg.length > 0) {
+        await query(`UPDATE product_images SET is_primary = 1 WHERE id = ?`, [firstImg[0].id]);
       }
     }
 
@@ -671,6 +737,11 @@ async function deleteProductImage(req, res, next) {
     const img = imgs[0];
     await deleteUploadedFile(img.image_url);
     await query(`DELETE FROM product_images WHERE id = ?`, [imageId]);
+
+    // Also clear this image URL from any variants that were using it
+    if (img.image_url) {
+      await query(`UPDATE product_variants SET image_url = NULL WHERE product_id = ? AND image_url = ?`, [productId, img.image_url]);
+    }
 
     // If it was primary, promote another image to primary
     if (img.is_primary) {

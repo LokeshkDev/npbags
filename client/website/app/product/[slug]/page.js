@@ -59,6 +59,31 @@ export default function ProductDetailPage({ params }) {
       setSelectedColor(firstColor ? firstColor.name : '');
       setSelectedSize(p.sizes && p.sizes[0] ? p.sizes[0] : 'Standard');
       setQty(1);
+
+      // Dynamically update document title and SEO meta tags from admin product data
+      if (typeof document !== 'undefined') {
+        document.title = p.seo_title || `${p.name} | NP Grand Shopping`;
+
+        if (p.seo_description) {
+          let metaDesc = document.querySelector('meta[name="description"]');
+          if (!metaDesc) {
+            metaDesc = document.createElement('meta');
+            metaDesc.name = 'description';
+            document.head.appendChild(metaDesc);
+          }
+          metaDesc.content = p.seo_description;
+        }
+
+        if (p.seo_keywords) {
+          let metaKw = document.querySelector('meta[name="keywords"]');
+          if (!metaKw) {
+            metaKw = document.createElement('meta');
+            metaKw.name = 'keywords';
+            document.head.appendChild(metaKw);
+          }
+          metaKw.content = p.seo_keywords;
+        }
+      }
     }
   }, [slug]);
 
@@ -76,15 +101,25 @@ export default function ProductDetailPage({ params }) {
     };
 
     if (product.primary_image) addImg(product.primary_image);
-    (product.colors || []).forEach(c => addImg(c?.img || c?.image_url));
-    (product.variants || []).forEach(v => addImg(v?.image_url));
     (product.gallery || []).forEach(addImg);
     (product.images || []).forEach(addImg);
     (product.images_detailed || []).forEach(i => addImg(i?.image_url));
-    if (activeImage) addImg(activeImage);
+    (product.colors || []).forEach(c => addImg(c?.img || c?.image_url));
+    (product.variants || []).forEach(v => addImg(v?.image_url));
 
     return list;
-  }, [product, activeImage]);
+  }, [product]);
+
+  // Keep activeImage strictly in sync with valid gallery images
+  useEffect(() => {
+    if (gallery.length > 0) {
+      if (!activeImage || !gallery.includes(activeImage)) {
+        setActiveImage(gallery[0]);
+      }
+    } else if (activeImage) {
+      setActiveImage('');
+    }
+  }, [gallery, activeImage]);
 
   const inWish = isInWishlist(product?.id);
 
@@ -549,13 +584,13 @@ export default function ProductDetailPage({ params }) {
             {/* Materials & Care */}
             <div className={`pdp-tab-panel ${activeTab === 'materials' ? 'is-active' : ''}`} role="tabpanel">
               <div style={{ maxWidth: '760px' }}>
-                <h3 style={{ fontSize: '20px', marginBottom: '12px' }}>Sustainable & Lasting Materials</h3>
-                <p style={{ fontSize: '14.5px', lineHeight: '1.7', marginBottom: '20px' }}>
-                  {product.materials || 'Crafted with 100% GOTS-certified heavyweight organic cotton canvas and vegetable-tanned full grain leather trims. Features custom matte gunmetal zinc alloy hardware and YKK® AquaGuard® weather-sealed zippers.'}
+                <h3 style={{ fontSize: '20px', marginBottom: '12px' }}>Sustainable &amp; Lasting Materials</h3>
+                <p style={{ fontSize: '14.5px', lineHeight: '1.7', marginBottom: '20px', whiteSpace: 'pre-line' }}>
+                  {product.materials || 'Crafted with premium materials selected for durability, comfort, and exceptional everyday quality.'}
                 </p>
                 <h4 style={{ fontSize: '16px', marginBottom: '8px' }}>Care Instructions:</h4>
-                <p style={{ fontSize: '13.5px', lineHeight: '1.7' }}>
-                  Spot clean with warm water and mild organic detergent. Air dry in shade. Avoid machine washing or harsh chemical bleaches to preserve water-repellent coating and natural leather patina.
+                <p style={{ fontSize: '13.5px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
+                  {product.care_instructions || 'Store in a clean, dry place away from direct sunlight. Clean gently with a soft cloth or mild solution when needed to preserve finish and texture.'}
                 </p>
               </div>
             </div>
