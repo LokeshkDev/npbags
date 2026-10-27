@@ -42,6 +42,7 @@ export default function AdminProductsPage() {
     name: '',
     slug: '',
     category_id: '',
+    gender: 'all',
     price: '',
     sale_price: '',
     badge: '',
@@ -135,10 +136,12 @@ export default function AdminProductsPage() {
     setVariants([
       { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
     ]);
+    const firstCat = categories[0];
     setFormData({
       name: '',
       slug: '',
-      category_id: categories[0]?.id || '',
+      category_id: firstCat?.id || '',
+      gender: firstCat?.gender || 'all',
       price: '',
       sale_price: '',
       badge: '',
@@ -195,6 +198,7 @@ export default function AdminProductsPage() {
       name: p.name || '',
       slug: p.slug || p.id || '',
       category_id: p.category_id || '',
+      gender: p.gender || 'all',
       price: p.price || '',
       sale_price: p.sale_price || '',
       badge: p.badge || '',
@@ -758,20 +762,42 @@ export default function AdminProductsPage() {
               <select
                 className="form-control"
                 value={formData.category_id}
-                onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
+                onChange={(e) => {
+                  const catId = e.target.value;
+                  const catObj = categories.find(c => String(c.id) === String(catId));
+                  setFormData(prev => ({
+                    ...prev,
+                    category_id: catId,
+                    gender: catObj?.gender && catObj.gender !== 'all' ? catObj.gender : prev.gender
+                  }));
+                }}
               >
                 <option value="">-- Select Category --</option>
                 {categories.filter(c => !c.parent_id).map(mainCat => {
                   const subCats = categories.filter(sub => sub.parent_id === mainCat.id);
                   return (
                     <React.Fragment key={mainCat.id}>
-                      <option value={mainCat.id} style={{ fontWeight: 600 }}>{mainCat.name}</option>
+                      <option value={mainCat.id} style={{ fontWeight: 600 }}>{mainCat.name} ({mainCat.gender || 'all'})</option>
                       {subCats.map(sub => (
-                        <option key={sub.id} value={sub.id}>&nbsp;&nbsp;↳ {sub.name}</option>
+                        <option key={sub.id} value={sub.id}>&nbsp;&nbsp;↳ {sub.name} ({sub.gender || 'all'})</option>
                       ))}
                     </React.Fragment>
                   );
                 })}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Department / Gender</label>
+              <select
+                className="form-control"
+                value={formData.gender || 'all'}
+                onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+              >
+                <option value="women">👩 Women</option>
+                <option value="men">👤 Men</option>
+                <option value="kids">🧒 Kids</option>
+                <option value="all">🌐 All / Unisex</option>
               </select>
             </div>
           </div>

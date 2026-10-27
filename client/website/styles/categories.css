@@ -429,3 +429,27 @@
   }
 }
 
+/* =========================================================
+   AJIO Desktop Department Experience Enhancements
+   ========================================================= */
+.department-products-view #shop-products-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 24px !important;
+}
+
+@media (max-width: 1200px) {
+  .department-products-view #shop-products-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 20px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .department-products-view #shop-products-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 14px !important;
+  }
+}
+
+

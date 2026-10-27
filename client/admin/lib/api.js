@@ -142,6 +142,15 @@ export async function updateAdminCategory(id, formData) {
   });
 }
 
+export async function updateCategoryBanner(categoryId, bannerUrl) {
+  const formData = new FormData();
+  formData.append('banner_image', bannerUrl || '');
+  return adminFetch(`/admin/categories/${categoryId}`, {
+    method: 'PUT',
+    body: formData
+  });
+}
+
 export async function deleteAdminCategory(id) {
   return adminFetch(`/admin/categories/${id}`, {
     method: 'DELETE'

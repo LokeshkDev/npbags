@@ -5,14 +5,29 @@ const { processUploadedFile, deleteUploadedFile } = require('../middleware/uploa
 
 async function getAllCategories(req, res, next) {
   try {
+    const { gender } = req.query;
+    let whereClause = 'WHERE c.is_active = TRUE';
+    const params = [];
+
+    if (gender && gender !== 'all') {
+      const g = gender.toLowerCase();
+      whereClause += ` AND (
+        LOWER(c.gender) = ? 
+        OR LOWER(COALESCE(parent.gender, '')) = ?
+        OR c.id IN (SELECT DISTINCT sub.parent_id FROM categories sub WHERE LOWER(sub.gender) = ? AND sub.parent_id IS NOT NULL)
+      )`;
+      params.push(g, g, g);
+    }
+
     const categories = await query(
       `SELECT c.*, parent.name AS parent_name, parent.slug AS parent_slug, COUNT(p.id) AS product_count
        FROM categories c
        LEFT JOIN categories parent ON c.parent_id = parent.id
        LEFT JOIN products p ON p.category_id = c.id AND p.is_active = TRUE
-       WHERE c.is_active = TRUE
+       ${whereClause}
        GROUP BY c.id
-       ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.display_order ASC, c.name ASC`
+       ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.display_order ASC, c.name ASC`,
+      params
     );
 
     // Also build a nested tree: main categories with their subcategories array
@@ -41,7 +56,7 @@ async function getAllCategories(req, res, next) {
 
 async function createCategory(req, res, next) {
   try {
-    const { name, slug: customSlug, parent_id, description, display_order } = req.body;
+    const { name, slug: customSlug, parent_id, description, display_order, gender } = req.body;
     if (!name) return sendError(res, 'Category name is required.', 400);
 
     let slug = customSlug
@@ -59,14 +74,17 @@ async function createCategory(req, res, next) {
     }
 
     const parentIdVal = parent_id && parent_id !== '0' && parent_id !== 'null' ? parseInt(parent_id, 10) : null;
+    const genderVal = (gender && ['women', 'men', 'kids', 'all'].includes(gender.toLowerCase()))
+      ? gender.toLowerCase()
+      : 'all';
 
     const result = await query(
-      `INSERT INTO categories (parent_id, slug, name, description, image, display_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, TRUE)`,
-      [parentIdVal, slug, name, description || null, image, display_order || 0]
+      `INSERT INTO categories (parent_id, slug, name, description, image, display_order, gender, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
+      [parentIdVal, slug, name, description || null, image, Number(display_order) || 0, genderVal]
     );
 
-    return sendSuccess(res, { id: result.insertId, parent_id: parentIdVal, slug, name }, 'Category created successfully', 201);
+    return sendSuccess(res, { id: result.insertId, parent_id: parentIdVal, slug, name, gender: genderVal }, 'Category created successfully', 201);
   } catch (error) {
     next(error);
   }
@@ -75,18 +93,20 @@ async function createCategory(req, res, next) {
 async function updateCategory(req, res, next) {
   try {
     const { id } = req.params;
-    const { name, slug: customSlug, parent_id, description, display_order, is_active } = req.body;
+    const { name, slug: customSlug, parent_id, description, display_order, is_active, gender, banner_image } = req.body;
 
-    let image = undefined;
+    let image = null;
+    let hasNewImage = false;
     if (req.file) {
       image = await processUploadedFile(req.file, 'categories');
+      hasNewImage = true;
       const old = await query(`SELECT image FROM categories WHERE id = ?`, [id]);
       if (old.length > 0 && old[0].image) {
         deleteUploadedFile(old[0].image);
       }
     }
 
-    let newSlug = undefined;
+    let newSlug = null;
     if (customSlug) {
       newSlug = slugify(customSlug, { lower: true, strict: true });
       const duplicateSlug = await query(`SELECT id FROM categories WHERE slug = ? AND id != ?`, [newSlug, id]);
@@ -95,8 +115,10 @@ async function updateCategory(req, res, next) {
       }
     }
 
-    let parentIdVal = undefined;
+    let parentIdVal = null;
+    let hasParentUpdate = false;
     if (parent_id !== undefined) {
+      hasParentUpdate = true;
       parentIdVal = (parent_id && parent_id !== '0' && parent_id !== 'null') ? parseInt(parent_id, 10) : null;
       // Prevent setting parent to itself
       if (parentIdVal === parseInt(id, 10)) {
@@ -104,27 +126,51 @@ async function updateCategory(req, res, next) {
       }
     }
 
-    await query(
-      `UPDATE categories SET
-         name = COALESCE(?, name),
-         slug = COALESCE(?, slug),
-         parent_id = ?,
-         description = COALESCE(?, description),
-         image = COALESCE(?, image),
-         display_order = COALESCE(?, display_order),
-         is_active = COALESCE(?, is_active)
-       WHERE id = ?`,
-      [
-        name || null,
-        newSlug || null,
-        parentIdVal !== undefined ? parentIdVal : null,
-        description || null,
-        image,
-        display_order !== undefined ? display_order : null,
-        is_active !== undefined ? is_active : null,
-        id
-      ]
-    );
+    // Build dynamic UPDATE query so only provided fields are touched and NO undefined bind params exist
+    const updates = [];
+    const params = [];
+
+    if (name !== undefined) {
+      updates.push('name = ?');
+      params.push(name);
+    }
+    if (newSlug) {
+      updates.push('slug = ?');
+      params.push(newSlug);
+    }
+    if (hasParentUpdate) {
+      updates.push('parent_id = ?');
+      params.push(parentIdVal);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      params.push(description || null);
+    }
+    if (hasNewImage) {
+      updates.push('image = ?');
+      params.push(image);
+    }
+    if (display_order !== undefined) {
+      updates.push('display_order = ?');
+      params.push(Number(display_order) || 0);
+    }
+    if (is_active !== undefined) {
+      updates.push('is_active = ?');
+      params.push(is_active === true || is_active === 'true' || is_active === 1 || is_active === '1');
+    }
+    if (gender !== undefined) {
+      updates.push('gender = ?');
+      params.push(gender || 'all');
+    }
+    if (banner_image !== undefined) {
+      updates.push('banner_image = ?');
+      params.push(banner_image || null);
+    }
+
+    if (updates.length > 0) {
+      params.push(id);
+      await query(`UPDATE categories SET ${updates.join(', ')} WHERE id = ?`, params);
+    }
 
     return sendSuccess(res, { id }, 'Category updated successfully');
   } catch (error) {
@@ -154,4 +200,3 @@ module.exports = {
   updateCategory,
   deleteCategory
 };
-

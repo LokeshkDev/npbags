@@ -152,6 +152,20 @@ const sectionLabels = {
   newsletter_section: 'Newsletter Card'
 };
 
+const defaultHeaderNavItems = [
+  { label: 'Home', url: '/' },
+  { label: 'Women', url: '/womens' },
+  { label: 'Men', url: '/mens' },
+  { label: 'Kids', url: '/kids' },
+  { label: 'Accessories', url: '/shop?category=Accessories' },
+  { label: 'Bags & Handbags', url: '/shop?category=Everyday+essentials' },
+  { label: 'Footwear', url: '/shop?category=Footwear' },
+  { label: 'Water Bottles', url: '/shop?category=Water+Bottles' },
+  { label: 'Key Chains', url: '/shop?category=Key+Chains' },
+  { label: 'Offers', url: '/shop?filter=sale' },
+  { label: 'New Arrivals', url: '/shop?filter=new' }
+];
+
 export default function AdminCMSSectionsPage() {
   const [sections, setSections] = useState({});
   const [sectionOrder, setSectionOrder] = useState(defaultBodyOrder);
@@ -160,6 +174,17 @@ export default function AdminCMSSectionsPage() {
   const [saving, setSaving] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+
+  // Handle ?tab= query parameter on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) {
+        setActiveTab(tabParam);
+      }
+    }
+  }, []);
 
   // Fetch sections from MySQL via admin API
   useEffect(() => {
@@ -433,7 +458,7 @@ export default function AdminCMSSectionsPage() {
     { id: 'campaign_banners', label: '6. Campaign Banners', icon: 'banner', badge: `${sections.campaign_banners?.content?.banners?.length || 0} cards` },
     { id: 'newsletter_section', label: '7. Newsletter Card', icon: 'mail', badge: 'Full Width' },
     { id: 'hero_carousel', label: '8. Hero Slider (Up to 3)', icon: 'image', badge: `${sections.hero_carousel?.content?.slides?.length || 1} slides` },
-    { id: 'main_navigation', label: '9. Header & Nav Ribbon', icon: 'menu', badge: 'Nav' },
+    { id: 'main_navigation', label: '9. Header & Nav Ribbon', icon: 'menu', badge: `${sections.main_navigation?.content?.items?.length || 11} links` },
     { id: 'announcement', label: '10. Top Announcement', icon: 'bell', badge: 'Ticker' },
     { id: 'footer_section', label: '11. Footer Columns', icon: 'info', badge: 'Info' }
   ];
@@ -1478,35 +1503,351 @@ export default function AdminCMSSectionsPage() {
             })()}
 
             {/* TAB 9: MAIN NAVIGATION & BRAND LOGO */}
-            {activeTab === 'main_navigation' && (
-              <div>
-                <h3 style={{ fontSize: '17px', fontWeight: 800, margin: '0 0 4px', color: '#111827' }}>
-                  Header &amp; Brand Logo
-                </h3>
-                <p style={{ color: '#64748b', fontSize: '13px', margin: '0 0 16px' }}>
-                  Brand logo with upload &amp; dimensions, search placeholder, and navigation items.
-                </p>
+            {activeTab === 'main_navigation' && (() => {
+              const navContent = sections.main_navigation?.content || {};
+              const navItems = Array.isArray(navContent.items) && navContent.items.length > 0
+                ? navContent.items
+                : defaultHeaderNavItems;
 
-                <div style={{ maxWidth: '520px', marginBottom: '20px' }}>
-                  <CMSImageUploader
-                    label="Brand Logo"
-                    value={sections.main_navigation?.content?.logo_url}
-                    recommendedDimension="220 × 52 px (Transparent PNG / SVG)"
-                    onChange={(newUrl) => updateContent('main_navigation', { ...sections.main_navigation?.content, logo_url: newUrl })}
-                  />
+              const handleUpdateNavItem = (index, field, val) => {
+                const nextItems = navItems.map((item, i) => i === index ? { ...item, [field]: val } : item);
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
 
-                  <div className="form-group" style={{ marginTop: '12px' }}>
-                    <label className="form-label">Search Input Placeholder</label>
-                    <input
-                      type="text"
-                      value={sections.main_navigation?.content?.search_placeholder || ''}
-                      onChange={(e) => updateContent('main_navigation', { ...sections.main_navigation?.content, search_placeholder: e.target.value })}
-                      className="form-input"
-                    />
+              const handleMoveNavItem = (index, direction) => {
+                const targetIndex = index + direction;
+                if (targetIndex < 0 || targetIndex >= navItems.length) return;
+                const nextItems = [...navItems];
+                const [moved] = nextItems.splice(index, 1);
+                nextItems.splice(targetIndex, 0, moved);
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
+
+              const handleAddNavItem = () => {
+                const nextItems = [...navItems, { label: 'New Link', url: '/shop' }];
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
+
+              const handleDeleteNavItem = (index) => {
+                if (navItems.length <= 1) {
+                  alert('Navigation menu must have at least one link.');
+                  return;
+                }
+                const nextItems = navItems.filter((_, i) => i !== index);
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
+
+              const handleResetToDefault = () => {
+                if (confirm('Reset header navigation menu to recommended default links?')) {
+                  updateContent('main_navigation', { ...navContent, items: defaultHeaderNavItems });
+                }
+              };
+
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px', color: '#111827' }}>
+                        Header Branding &amp; Navigation Menu
+                      </h3>
+                      <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>
+                        Manage brand logo, search placeholder, and the editable header ribbon menu items stored in MySQL.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-primary"
+                      onClick={() => handleSave('main_navigation')}
+                      disabled={saving}
+                      style={{ background: '#065935', borderColor: '#065935', padding: '8px 20px', fontSize: '13px', fontWeight: 700 }}
+                    >
+                      <Icon name="check" size={15} />
+                      <span>{saving ? 'Saving...' : 'Save Navigation & Header'}</span>
+                    </button>
+                  </div>
+
+                  {/* 1. Brand Logo & Search Placeholder Box */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', marginBottom: '28px' }}>
+                    <h4 style={{ fontSize: '14px', fontWeight: 700, margin: '0 0 14px', color: '#1e293b' }}>
+                      Brand Logo &amp; Search Placeholder
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                      <CMSImageUploader
+                        label="Header Brand Logo"
+                        value={navContent.logo_url}
+                        recommendedDimension="220 × 52 px (Transparent PNG / SVG)"
+                        onChange={(newUrl) => updateContent('main_navigation', { ...navContent, logo_url: newUrl })}
+                      />
+                      <div className="form-group">
+                        <label className="form-label" style={{ fontWeight: 600, fontSize: '12.5px' }}>Search Bar Placeholder Text</label>
+                        <input
+                          type="text"
+                          value={navContent.search_placeholder || ''}
+                          placeholder="Search for bags, jewellery, shoes, water bottles..."
+                          onChange={(e) => updateContent('main_navigation', { ...navContent, search_placeholder: e.target.value })}
+                          className="form-input"
+                          style={{ marginTop: '6px' }}
+                        />
+                        <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '6px' }}>
+                          Appears inside the header search box across the store.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Header Navigation Ribbon Links Box */}
+                  <div style={{ background: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '18px' }}>
+                      <div>
+                        <h4 style={{ fontSize: '15.5px', fontWeight: 800, margin: '0 0 4px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>🔗</span> Header Navigation Ribbon Menu ({navItems.length} Links)
+                        </h4>
+                        <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+                          Edit titles, change link routes, reorder positions (▲/▼), and add new items shown on the header ribbon.
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={handleResetToDefault}
+                          style={{
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '8px',
+                            padding: '7px 14px',
+                            fontSize: '12.5px',
+                            fontWeight: 600,
+                            color: '#475569',
+                            cursor: 'pointer'
+                          }}
+                          title="Restore recommended default links"
+                        >
+                          ↺ Reset to Recommended
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddNavItem}
+                          style={{
+                            background: '#065935',
+                            border: '1px solid #065935',
+                            borderRadius: '8px',
+                            padding: '7px 16px',
+                            fontSize: '12.5px',
+                            fontWeight: 700,
+                            color: '#ffffff',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <span>+ Add Menu Link</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Live Preview Ribbon */}
+                    <div style={{ marginBottom: '22px', padding: '14px 18px', background: '#fafafa', border: '1px dashed #cbd5e1', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', marginBottom: '8px' }}>
+                        Live Header Ribbon Preview:
+                      </div>
+                      <div style={{ display: 'flex', gap: '18px', overflowX: 'auto', paddingBottom: '4px', alignItems: 'center' }}>
+                        {navItems.map((item, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              color: i === 0 ? 'var(--np-green, #065935)' : '#334155',
+                              whiteSpace: 'nowrap',
+                              borderBottom: i === 0 ? '2px solid var(--np-green, #065935)' : '2px solid transparent',
+                              paddingBottom: '2px'
+                            }}
+                          >
+                            {item.label || 'Untitled'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* List of Menu Items */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {navItems.map((item, idx) => {
+                        const isFirst = idx === 0;
+                        const isLast = idx === navItems.length - 1;
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '12px',
+                              padding: '10px 14px',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              flexWrap: 'wrap'
+                            }}
+                          >
+                            <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#94a3b8', width: '28px' }}>
+                              #{idx + 1}
+                            </span>
+
+                            {/* Move Up/Down Controls */}
+                            <div style={{ display: 'flex', gap: '3px' }}>
+                              <button
+                                type="button"
+                                disabled={isFirst}
+                                onClick={() => handleMoveNavItem(idx, -1)}
+                                style={{
+                                  background: isFirst ? '#f1f5f9' : '#e2e8f0',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  padding: '4px 7px',
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  cursor: isFirst ? 'not-allowed' : 'pointer',
+                                  color: isFirst ? '#94a3b8' : '#0f172a'
+                                }}
+                                title="Move Left / Up"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLast}
+                                onClick={() => handleMoveNavItem(idx, 1)}
+                                style={{
+                                  background: isLast ? '#f1f5f9' : '#e2e8f0',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  padding: '4px 7px',
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  cursor: isLast ? 'not-allowed' : 'pointer',
+                                  color: isLast ? '#94a3b8' : '#0f172a'
+                                }}
+                                title="Move Right / Down"
+                              >
+                                ▼
+                              </button>
+                            </div>
+
+                            {/* Label Input */}
+                            <div style={{ flex: '1 1 180px' }}>
+                              <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                                Menu Label
+                              </label>
+                              <input
+                                type="text"
+                                value={item.label || ''}
+                                placeholder="e.g. Women, Handbags"
+                                onChange={(e) => handleUpdateNavItem(idx, 'label', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '13px',
+                                  fontWeight: 600,
+                                  color: '#0f172a',
+                                  background: '#ffffff'
+                                }}
+                              />
+                            </div>
+
+                            {/* URL Input */}
+                            <div style={{ flex: '2 1 240px' }}>
+                              <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                                Target Link URL / Route
+                              </label>
+                              <input
+                                type="text"
+                                value={item.url || ''}
+                                placeholder="e.g. /womens, /mens, /kids, /shop?category=..."
+                                onChange={(e) => handleUpdateNavItem(idx, 'url', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '13px',
+                                  fontFamily: 'monospace',
+                                  color: '#0f172a',
+                                  background: '#ffffff'
+                                }}
+                              />
+                            </div>
+
+                            {/* Quick Route Helper Buttons */}
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateNavItem(idx, 'url', '/womens')}
+                                style={{ fontSize: '10px', background: '#fce7f3', color: '#9d174d', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                title="Set URL to /womens"
+                              >
+                                👩 Women
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateNavItem(idx, 'url', '/mens')}
+                                style={{ fontSize: '10px', background: '#e0f2fe', color: '#0369a1', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                title="Set URL to /mens"
+                              >
+                                👤 Men
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateNavItem(idx, 'url', '/kids')}
+                                style={{ fontSize: '10px', background: '#fef3c7', color: '#b45309', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                title="Set URL to /kids"
+                              >
+                                🧒 Kids
+                              </button>
+                            </div>
+
+                            {/* Delete Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNavItem(idx)}
+                              style={{
+                                background: '#fee2e2',
+                                border: '1px solid #fecaca',
+                                borderRadius: '6px',
+                                color: '#b91c1c',
+                                padding: '6px 10px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                marginLeft: 'auto'
+                              }}
+                              title="Delete Link"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-primary"
+                        onClick={() => handleSave('main_navigation')}
+                        disabled={saving}
+                        style={{ background: '#065935', borderColor: '#065935', padding: '9px 24px', fontSize: '13px', fontWeight: 700 }}
+                      >
+                        <Icon name="check" size={15} />
+                        <span>{saving ? 'Saving...' : 'Save All Header Links'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* TAB 10: STORE ANNOUNCEMENT */}
             {activeTab === 'announcement' && (

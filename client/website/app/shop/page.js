@@ -131,10 +131,12 @@ function ShopContent() {
 
   // Dynamic Banner Background Image resolution (Category -> Parent -> CMS Banner -> Fallback)
   const activeBannerImage = useMemo(() => {
+    if (activeCategoryObj?.banner_image) return activeCategoryObj.banner_image;
     if (activeCategoryObj?.image) return activeCategoryObj.image;
+    if (parentCategoryObj?.banner_image) return parentCategoryObj.banner_image;
     if (parentCategoryObj?.image) return parentCategoryObj.image;
-    const firstActive = banners.find(b => b.is_active !== 0 && b.image);
-    if (firstActive?.image) return firstActive.image;
+    const firstActive = banners.find(b => b.is_active !== 0 && (b.image_url || b.image));
+    if (firstActive?.image_url || firstActive?.image) return firstActive.image_url || firstActive.image;
     return DEFAULT_BANNER_IMG;
   }, [activeCategoryObj, parentCategoryObj, banners]);
 
@@ -322,100 +324,118 @@ function ShopContent() {
       />
 
       <div className="container">
-        {/* Compact Shop Header Banner (Title + Breadcrumbs + BG Image) */}
+        {/* Breadcrumb Navigation (Cleanly positioned above the banner) */}
+        <nav className="breadcrumbs shop-breadcrumbs" aria-label="Breadcrumb" style={{ marginBottom: '16px', fontSize: '13px' }}>
+          <ol itemScope itemType="https://schema.org/BreadcrumbList" style={{ listStyle: 'none', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', margin: 0, padding: 0 }}>
+            <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem">
+              <Link href="/" itemProp="item" style={{ color: '#4b5563', textDecoration: 'none' }}>
+                <span itemProp="name">Home</span>
+              </Link>
+              <meta itemProp="position" content="1" />
+            </li>
+            <span className="breadcrumbs-sep" aria-hidden="true" style={{ color: '#9ca3af' }}>/</span>
+            <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem">
+              <Link
+                href="/shop"
+                itemProp="item"
+                style={{ color: selectedCategory === 'all' && !search ? '#111827' : '#4b5563', fontWeight: selectedCategory === 'all' && !search ? 700 : 500, textDecoration: 'none' }}
+                onClick={() => {
+                  if (selectedCategory !== 'all' || search) {
+                    setSelectedCategory('all');
+                    setSearch('');
+                  }
+                }}
+              >
+                <span itemProp="name">Shop</span>
+              </Link>
+              <meta itemProp="position" content="2" />
+            </li>
+            {parentCategoryObj && (
+              <>
+                <span className="breadcrumbs-sep" aria-hidden="true" style={{ color: '#9ca3af' }}>/</span>
+                <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem">
+                  <button
+                    type="button"
+                    style={{ background: 'none', border: 'none', padding: 0, color: '#4b5563', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}
+                    onClick={() => setSelectedCategory(parentCategoryObj.slug || parentCategoryObj.name)}
+                  >
+                    <span itemProp="name">{parentCategoryObj.name}</span>
+                  </button>
+                  <meta itemProp="position" content="3" />
+                </li>
+              </>
+            )}
+            {activeCategoryObj && (
+              <>
+                <span className="breadcrumbs-sep" aria-hidden="true" style={{ color: '#9ca3af' }}>/</span>
+                <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem" aria-current="page">
+                  <span style={{ color: '#111827', fontWeight: 700 }} itemProp="name">{activeCategoryObj.name}</span>
+                  <meta itemProp="position" content={parentCategoryObj ? "4" : "3"} />
+                </li>
+              </>
+            )}
+            {deferredSearch && (
+              <>
+                <span className="breadcrumbs-sep" aria-hidden="true" style={{ color: '#9ca3af' }}>/</span>
+                <li aria-current="page">
+                  <span style={{ color: '#111827', fontWeight: 700 }}>Search: &quot;{deferredSearch}&quot;</span>
+                </li>
+              </>
+            )}
+          </ol>
+        </nav>
+
+        {/* Pure Category Shop Page Banner: NO OVERLAY, NO TEXT ON IMAGE, 100% CLEAN & OPTIMIZED */}
         {loading ? (
-          <section className="shop-compact-banner is-loading" aria-label="Loading banner">
-            <div className="shop-compact-banner__overlay" />
-            <div className="shop-compact-banner__content">
-              <div className="shop-compact-banner__skeleton-line" style={{ width: 140, height: 14 }} />
-              <div className="shop-compact-banner__skeleton-line" style={{ width: 220, height: 28, marginTop: 4 }} />
-            </div>
-          </section>
+          <section className="shop-pure-banner is-loading" aria-label="Loading banner" style={{ width: '100%', height: '220px', borderRadius: '16px', background: '#f5f5f5', marginBottom: '24px' }} />
         ) : (
-          <section className="shop-compact-banner" aria-label="Page Header">
+          <section
+            className="shop-pure-banner"
+            aria-label="Category Page Banner"
+            style={{
+              position: 'relative',
+              borderRadius: '16px',
+              overflow: 'hidden',
+              marginBottom: '26px',
+              maxHeight: '260px',
+              width: '100%',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
+            }}
+          >
             <img
               key={activeBannerImage}
-              className="shop-compact-banner__bg"
+              className="shop-pure-banner__img"
               src={activeBannerImage}
               alt={bannerTitle}
               fetchPriority="high"
               decoding="async"
               loading="eager"
+              style={{
+                width: '100%',
+                height: '100%',
+                maxHeight: '260px',
+                objectFit: 'cover',
+                display: 'block'
+              }}
             />
-            <div className="shop-compact-banner__overlay" />
-            <div className="shop-compact-banner__content">
-              {/* Breadcrumbs inside banner with WCAG & Schema */}
-              <nav className="shop-compact-banner__breadcrumbs" aria-label="Breadcrumb">
-                <ol itemScope itemType="https://schema.org/BreadcrumbList">
-                  <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem">
-                    <Link href="/" itemProp="item">
-                      <span itemProp="name">Home</span>
-                    </Link>
-                    <meta itemProp="position" content="1" />
-                  </li>
-                  <span className="breadcrumbs-sep" aria-hidden="true">/</span>
-                  <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem">
-                    <Link
-                      href="/shop"
-                      itemProp="item"
-                      className={selectedCategory === 'all' && !search ? 'breadcrumbs-current' : ''}
-                      onClick={() => {
-                        if (selectedCategory !== 'all' || search) {
-                          setSelectedCategory('all');
-                          setSearch('');
-                        }
-                      }}
-                    >
-                      <span itemProp="name">Shop</span>
-                    </Link>
-                    <meta itemProp="position" content="2" />
-                  </li>
-                  {parentCategoryObj && (
-                    <>
-                      <span className="breadcrumbs-sep" aria-hidden="true">/</span>
-                      <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem">
-                        <button
-                          type="button"
-                          className="breadcrumb-btn-link"
-                          onClick={() => setSelectedCategory(parentCategoryObj.slug || parentCategoryObj.name)}
-                        >
-                          <span itemProp="name">{parentCategoryObj.name}</span>
-                        </button>
-                        <meta itemProp="position" content="3" />
-                      </li>
-                    </>
-                  )}
-                  {activeCategoryObj && (
-                    <>
-                      <span className="breadcrumbs-sep" aria-hidden="true">/</span>
-                      <li itemProp="itemListElement" itemScope itemType="https://schema.org/ListItem" aria-current="page">
-                        <span className="breadcrumbs-current" itemProp="name">{activeCategoryObj.name}</span>
-                        <meta itemProp="position" content={parentCategoryObj ? "4" : "3"} />
-                      </li>
-                    </>
-                  )}
-                  {deferredSearch && (
-                    <>
-                      <span className="breadcrumbs-sep" aria-hidden="true">/</span>
-                      <li aria-current="page">
-                        <span className="breadcrumbs-current">Search: &quot;{deferredSearch}&quot;</span>
-                      </li>
-                    </>
-                  )}
-                </ol>
-              </nav>
-
-              {/* Compact Title */}
-              <h1 className="shop-compact-banner__title">
-                {deferredSearch ? (
-                  <>Search: <em>&ldquo;{deferredSearch}&rdquo;</em></>
-                ) : (
-                  bannerTitle
-                )}
-              </h1>
-            </div>
           </section>
         )}
+
+        {/* Clean Page Title Bar (Positioned outside/below the banner) */}
+        <div className="shop-page-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#111827', margin: '0 0 2px', letterSpacing: '-0.01em' }}>
+              {deferredSearch ? (
+                <>Search: <em>&ldquo;{deferredSearch}&rdquo;</em></>
+              ) : (
+                bannerTitle
+              )}
+            </h1>
+            <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>
+              Showing {filteredProducts.length} {filteredProducts.length === 1 ? 'Product' : 'Products'}
+            </p>
+          </div>
+        </div>
 
         {/* Filter Drawer Backdrop Overlay */}
         <div

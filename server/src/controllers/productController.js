@@ -7,6 +7,7 @@ async function getAllProducts(req, res, next) {
   try {
     const {
       category,
+      gender,
       minPrice,
       maxPrice,
       badge,
@@ -36,6 +37,11 @@ async function getAllProducts(req, res, next) {
         OR LOWER(COALESCE(parent.slug, '')) = LOWER(?) OR LOWER(COALESCE(parent.name, '')) = LOWER(?)
       )`;
       params.push(category, category, category, category);
+    }
+
+    if (gender && gender !== 'all') {
+      sql += ` AND (LOWER(COALESCE(p.gender, 'all')) = LOWER(?) OR LOWER(COALESCE(c.gender, 'all')) = LOWER(?) OR LOWER(COALESCE(parent.gender, 'all')) = LOWER(?) OR p.gender = 'all' OR p.gender IS NULL)`;
+      params.push(gender, gender, gender);
     }
 
     if (minPrice) {
@@ -309,6 +315,7 @@ async function createProduct(req, res, next) {
       name,
       slug: customSlug,
       category_id,
+      gender,
       price,
       sale_price,
       badge,
@@ -346,6 +353,15 @@ async function createProduct(req, res, next) {
     }
     const id = slug;
 
+    // Determine gender (explicit or inherited from category)
+    let genderVal = gender || 'all';
+    if ((!gender || gender === 'all') && category_id) {
+      const catRow = await query(`SELECT gender FROM categories WHERE id = ?`, [category_id]);
+      if (catRow.length > 0 && catRow[0].gender) {
+        genderVal = catRow[0].gender;
+      }
+    }
+
     // Build dimensions text fallback if separate dimensions provided
     let finalDimensions = dimensions;
     const w = dimension_w ? parseFloat(dimension_w) : null;
@@ -361,17 +377,18 @@ async function createProduct(req, res, next) {
 
     await query(
       `INSERT INTO products (
-         id, slug, name, category_id, price, sale_price, badge, tagline,
+         id, slug, name, category_id, gender, price, sale_price, badge, tagline,
          description, features, materials, care_instructions, dimensions, dimension_w, dimension_h, dimension_l,
          shipping_info, seo_title, seo_description, seo_keywords,
          is_featured, is_new_arrival, is_best_selling, is_active
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
       [
         id,
         slug,
         name,
         category_id || null,
+        genderVal,
         parseFloat(price),
         sale_price ? parseFloat(sale_price) : 0,
         badge || null,
@@ -467,6 +484,7 @@ async function updateProduct(req, res, next) {
       name,
       slug: newSlug,
       category_id,
+      gender,
       price,
       sale_price,
       badge,
@@ -570,6 +588,10 @@ async function updateProduct(req, res, next) {
         id
       ]
     );
+
+    if (gender !== undefined) {
+      await query(`UPDATE products SET gender = ? WHERE id = ?`, [gender || 'all', id]);
+    }
 
     // If new files uploaded
     if (req.files && req.files.length > 0) {

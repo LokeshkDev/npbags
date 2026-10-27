@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
@@ -16,11 +17,13 @@ export default function AdminCategoriesPage() {
     name: '',
     slug: '',
     parent_id: '',
+    gender: 'all',
     description: '',
     display_order: 0,
     image: null
   });
   const [saving, setSaving] = useState(false);
+  const [genderFilter, setGenderFilter] = useState('all'); // 'all', 'women', 'men', 'kids'
 
   const loadCategories = () => {
     getAdminCategories()
@@ -36,10 +39,14 @@ export default function AdminCategoriesPage() {
 
   const openAddModal = (parentId = '') => {
     setEditingCategory(null);
+    const parentCat = categories.find(c => String(c.id) === String(parentId));
+    const defaultGender = parentCat?.gender || (genderFilter !== 'all' ? genderFilter : 'all');
+
     setFormData({
       name: '',
       slug: '',
       parent_id: parentId ? String(parentId) : '',
+      gender: defaultGender,
       description: '',
       display_order: 0,
       image: null
@@ -53,11 +60,23 @@ export default function AdminCategoriesPage() {
       name: cat.name || '',
       slug: cat.slug || '',
       parent_id: cat.parent_id ? String(cat.parent_id) : '',
+      gender: cat.gender || 'all',
       description: cat.description || '',
       display_order: cat.display_order ?? 0,
       image: null
     });
     setIsModalOpen(true);
+  };
+
+  // Helper to auto-generate slug from current category name
+  const generateSlugFromName = () => {
+    if (!formData.name) return;
+    const cleanSlug = formData.name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+    setFormData(prev => ({ ...prev, slug: cleanSlug }));
   };
 
   const handleSubmit = async (e) => {
@@ -68,6 +87,7 @@ export default function AdminCategoriesPage() {
       data.append('name', formData.name);
       data.append('slug', formData.slug);
       data.append('parent_id', formData.parent_id ? formData.parent_id : '');
+      data.append('gender', formData.gender || 'all');
       data.append('description', formData.description || '');
       data.append('display_order', formData.display_order);
       if (formData.image) {
@@ -81,7 +101,7 @@ export default function AdminCategoriesPage() {
       }
 
       setIsModalOpen(false);
-      setFormData({ name: '', slug: '', parent_id: '', description: '', display_order: 0, image: null });
+      setFormData({ name: '', slug: '', parent_id: '', gender: 'all', description: '', display_order: 0, image: null });
       loadCategories();
     } catch (err) {
       alert(err.message || 'Error saving category');
@@ -136,8 +156,47 @@ export default function AdminCategoriesPage() {
     setExpandedIds(new Set());
   };
 
-  // Filtered categories
+  // Helper badge renderer for Gender / Department
+  const renderGenderBadge = (g) => {
+    const val = (g || 'all').toLowerCase();
+    if (val === 'women') {
+      return (
+        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fce7f3', color: '#be185d' }}>
+          👩 Women
+        </span>
+      );
+    }
+    if (val === 'men') {
+      return (
+        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#e0f2fe', color: '#0369a1' }}>
+          👤 Men
+        </span>
+      );
+    }
+    if (val === 'kids') {
+      return (
+        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fef3c7', color: '#b45309' }}>
+          🧒 Kids
+        </span>
+      );
+    }
+    return (
+      <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b' }}>
+        🌐 Unisex
+      </span>
+    );
+  };
+
+  // Filtered categories according to gender filter and search query
   const filteredMainCategories = mainCategories.filter(main => {
+    // Department / Gender filter
+    if (genderFilter !== 'all') {
+      const subcats = categories.filter(c => c.parent_id === main.id);
+      const matchesMainGender = (main.gender || 'all').toLowerCase() === genderFilter;
+      const matchesSubGender = subcats.some(s => (s.gender || 'all').toLowerCase() === genderFilter);
+      if (!matchesMainGender && !matchesSubGender) return false;
+    }
+
     if (!categorySearch.trim()) return true;
     const q = categorySearch.toLowerCase();
     const matchesMain = main.name.toLowerCase().includes(q) || (main.slug && main.slug.toLowerCase().includes(q));
@@ -146,8 +205,10 @@ export default function AdminCategoriesPage() {
     return matchesMain || matchesSub;
   });
 
-  // Orphaned subcategories
-  const orphanedSubcategories = categories.filter(c => c.parent_id && !mainCategories.some(m => m.id === c.parent_id));
+  // Department counts
+  const womenCount = categories.filter(c => (c.gender || '').toLowerCase() === 'women').length;
+  const menCount = categories.filter(c => (c.gender || '').toLowerCase() === 'men').length;
+  const kidsCount = categories.filter(c => (c.gender || '').toLowerCase() === 'kids').length;
 
   return (
     <div className="admin-layout">
@@ -156,14 +217,21 @@ export default function AdminCategoriesPage() {
         <Topbar title="Collections & Categories" />
 
         <div className="admin-content">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
             <div>
-              <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink)' }}>Product Categories & Subcategories</h1>
+              <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink)' }}>Product Categories &amp; Taxonomy</h1>
               <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>
-                Organize main categories and subcategories in an accordion structure for storefront navigation and catalog hierarchy.
+                Organize main categories, subcategories, and departments (Women, Men, Kids) for storefront navigation and dedicated department hubs.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
+              <Link
+                href="/banners"
+                className="admin-btn admin-btn-outline"
+                style={{ fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span>🖼️ Category Page Banners</span>
+              </Link>
               <button
                 type="button"
                 className="admin-btn admin-btn-outline"
@@ -182,6 +250,50 @@ export default function AdminCategoriesPage() {
                 <span>Add Category</span>
               </button>
             </div>
+          </div>
+
+          {/* Department Filter Tabs (AJIO Reference: All, Women, Men, Kids) */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
+            {[
+              { id: 'all', label: 'All Categories', count: categories.length },
+              { id: 'women', label: '👩 Women', count: womenCount },
+              { id: 'men', label: '👤 Men', count: menCount },
+              { id: 'kids', label: '🧒 Kids', count: kidsCount }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setGenderFilter(tab.id)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '7px 14px',
+                  borderRadius: '20px',
+                  fontSize: '12.5px',
+                  fontWeight: genderFilter === tab.id ? 700 : 500,
+                  border: genderFilter === tab.id ? '1.5px solid var(--ink, #111)' : '1px solid #e2e8f0',
+                  background: genderFilter === tab.id ? 'var(--ink, #111)' : '#ffffff',
+                  color: genderFilter === tab.id ? '#ffffff' : '#4b5563',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>{tab.label}</span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: '10px',
+                    background: genderFilter === tab.id ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                    color: genderFilter === tab.id ? '#ffffff' : '#64748b'
+                  }}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
           </div>
 
           {/* Search bar */}
@@ -206,7 +318,7 @@ export default function AdminCategoriesPage() {
             {filteredMainCategories.length === 0 ? (
               <div className="stat-card" style={{ padding: '48px', textAlign: 'center', color: 'var(--muted)' }}>
                 <Icon name="grid" size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
-                <p style={{ margin: 0 }}>No categories found matching your search.</p>
+                <p style={{ margin: 0 }}>No categories found matching your search or department filter.</p>
               </div>
             ) : (
               filteredMainCategories.map(mainCat => {
@@ -264,6 +376,7 @@ export default function AdminCategoriesPage() {
                             <code style={{ fontSize: '11px', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#64748b' }}>
                               /{mainCat.slug}
                             </code>
+                            {renderGenderBadge(mainCat.gender)}
                           </div>
                           {mainCat.description && (
                             <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px', maxWidth: '450px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -299,44 +412,39 @@ export default function AdminCategoriesPage() {
                           Order: {mainCat.display_order ?? 0}
                         </span>
 
-                        {/* Actions buttons */}
-                        <div
-                          style={{ display: 'flex', gap: '6px', alignItems: 'center' }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             className="admin-btn admin-btn-outline"
-                            style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                             onClick={() => openAddModal(mainCat.id)}
                             title="Add subcategory under this category"
                           >
-                            <Icon name="plus" size={12} />
+                            <Icon name="plus" size={13} />
                             <span>Add Sub</span>
                           </button>
                           <button
                             type="button"
-                            className="admin-btn admin-btn-outline"
-                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                            className="action-btn"
                             onClick={() => openEditModal(mainCat)}
-                            title="Edit Main Category"
+                            title="Edit Category"
                           >
-                            <Icon name="edit" size={13} />
+                            <Icon name="edit" size={14} />
                           </button>
                           <button
                             type="button"
-                            className="admin-btn admin-btn-outline"
-                            style={{ color: '#ef4444', borderColor: '#ef4444', padding: '4px 8px', fontSize: '11px' }}
+                            className="action-btn text-danger"
                             onClick={() => handleDelete(mainCat.id, mainCat.name)}
                             title="Delete Category"
                           >
-                            <Icon name="trash" size={13} />
+                            <Icon name="trash" size={14} />
                           </button>
                         </div>
                       </div>
                     </div>
 
-                    {/* Accordion Body: Subcategories */}
+                    {/* Subcategories Panel */}
                     {isExpanded && (
                       <div style={{ background: '#f8fafc', padding: '16px 20px', borderTop: '1px solid #e2e8f0' }}>
                         {subcategories.length === 0 ? (
@@ -370,6 +478,7 @@ export default function AdminCategoriesPage() {
                                   <th style={{ width: '40px', fontSize: '11px' }}>Cover</th>
                                   <th style={{ fontSize: '11px' }}>Subcategory Name</th>
                                   <th style={{ fontSize: '11px' }}>Slug</th>
+                                  <th style={{ fontSize: '11px' }}>Department</th>
                                   <th style={{ fontSize: '11px' }}>Products</th>
                                   <th style={{ fontSize: '11px' }}>Order</th>
                                   <th style={{ fontSize: '11px' }}>Status</th>
@@ -407,6 +516,9 @@ export default function AdminCategoriesPage() {
                                       <code style={{ fontSize: '11px', color: '#475569' }}>{sub.slug}</code>
                                     </td>
                                     <td>
+                                      {renderGenderBadge(sub.gender)}
+                                    </td>
+                                    <td>
                                       <span style={{ fontSize: '12px', fontWeight: 600 }}>{sub.product_count || 0}</span>
                                     </td>
                                     <td>
@@ -419,21 +531,19 @@ export default function AdminCategoriesPage() {
                                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                                         <button
                                           type="button"
-                                          className="admin-btn admin-btn-outline"
-                                          style={{ padding: '3px 7px', fontSize: '11px' }}
+                                          className="action-btn"
                                           onClick={() => openEditModal(sub)}
                                           title="Edit Subcategory"
                                         >
-                                          <Icon name="edit" size={12} />
+                                          <Icon name="edit" size={13} />
                                         </button>
                                         <button
                                           type="button"
-                                          className="admin-btn admin-btn-outline"
-                                          style={{ color: '#ef4444', borderColor: '#ef4444', padding: '3px 7px', fontSize: '11px' }}
+                                          className="action-btn text-danger"
                                           onClick={() => handleDelete(sub.id, sub.name)}
                                           title="Delete Subcategory"
                                         >
-                                          <Icon name="trash" size={12} />
+                                          <Icon name="trash" size={13} />
                                         </button>
                                       </div>
                                     </td>
@@ -448,57 +558,6 @@ export default function AdminCategoriesPage() {
                   </div>
                 );
               })
-            )}
-
-            {/* Standalone / Orphaned Subcategories (if any) */}
-            {orphanedSubcategories.length > 0 && (
-              <div
-                style={{
-                  background: '#fff',
-                  borderRadius: '10px',
-                  border: '1px solid #fde68a',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                  overflow: 'hidden',
-                  marginTop: '12px'
-                }}
-              >
-                <div style={{ padding: '14px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
-                  <strong style={{ fontSize: '14px', color: '#92400e' }}>Standalone / Unparented Categories</strong>
-                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#b45309' }}>
-                    These categories had a parent category that was deleted. You can reassign them by clicking edit.
-                  </p>
-                </div>
-                <div style={{ padding: '12px' }}>
-                  <table className="admin-table" style={{ margin: 0 }}>
-                    <tbody>
-                      {orphanedSubcategories.map(sub => (
-                        <tr key={sub.id}>
-                          <td><strong>{sub.name}</strong></td>
-                          <td><code>{sub.slug}</code></td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button
-                              type="button"
-                              className="admin-btn admin-btn-outline"
-                              style={{ padding: '3px 7px', fontSize: '11px', marginRight: '6px' }}
-                              onClick={() => openEditModal(sub)}
-                            >
-                              <Icon name="edit" size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              className="admin-btn admin-btn-outline"
-                              style={{ color: '#ef4444', borderColor: '#ef4444', padding: '3px 7px', fontSize: '11px' }}
-                              onClick={() => handleDelete(sub.id, sub.name)}
-                            >
-                              <Icon name="trash" size={12} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             )}
           </div>
 
@@ -515,26 +574,81 @@ export default function AdminCategoriesPage() {
                 <select
                   className="form-control"
                   value={formData.parent_id}
-                  onChange={(e) => setFormData({ ...formData, parent_id: e.target.value })}
+                  onChange={(e) => {
+                    const pid = e.target.value;
+                    const parentCat = categories.find(c => String(c.id) === String(pid));
+                    setFormData(prev => ({
+                      ...prev,
+                      parent_id: pid,
+                      gender: parentCat?.gender || prev.gender
+                    }));
+                  }}
                 >
                   <option value="">-- None (Top-Level Main Category) --</option>
                   {topLevelCategories.map(parent => (
                     <option key={parent.id} value={parent.id}>
-                      Subcategory of: {parent.name}
+                      Subcategory of: {parent.name} ({parent.gender || 'all'})
                     </option>
                   ))}
                 </select>
                 <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
-                  Choose &quot;None&quot; to make this a primary category, or select a parent category to create a subcategory.
+                  Choose &quot;None&quot; for a primary category (e.g. Handbags, Accessories), or select a parent category to create a subcategory (e.g. Tote Bags under Handbags).
                 </span>
               </div>
 
+              {/* Target Department / Gender */}
+              <div className="form-group">
+                <label className="form-label">Department / Target Audience *</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '6px' }}>
+                  {[
+                    { id: 'women', label: '👩 Women', desc: 'Handbags, Totes, Slings' },
+                    { id: 'men', label: '👤 Men', desc: 'Wallets, Backpacks, Belts' },
+                    { id: 'kids', label: '🧒 Kids', desc: 'School Bags, Mini Pouches' },
+                    { id: 'all', label: '🌐 All / Unisex', desc: 'Common Collections' }
+                  ].map(g => (
+                    <label
+                      key={g.id}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: '10px 8px',
+                        borderRadius: '8px',
+                        border: formData.gender === g.id ? '2px solid var(--brand-red, #c8102e)' : '1px solid #e2e8f0',
+                        background: formData.gender === g.id ? 'rgba(200, 16, 46, 0.05)' : '#ffffff',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="category-gender"
+                        value={g.id}
+                        checked={formData.gender === g.id}
+                        onChange={() => setFormData({ ...formData, gender: g.id })}
+                        style={{ display: 'none' }}
+                      />
+                      <span style={{ fontWeight: '700', fontSize: '13px', color: formData.gender === g.id ? 'var(--brand-red, #c8102e)' : '#111827' }}>
+                        {g.label}
+                      </span>
+                      <span style={{ fontSize: '10.5px', color: '#6b7280', marginTop: '3px' }}>
+                        {g.desc}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
+                  Assigning to Women, Men, or Kids enables dedicated department hubs at <code>/womens</code>, <code>/mens</code>, or <code>/kids</code>.
+                </span>
+              </div>
+
+              {/* Category Name */}
               <div className="form-group">
                 <label className="form-label">Category Name *</label>
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="e.g. Travel Backpacks"
+                  placeholder="e.g. Tote Bags"
                   value={formData.name}
                   onChange={(e) => {
                     const name = e.target.value;
@@ -548,16 +662,42 @@ export default function AdminCategoriesPage() {
                 />
               </div>
 
+              {/* Slug with Auto-Generate Button */}
               <div className="form-group">
-                <label className="form-label">Slug (URL Handle) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Slug (URL Handle) *</label>
+                  <button
+                    type="button"
+                    onClick={generateSlugFromName}
+                    style={{
+                      background: '#f1f5f9',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: '700',
+                      padding: '3px 9px',
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Auto-generate slug from Category Name"
+                  >
+                    <span>⚡ Auto-Generate from Name</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="e.g. travel-backpacks"
+                  placeholder="e.g. tote-bags"
                   value={formData.slug}
                   onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '') })}
                   required
                 />
+                <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
+                  URL preview: <code>npgrand.com/shop?category={formData.slug || 'category-slug'}</code>
+                </span>
               </div>
 
               <div className="form-group">

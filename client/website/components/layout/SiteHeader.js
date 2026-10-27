@@ -8,9 +8,9 @@ import { useWishlist } from '../../lib/wishlist-context';
 
 const defaultNavItems = [
   { label: 'Home', url: '/' },
-  { label: 'Women', url: '/shop?category=Womens' },
-  { label: 'Men', url: '/shop?category=Mens' },
-  { label: 'Kids', url: '/shop?category=Kids' },
+  { label: 'Women', url: '/womens' },
+  { label: 'Men', url: '/mens' },
+  { label: 'Kids', url: '/kids' },
   { label: 'Accessories', url: '/shop?category=Accessories' },
   { label: 'Bags & Handbags', url: '/shop?category=Everyday+essentials' },
   { label: 'Footwear', url: '/shop?category=Footwear' },
