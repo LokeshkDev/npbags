@@ -6,7 +6,13 @@ import { useCart } from '../../lib/cart-context';
 import { useWishlist } from '../../lib/wishlist-context';
 import { useQuickView } from '../../lib/quickview-context';
 
-export function ProductCard({ product, index = 0 }) {
+export function ProductCard({
+  product,
+  index = 0,
+  showRating = true,
+  isShop = false,
+  fullImage = false
+}) {
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { openQuickView } = useQuickView();
@@ -20,7 +26,11 @@ export function ProductCard({ product, index = 0 }) {
   const ratingVal = product.rating ? Number(product.rating).toFixed(1) : '4.8';
 
   return (
-    <article className="product-card" data-product-id={product.id} data-index={index}>
+    <article
+      className={`product-card ${isShop ? 'product-card--shop' : ''}`}
+      data-product-id={product.id}
+      data-index={index}
+    >
       {/* Wishlist Button */}
       <button
         type="button"
@@ -58,10 +68,22 @@ export function ProductCard({ product, index = 0 }) {
       </button>
 
       {/* Product Media */}
-      <div className="product-media">
+      <div
+        className="product-media"
+        style={fullImage || isShop ? { background: '#ffffff', padding: '6px' } : undefined}
+      >
         <Link href={`/product/${product.slug || product.id}`} className="product-card__img-link" aria-label={`View details for ${product.name}`}>
           {mainImg ? (
-            <img src={mainImg} alt={product.name} loading="lazy" />
+            <img
+              src={mainImg}
+              alt={product.name}
+              loading="lazy"
+              style={fullImage || isShop ? { objectFit: 'contain', width: '100%', height: '100%' } : undefined}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+              }}
+            />
           ) : (
             <div style={{ width: '100%', height: '100%', background: '#f5f5f5' }} />
           )}
@@ -80,10 +102,13 @@ export function ProductCard({ product, index = 0 }) {
           {hasSale && <del style={{ color: '#9a9a9a', fontSize: '13px', fontWeight: 400, marginLeft: '6px' }}>₹{price.toFixed(2)}</del>}
         </div>
 
-        <div className="product-rating">
-          <span className="rating-stars">★★★★★</span>
-          <span className="rating-reviews">({ratingVal})</span>
-        </div>
+        {/* Product Rating (Hidden on Shop pages) */}
+        {showRating && (
+          <div className="product-rating">
+            <span className="rating-stars">★★★★★</span>
+            <span className="rating-reviews">({ratingVal})</span>
+          </div>
+        )}
 
         <button
           type="button"

@@ -10,11 +10,11 @@ import { useQuickView } from '../../lib/quickview-context';
 
 const DEFAULT_BANNER_IMG = 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1800&q=85';
 
-function ShopSkeletonGrid({ count = 8, gridLevel = '4' }) {
+function ShopSkeletonGrid({ count = 8 }) {
   const items = Array.from({ length: count });
   return (
     <div
-      className={`shop-grid grid-cols-${gridLevel}`}
+      className="shop-grid"
       role="status"
       aria-live="polite"
       aria-label="Loading catalog products"
@@ -53,12 +53,28 @@ function ShopContent() {
   const [availability, setAvailability] = useState(initialFilter === 'new' ? 'new' : 'all');
   const [selectedColor, setSelectedColor] = useState('all');
   const [sortBy, setSortBy] = useState('featured');
-  const [gridLevel, setGridLevel] = useState('4'); // '3', '4', '6', 'table'
   const [search, setSearch] = useState(initialSearch);
-  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   // useDeferredValue optimizes INP / TBT by preventing filter freezes during rapid typing
   const deferredSearch = useDeferredValue(search);
+
+  // Prevent background scroll when filter drawer / popover is open & listen for Escape
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setFilterOpen(false);
+    };
+    if (filterOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [filterOpen]);
 
   const { addToCart } = useCart();
   const { openQuickView } = useQuickView();
@@ -232,6 +248,16 @@ function ShopContent() {
     selectedColor !== 'all' ||
     search !== '';
 
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedCategory !== 'all') count++;
+    if (priceRange !== 'all') count++;
+    if (availability !== 'all') count++;
+    if (selectedColor !== 'all') count++;
+    if (search.trim()) count++;
+    return count;
+  }, [selectedCategory, priceRange, availability, selectedColor, search]);
+
   return (
     <div className="shop-page">
       {/* Structured Data: BreadcrumbList and ItemList for E-Commerce SEO */}
@@ -391,58 +417,39 @@ function ShopContent() {
           </section>
         )}
 
-        {/* Mobile Filter Trigger Button */}
-        <div className="mobile-filter-bar">
-          <button
-            type="button"
-            className="btn-open-mobile-filter"
-            id="btn-open-mobile-filter"
-            onClick={() => setMobileFilterOpen(true)}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="4" y1="21" x2="4" y2="14"/>
-              <line x1="4" y1="10" x2="4" y2="3"/>
-              <line x1="12" y1="21" x2="12" y2="12"/>
-              <line x1="12" y1="8" x2="12" y2="3"/>
-              <line x1="20" y1="21" x2="20" y2="16"/>
-              <line x1="20" y1="12" x2="20" y2="3"/>
-              <line x1="1" y1="14" x2="7" y2="14"/>
-              <line x1="9" y1="8" x2="15" y2="8"/>
-              <line x1="17" y1="16" x2="23" y2="16"/>
-            </svg>
-            <span>Filter & Sort</span>
-          </button>
-        </div>
+        {/* Filter Drawer Backdrop Overlay */}
+        <div
+          className={`shop-drawer-backdrop ${filterOpen ? 'is-open' : ''}`}
+          onClick={() => setFilterOpen(false)}
+          aria-hidden="true"
+        />
 
-        {/* Main Shop 2-Column Layout */}
-        <div className="shop-layout">
-          {/* Mobile backdrop */}
-          {mobileFilterOpen && (
-            <div
-              className="sidebar-backdrop is-open"
-              id="sidebar-backdrop"
-              onClick={() => setMobileFilterOpen(false)}
-            />
-          )}
-
-          {/* Left Column: Filter Sidebar */}
-          <aside
-            className={`shop-sidebar ${mobileFilterOpen ? 'is-open' : ''}`}
-            id="shop-sidebar"
-            aria-label="Product filters"
-          >
-            <div className="sidebar-handle" aria-hidden="true" />
-            <div className="shop-sidebar__head">
-              <h2>Filter & Sort</h2>
-              <button
-                type="button"
-                className="btn-reset-filters"
-                id="btn-reset-filters"
-                onClick={clearAllFilters}
-              >
-                Clear all
-              </button>
+        {/* Side Popover Filter Drawer */}
+        <aside
+          className={`shop-sidebar-drawer ${filterOpen ? 'is-open' : ''}`}
+          id="shop-sidebar-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Product filters and sorting"
+        >
+          <div className="drawer-header">
+            <div className="drawer-title-group">
+              <h2>Filter &amp; Sort</h2>
+              {activeFilterCount > 0 && (
+                <span className="drawer-count-badge">{activeFilterCount} active</span>
+              )}
             </div>
+            <button
+              type="button"
+              className="btn-drawer-close"
+              onClick={() => setFilterOpen(false)}
+              aria-label="Close filters"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="drawer-body">
 
             {/* Sort Select */}
             <div className="filter-group">
@@ -607,102 +614,86 @@ function ShopContent() {
                       style={{ background: c.hex }}
                       title={c.name}
                       aria-label={c.name}
-                      onClick={() => {
-                        setSelectedColor(selectedColor.toLowerCase() === c.name.toLowerCase() ? 'all' : c.name);
-                        setMobileFilterOpen(false);
-                      }}
+                      onClick={() => setSelectedColor(selectedColor.toLowerCase() === c.name.toLowerCase() ? 'all' : c.name)}
                     />
                   ))}
                 </div>
               </div>
             )}
+          </div>
 
+          <div className="drawer-footer">
             <button
               type="button"
-              className="btn"
-              id="btn-close-mobile-filter"
-              style={{ width: '100%', display: mobileFilterOpen ? 'block' : 'none', marginTop: '10px' }}
-              onClick={() => setMobileFilterOpen(false)}
+              className="btn-drawer-reset"
+              onClick={clearAllFilters}
+              disabled={!hasActiveFilters}
             >
-              Apply Filters
+              Reset All
             </button>
-          </aside>
+            <button
+              type="button"
+              className="btn btn-drawer-apply"
+              onClick={() => setFilterOpen(false)}
+            >
+              Apply Filters ({filteredProducts.length})
+            </button>
+          </div>
+        </aside>
 
-          {/* Right Column: Toolbar, Active Filter Tags, Products Grid */}
+        {/* Main Shop Layout */}
+        <div className="shop-layout">
+          {/* Main Content Area */}
           <div className="shop-content">
-            {/* Toolbar with Results Count and Grid Level Options */}
+            {/* Toolbar: Filters Trigger Button & Results Count on Left, Sort by on Right */}
             <div className="shop-toolbar">
-              <div className="shop-results-count">
-                Showing <strong id="product-count">{loading ? '...' : filteredProducts.length}</strong> products
+              <div className="shop-toolbar-left">
+                <button
+                  type="button"
+                  className="btn-filter-trigger"
+                  onClick={() => setFilterOpen(true)}
+                  id="btn-filter-trigger"
+                  aria-expanded={filterOpen}
+                  aria-label="Open filter options"
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="4" y1="21" x2="4" y2="14" />
+                    <line x1="4" y1="10" x2="4" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12" y2="3" />
+                    <line x1="20" y1="21" x2="20" y2="16" />
+                    <line x1="20" y1="12" x2="20" y2="3" />
+                    <line x1="1" y1="14" x2="7" y2="14" />
+                    <line x1="9" y1="8" x2="15" y2="8" />
+                    <line x1="17" y1="16" x2="23" y2="16" />
+                  </svg>
+                  <span>Filters</span>
+                  {activeFilterCount > 0 && (
+                    <span className="filter-badge">{activeFilterCount}</span>
+                  )}
+                </button>
+
+                <div className="shop-results-count">
+                  Showing <strong id="product-count">{loading ? '...' : filteredProducts.length}</strong> products
+                </div>
               </div>
 
-              {/* Grid Level Switcher Options: 3, 4, 6, table */}
-              <div className="grid-level-switcher" role="group" aria-label="Product display layout">
-                <span className="grid-switcher-label">View:</span>
-
-                {/* 3 Columns Grid Icon */}
-                <button
-                  type="button"
-                  className={`btn-grid-opt ${gridLevel === '3' ? 'is-active' : ''}`}
-                  onClick={() => setGridLevel('3')}
-                  aria-label="3 columns grid"
-                  title="3 Columns Grid"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="2" y="3.5" width="5.3" height="17" rx="1.2"/>
-                    <rect x="9.35" y="3.5" width="5.3" height="17" rx="1.2"/>
-                    <rect x="16.7" y="3.5" width="5.3" height="17" rx="1.2"/>
-                  </svg>
-                </button>
-
-                {/* 4 Columns Grid Icon */}
-                <button
-                  type="button"
-                  className={`btn-grid-opt ${gridLevel === '4' ? 'is-active' : ''}`}
-                  onClick={() => setGridLevel('4')}
-                  aria-label="4 columns grid"
-                  title="4 Columns Grid"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="2" y="3.5" width="3.7" height="17" rx="0.9"/>
-                    <rect x="7.5" y="3.5" width="3.7" height="17" rx="0.9"/>
-                    <rect x="12.9" y="3.5" width="3.7" height="17" rx="0.9"/>
-                    <rect x="18.3" y="3.5" width="3.7" height="17" rx="0.9"/>
-                  </svg>
-                </button>
-
-                {/* 6 Columns Grid Icon */}
-                <button
-                  type="button"
-                  className={`btn-grid-opt ${gridLevel === '6' ? 'is-active' : ''}`}
-                  onClick={() => setGridLevel('6')}
-                  aria-label="6 columns grid"
-                  title="6 Columns Grid"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="2" y="3.5" width="2.2" height="17" rx="0.6"/>
-                    <rect x="5.6" y="3.5" width="2.2" height="17" rx="0.6"/>
-                    <rect x="9.2" y="3.5" width="2.2" height="17" rx="0.6"/>
-                    <rect x="12.8" y="3.5" width="2.2" height="17" rx="0.6"/>
-                    <rect x="16.4" y="3.5" width="2.2" height="17" rx="0.6"/>
-                    <rect x="20" y="3.5" width="2.2" height="17" rx="0.6"/>
-                  </svg>
-                </button>
-
-                {/* Table Format Icon */}
-                <button
-                  type="button"
-                  className={`btn-grid-opt ${gridLevel === 'table' ? 'is-active' : ''}`}
-                  onClick={() => setGridLevel('table')}
-                  aria-label="Table list view"
-                  title="Table Format View"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="3.5" rx="1"/>
-                    <rect x="3" y="10.25" width="18" height="3.5" rx="1"/>
-                    <rect x="3" y="16.5" width="18" height="3.5" rx="1"/>
-                  </svg>
-                </button>
+              <div className="shop-toolbar-right">
+                <div className="shop-sort-box">
+                  <label htmlFor="toolbar-sort-by">Sort by:</label>
+                  <select
+                    id="toolbar-sort-by"
+                    className="shop-sort-select"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                  >
+                    <option value="featured">Featured / Bestselling</option>
+                    <option value="price-low">Price: Low to High</option>
+                    <option value="price-high">Price: High to Low</option>
+                    <option value="rating">Highest Rating</option>
+                    <option value="newest">Newest Arrivals</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -752,89 +743,28 @@ function ShopContent() {
 
             {/* Performance-Optimized Skeleton Loader vs Empty State vs Catalog View */}
             {loading ? (
-              <ShopSkeletonGrid count={8} gridLevel={gridLevel} />
+              <ShopSkeletonGrid count={8} />
             ) : filteredProducts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: '12px', border: '1px solid var(--line)' }}>
                 <h3 style={{ fontSize: '20px', marginBottom: '8px' }}>No matching products</h3>
                 <p style={{ color: 'var(--muted)', marginBottom: '16px' }}>Try loosening your filter selections or explore our complete catalog.</p>
                 <button className="btn" type="button" onClick={clearAllFilters}>Reset All Filters</button>
               </div>
-            ) : gridLevel === 'table' ? (
-              /* 1:1 Table Layout with theme shop.css */
-              <div className="shop-grid grid-table" id="shop-products-grid">
-                <div className="table-head-row">
-                  <span>Product</span>
-                  <span>Details</span>
-                  <span>Rating</span>
-                  <span>Price</span>
-                  <span className="table-col-stock">Status</span>
-                  <span style={{ textAlign: 'right' }}>Action</span>
-                </div>
-
-                {filteredProducts.map(p => {
-                  const img = p.primary_image || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '';
-                  const priceVal = typeof p.price === 'number' ? p.price : parseFloat(p.price || 0);
-                  const saleVal = typeof p.sale_price === 'number' ? p.sale_price : parseFloat(p.sale_price || 0);
-                  const isSale = saleVal > 0 && saleVal < priceVal;
-
-                  return (
-                    <article key={p.id} className="product-table-row" data-product-id={p.id}>
-                      <div className="table-col-img">
-                        <Link href={`/product/${p.slug || p.id}`} aria-label={`View ${p.name}`}>
-                          <img src={img} alt={p.name} loading="lazy" />
-                        </Link>
-                      </div>
-                      <div className="table-col-info">
-                        <div className="table-col-cat">{p.category_name || p.cat || 'NP Grand'}</div>
-                        <h3>
-                          <Link href={`/product/${p.slug || p.id}`}>{p.name}</Link>
-                        </h3>
-                      </div>
-                      <div className="table-col-rating">
-                        <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                        <span>{p.rating || '4.9'}</span>
-                      </div>
-                      <div className="table-col-price">
-                        <span>₹{(isSale ? saleVal : priceVal).toFixed(2)}</span>
-                        {isSale && <del>₹{priceVal.toFixed(2)}</del>}
-                      </div>
-                      <div className="table-col-stock">
-                        <span className="dot"></span>
-                        <span>In stock</span>
-                      </div>
-                      <div className="table-col-actions">
-                        <button
-                          type="button"
-                          className="btn-qv"
-                          aria-label={`Quick view ${p.name}`}
-                          onClick={() => openQuickView(p)}
-                          title="Quick view"
-                        >
-                          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-add"
-                          onClick={() => addToCart(p, { qty: 1, size: 'Standard', image: img })}
-                        >
-                          Add to bag +
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
             ) : (
-              /* Grid Layout (cols-3, cols-4, cols-6) */
+              /* Grid Layout (Exactly 4 cards per row on desktop) */
               <div
-                className={`shop-grid grid-cols-${gridLevel}`}
+                className="shop-grid"
                 id="shop-products-grid"
               >
                 {filteredProducts.map((p, idx) => (
-                  <ProductCard product={p} index={idx} key={p.id} />
+                  <ProductCard
+                    product={p}
+                    index={idx}
+                    key={p.id}
+                    showRating={false}
+                    isShop={true}
+                    fullImage={true}
+                  />
                 ))}
               </div>
             )}
@@ -857,7 +787,7 @@ export default function ShopPage() {
                 <div className="shop-compact-banner__skeleton-line" style={{ width: 220, height: 28, marginTop: 4 }} />
               </div>
             </div>
-            <ShopSkeletonGrid count={8} gridLevel="4" />
+            <ShopSkeletonGrid count={8} />
           </div>
         </div>
       }

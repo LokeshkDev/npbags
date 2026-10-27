@@ -419,6 +419,10 @@ export default function ProductDetailPage({ params }) {
                 id="pdp-main-img"
                 src={activeImage}
                 alt={product.name}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                }}
                 onClick={() => setIsLightboxOpen(true)}
                 title="Click to open zoom popup"
                 style={{ cursor: 'zoom-in' }}
@@ -450,7 +454,14 @@ export default function ProductDetailPage({ params }) {
                     onClick={() => handleThumbnailClick(imgUrl)}
                     aria-label={`View photo ${i + 1}`}
                   >
-                    <img src={imgUrl} alt={`${product.name} preview ${i + 1}`} />
+                    <img
+                      src={imgUrl}
+                      alt={`${product.name} preview ${i + 1}`}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                      }}
+                    />
                   </button>
                 ))}
               </div>
@@ -858,6 +869,10 @@ export default function ProductDetailPage({ params }) {
                 alt={product.name}
                 className="pdp-lightbox-img"
                 draggable={false}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                }}
               />
             </div>
 
@@ -883,7 +898,14 @@ export default function ProductDetailPage({ params }) {
                     }}
                     aria-label={`View image ${i + 1}`}
                   >
-                    <img src={imgUrl} alt={`${product.name} thumbnail ${i + 1}`} />
+                    <img
+                      src={imgUrl}
+                      alt={`${product.name} thumbnail ${i + 1}`}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                      }}
+                    />
                   </button>
                 ))}
               </div>

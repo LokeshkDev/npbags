@@ -593,7 +593,15 @@ export default function AdminProductsPage() {
                         <tr key={p.id}>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <img src={img} alt="" style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', background: '#f3f4f6' }} />
+                              <img
+                                src={img}
+                                alt=""
+                                style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', background: '#f3f4f6' }}
+                                onError={(e) => {
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                                }}
+                              />
                               <div>
                                 <strong>{p.name}</strong>
                                 <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1219,6 +1227,10 @@ export default function AdminProductsPage() {
                             alt="Variant"
                             style={{ width: '34px', height: '34px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
                             title={v.image_url}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                            }}
                           />
                           <button
                             type="button"
@@ -1316,6 +1328,10 @@ export default function AdminProductsPage() {
                         src={img.image_url}
                         alt=""
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                        }}
                       />
                       {img.is_primary ? (
                         <span

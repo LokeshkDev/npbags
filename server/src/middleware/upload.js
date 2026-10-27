@@ -111,6 +111,19 @@ async function processUploadedFile(file, folder = 'products') {
 async function deleteUploadedFile(fileUrlOrPath) {
   if (!fileUrlOrPath || typeof fileUrlOrPath !== 'string') return;
 
+  // Safety check: do not delete if file is still referenced anywhere in the DB
+  try {
+    const { query } = require('../config/db');
+    const [imgRef] = await query('SELECT COUNT(*) AS cnt FROM product_images WHERE image_url = ?', [fileUrlOrPath]);
+    const [varRef] = await query('SELECT COUNT(*) AS cnt FROM product_variants WHERE image_url = ?', [fileUrlOrPath]);
+    if ((imgRef && imgRef.cnt > 0) || (varRef && varRef.cnt > 0)) {
+      console.log(`[Upload] Skipping deletion of ${fileUrlOrPath} — still referenced in database`);
+      return;
+    }
+  } catch (dbErr) {
+    // If DB check fails, continue
+  }
+
   if (isR2Configured && (fileUrlOrPath.startsWith('http://') || fileUrlOrPath.startsWith('https://'))) {
     await deleteFromR2(fileUrlOrPath);
     return;
