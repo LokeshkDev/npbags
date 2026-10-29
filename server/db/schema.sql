@@ -254,3 +254,63 @@ CREATE TABLE IF NOT EXISTS store_settings (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS product_barcodes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  product_id VARCHAR(128) NOT NULL,
+  variant_id INT NULL,
+  size VARCHAR(50) NULL,
+  color VARCHAR(50) NULL,
+  barcode VARCHAR(100) NOT NULL UNIQUE,
+  is_primary TINYINT(1) DEFAULT 0,
+  status ENUM('active', 'inactive') DEFAULT 'active',
+  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_by INT NULL,
+  INDEX idx_barcode (barcode),
+  INDEX idx_product (product_id),
+  CONSTRAINT fk_barcode_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_barcode_variant FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  product_id VARCHAR(128) NOT NULL,
+  variant_sku VARCHAR(100) NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  change_qty INT NOT NULL,
+  balance_after INT NOT NULL,
+  reference VARCHAR(100) NULL,
+  notes VARCHAR(255) NULL,
+  size VARCHAR(50) NULL,
+  color VARCHAR(50) NULL,
+  barcode VARCHAR(100) NULL,
+  quantity_before INT NULL,
+  source VARCHAR(50) DEFAULT 'system',
+  user_id INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_prod_tx (product_id),
+  INDEX idx_sku_tx (variant_sku),
+  CONSTRAINT fk_inv_tx_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS product_godown_stock (
+  product_id VARCHAR(128) NOT NULL,
+  godown_id INT NOT NULL,
+  stock INT DEFAULT 0,
+  PRIMARY KEY (product_id, godown_id),
+  CONSTRAINT fk_godown_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS order_returns (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  order_id INT NOT NULL,
+  order_number VARCHAR(100) NOT NULL,
+  return_type VARCHAR(20) NOT NULL DEFAULT 'return',
+  returned_items JSON NOT NULL,
+  replacement_items JSON NULL,
+  total_refund_amount DECIMAL(10,2) DEFAULT 0.00,
+  balance_collected DECIMAL(10,2) DEFAULT 0.00,
+  reason VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_order_returns_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

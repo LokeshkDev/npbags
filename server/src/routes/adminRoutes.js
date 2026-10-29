@@ -13,12 +13,15 @@ const blogController = require('../controllers/blogController');
 const contactController = require('../controllers/contactController');
 const settingsController = require('../controllers/settingsController');
 const customerController = require('../controllers/customerController');
+const barcodeController = require('../controllers/barcodeController');
+const inventoryController = require('../controllers/inventoryController');
 
 // All admin routes require authentication and admin role
 router.use(authenticate, requireAdmin);
 
 // Analytics / Stats
 router.get('/stats', settingsController.getAdminStats);
+router.get('/stats/analytics', settingsController.getDashboardAnalytics);
 
 // Products
 router.post('/products', upload.array('images', 8), productController.createProduct);
@@ -38,6 +41,22 @@ router.delete('/categories/:id', categoryController.deleteCategory);
 // Orders
 router.get('/orders', orderController.getAllOrdersAdmin);
 router.put('/orders/:id/status', orderController.updateOrderStatus);
+router.post('/orders/:id/return', orderController.processOrderReturn);
+router.delete('/orders/:id', orderController.deleteOrderAdmin);
+router.put('/orders/:id/pos-items', orderController.updatePOSOrderItems);
+router.post('/pos/orders', orderController.createPOSOrder);
+
+// Barcodes
+router.get('/barcodes', barcodeController.getAllBarcodesAdmin);
+router.get('/products/:id/barcodes', barcodeController.getProductBarcodes);
+router.post('/products/:id/barcodes/generate', barcodeController.generateBarcodesForProduct);
+router.get('/barcodes/lookup', barcodeController.lookupBarcode);
+router.put('/barcodes/:id/deactivate', barcodeController.deactivateBarcode);
+
+// Inventory
+router.get('/inventory/transactions', inventoryController.getInventoryTransactions);
+router.get('/inventory/variants', inventoryController.getVariantStockSummary);
+router.put('/inventory/variants/stock', inventoryController.adjustVariantStock);
 
 // CMS & Homepage Sections
 router.get('/cms/sections', cmsController.getAdminCMSSections);
@@ -75,6 +94,7 @@ router.get('/settings', settingsController.getStoreSettings);
 router.put('/settings', upload.single('logo'), settingsController.updateStoreSettings);
 
 // Customers & Registered Users CRUD + Reset Password
+router.get('/customers/lookup', customerController.lookupCustomerByPhone);
 router.get('/customers', customerController.getAllCustomersAdmin);
 router.get('/customers/:id', customerController.getCustomerByIdAdmin);
 router.post('/customers', customerController.createCustomerAdmin);

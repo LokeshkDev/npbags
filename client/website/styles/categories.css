@@ -430,6 +430,61 @@
 }
 
 /* =========================================================
+   AJIO Desktop & Mobile Department Banner (Correct Dimensions)
+   ========================================================= */
+.department-pure-banner {
+  position: relative;
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 32px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  background-color: #f1f5f9;
+  /* Desktop aspect ratio: 1440x320 optimal for desktop displays */
+  aspect-ratio: 1440 / 320;
+  max-height: 320px;
+  min-height: 180px;
+}
+
+.department-pure-banner__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+@media (max-width: 992px) {
+  .department-pure-banner {
+    aspect-ratio: 16 / 6;
+    max-height: 240px;
+    min-height: 160px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .department-pure-banner {
+    aspect-ratio: 16 / 8;
+    max-height: 190px;
+    min-height: 140px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .department-pure-banner {
+    aspect-ratio: 16 / 9;
+    max-height: 170px;
+    min-height: 130px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+}
+
+/* =========================================================
    AJIO Desktop Department Experience Enhancements
    ========================================================= */
 .department-products-view #shop-products-grid {
@@ -451,5 +506,191 @@
     gap: 14px !important;
   }
 }
+
+/* =========================================================
+   AJIO Screenshot-Style Vertical Category Promo Cards
+   ========================================================= */
+.ajio-promo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 28px;
+  margin-bottom: 48px;
+}
+
+@media (min-width: 1024px) {
+  .ajio-promo-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+  }
+}
+
+.ajio-promo-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ajio-promo-card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  min-height: 400px;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  background-color: #121417;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
+}
+
+.ajio-promo-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
+}
+
+.ajio-promo-card__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ajio-promo-card:hover .ajio-promo-card__bg {
+  transform: scale(1.05);
+}
+
+.ajio-promo-card__gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.95) 0%,
+    rgba(0, 0, 0, 0.72) 28%,
+    rgba(0, 0, 0, 0.15) 55%,
+    transparent 75%
+  );
+  z-index: 1;
+}
+
+.ajio-promo-card__badge-top {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ajio-promo-card__content {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 18px 20px;
+  z-index: 2;
+  text-align: center;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ajio-promo-card__tagline {
+  font-size: 15px;
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-weight: 500;
+  color: #ffffff;
+  line-height: 1.35;
+  margin-bottom: 6px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  letter-spacing: 0.02em;
+}
+
+.ajio-promo-card__title {
+  font-size: 21px;
+  font-family: var(--font-heading, 'Inter', -apple-system, sans-serif);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffffff;
+  margin: 0 0 6px;
+  line-height: 1.2;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.ajio-promo-card__offer {
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* Subcategories Section Below Main Category Card */
+.ajio-subcategories-block {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+.ajio-subcategories-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ajio-subcategories-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ajio-subcat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  text-decoration: none;
+}
+
+.ajio-subcat-chip:hover {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  transform: translateY(-1px);
+}
+
 
 

@@ -154,16 +154,108 @@ const sectionLabels = {
 
 const defaultHeaderNavItems = [
   { label: 'Home', url: '/' },
-  { label: 'Women', url: '/womens' },
-  { label: 'Men', url: '/mens' },
-  { label: 'Kids', url: '/kids' },
-  { label: 'Accessories', url: '/shop?category=Accessories' },
-  { label: 'Bags & Handbags', url: '/shop?category=Everyday+essentials' },
-  { label: 'Footwear', url: '/shop?category=Footwear' },
-  { label: 'Water Bottles', url: '/shop?category=Water+Bottles' },
-  { label: 'Key Chains', url: '/shop?category=Key+Chains' },
-  { label: 'Offers', url: '/shop?filter=sale' },
-  { label: 'New Arrivals', url: '/shop?filter=new' }
+  {
+    label: 'Women',
+    url: '/womens',
+    sub_items: [
+      { label: 'All Women', url: '/womens' },
+      { label: 'Handbags', url: '/womens?category=handbags' },
+      { label: 'Tote Bags', url: '/womens?category=tote-bags' },
+      { label: 'Shoulder Bags', url: '/womens?category=long-shoulder-bags' },
+      { label: 'Evening Clutches', url: '/womens?category=clutches-evening-bags' },
+      { label: 'Zip Purses', url: '/womens?category=womens-zip-purses' },
+      { label: 'Casual Daypacks', url: '/womens?category=womens-casual-daypacks' },
+      { label: 'Bag Charms & Scarves', url: '/womens?category=womens-bag-charms' }
+    ]
+  },
+  {
+    label: 'Men',
+    url: '/mens',
+    sub_items: [
+      { label: 'All Men', url: '/mens' },
+      { label: 'Bifold Wallets', url: '/mens?category=mens-bifold-wallets' },
+      { label: 'Slim Cardholders', url: '/mens?category=mens-slim-cardholders' },
+      { label: 'Work Backpacks', url: '/mens?category=mens-work-backpacks' },
+      { label: 'Leather Belts', url: '/mens?category=mens-leather-belts' }
+    ]
+  },
+  {
+    label: 'Kids',
+    url: '/kids',
+    sub_items: [
+      { label: 'All Kids', url: '/kids' },
+      { label: 'Coin Pouches', url: '/kids?category=kids-coin-pouches' },
+      { label: 'School Backpacks', url: '/kids?category=kids-school-backpacks' },
+      { label: 'Cute Keychains', url: '/kids?category=kids-keychains' }
+    ]
+  },
+  {
+    label: 'Accessories',
+    url: '/shop?category=accessories',
+    sub_items: [
+      { label: 'All Accessories', url: '/shop?category=accessories' },
+      { label: 'Leather Belts', url: '/shop?category=mens-leather-belts' },
+      { label: 'Keychains & Charms', url: '/shop?category=keychains' },
+      { label: 'Scarves & Charms', url: '/shop?category=womens-bag-charms' }
+    ]
+  },
+  {
+    label: 'Bags & Handbags',
+    url: '/shop?category=handbags',
+    sub_items: [
+      { label: 'All Bags', url: '/shop?category=handbags' },
+      { label: 'Handbags', url: '/shop?category=handbags' },
+      { label: 'Tote Bags', url: '/shop?category=tote-bags' },
+      { label: 'Shoulder Bags', url: '/shop?category=long-shoulder-bags' },
+      { label: 'Clutches', url: '/shop?category=clutches-evening-bags' },
+      { label: 'Backpacks & Travel', url: '/shop?category=backpacks-travel' }
+    ]
+  },
+  {
+    label: 'Footwear',
+    url: '/shop?category=footwear',
+    sub_items: [
+      { label: 'All Footwear', url: '/shop?category=footwear' },
+      { label: 'Casual Footwear', url: '/shop?category=footwear' },
+      { label: 'Sandals & Slides', url: '/shop?category=footwear' }
+    ]
+  },
+  {
+    label: 'Water Bottles',
+    url: '/shop?category=water-bottles',
+    sub_items: [
+      { label: 'All Water Bottles', url: '/shop?category=water-bottles' },
+      { label: 'Insulated Flasks', url: '/shop?category=water-bottles' },
+      { label: 'Stainless Steel', url: '/shop?category=water-bottles' }
+    ]
+  },
+  {
+    label: 'Key Chains',
+    url: '/shop?category=keychains',
+    sub_items: [
+      { label: 'All Key Chains', url: '/shop?category=keychains' },
+      { label: 'Cute Keychains', url: '/shop?category=kids-keychains' },
+      { label: 'Leather Key Rings', url: '/shop?category=keychains' }
+    ]
+  },
+  {
+    label: 'Offers',
+    url: '/shop?filter=sale',
+    sub_items: [
+      { label: 'Special Clearance', url: '/shop?filter=sale' },
+      { label: 'Under ₹499', url: '/shop?maxPrice=499' },
+      { label: 'Under ₹999', url: '/shop?maxPrice=999' }
+    ]
+  },
+  {
+    label: 'New Arrivals',
+    url: '/shop?filter=new',
+    sub_items: [
+      { label: 'This Week\'s Drops', url: '/shop?filter=new' },
+      { label: 'New in Handbags', url: '/shop?category=handbags&filter=new' },
+      { label: 'New in Wallets', url: '/shop?category=wallets-purses&filter=new' }
+    ]
+  }
 ];
 
 export default function AdminCMSSectionsPage() {
@@ -174,6 +266,7 @@ export default function AdminCMSSectionsPage() {
   const [saving, setSaving] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [expandedSubmenuIndex, setExpandedSubmenuIndex] = useState(null);
 
   // Handle ?tab= query parameter on mount
   useEffect(() => {
@@ -1537,6 +1630,33 @@ export default function AdminCMSSectionsPage() {
                 updateContent('main_navigation', { ...navContent, items: nextItems });
               };
 
+              const handleAddSubItem = (navIdx) => {
+                const currentNav = navItems[navIdx];
+                const currentSub = Array.isArray(currentNav.sub_items) ? currentNav.sub_items : [];
+                const nextSub = [...currentSub, { label: 'New Sub-link', url: currentNav.url || '/shop' }];
+                const nextItems = navItems.map((item, i) => i === navIdx ? { ...item, sub_items: nextSub } : item);
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
+
+              const handleUpdateSubItem = (navIdx, subIdx, field, val) => {
+                const currentNav = navItems[navIdx];
+                const currentSub = Array.isArray(currentNav.sub_items) ? [...currentNav.sub_items] : [];
+                currentSub[subIdx] = { ...currentSub[subIdx], [field]: val };
+                const nextItems = navItems.map((item, i) => i === navIdx ? { ...item, sub_items: currentSub } : item);
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
+
+              const handleDeleteSubItem = (navIdx, subIdx) => {
+                const currentNav = navItems[navIdx];
+                const currentSub = Array.isArray(currentNav.sub_items) ? currentNav.sub_items.filter((_, s) => s !== subIdx) : [];
+                const nextItems = navItems.map((item, i) => i === navIdx ? { ...item, sub_items: currentSub } : item);
+                updateContent('main_navigation', { ...navContent, items: nextItems });
+              };
+
+              const toggleSubmenuExpand = (idx) => {
+                setExpandedSubmenuIndex(prev => prev === idx ? null : idx);
+              };
+
               const handleResetToDefault = () => {
                 if (confirm('Reset header navigation menu to recommended default links?')) {
                   updateContent('main_navigation', { ...navContent, items: defaultHeaderNavItems });
@@ -1676,157 +1796,332 @@ export default function AdminCMSSectionsPage() {
                       {navItems.map((item, idx) => {
                         const isFirst = idx === 0;
                         const isLast = idx === navItems.length - 1;
+                        const isExpanded = expandedSubmenuIndex === idx;
+                        const subCount = Array.isArray(item.sub_items) ? item.sub_items.length : 0;
+
                         return (
                           <div
                             key={idx}
                             style={{
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: '12px',
-                              padding: '10px 14px',
-                              background: '#f8fafc',
-                              border: '1px solid #e2e8f0',
-                              borderRadius: '8px',
-                              flexWrap: 'wrap'
+                              flexDirection: 'column',
+                              gap: '8px',
+                              padding: '12px 14px',
+                              background: isExpanded ? '#f0fdf4' : '#f8fafc',
+                              border: isExpanded ? '1.5px solid #065935' : '1px solid #e2e8f0',
+                              borderRadius: '10px',
+                              transition: 'all 0.2s ease'
                             }}
                           >
-                            <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#94a3b8', width: '28px' }}>
-                              #{idx + 1}
-                            </span>
-
-                            {/* Move Up/Down Controls */}
-                            <div style={{ display: 'flex', gap: '3px' }}>
-                              <button
-                                type="button"
-                                disabled={isFirst}
-                                onClick={() => handleMoveNavItem(idx, -1)}
-                                style={{
-                                  background: isFirst ? '#f1f5f9' : '#e2e8f0',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  padding: '4px 7px',
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  cursor: isFirst ? 'not-allowed' : 'pointer',
-                                  color: isFirst ? '#94a3b8' : '#0f172a'
-                                }}
-                                title="Move Left / Up"
-                              >
-                                ▲
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isLast}
-                                onClick={() => handleMoveNavItem(idx, 1)}
-                                style={{
-                                  background: isLast ? '#f1f5f9' : '#e2e8f0',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  padding: '4px 7px',
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  cursor: isLast ? 'not-allowed' : 'pointer',
-                                  color: isLast ? '#94a3b8' : '#0f172a'
-                                }}
-                                title="Move Right / Down"
-                              >
-                                ▼
-                              </button>
-                            </div>
-
-                            {/* Label Input */}
-                            <div style={{ flex: '1 1 180px' }}>
-                              <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
-                                Menu Label
-                              </label>
-                              <input
-                                type="text"
-                                value={item.label || ''}
-                                placeholder="e.g. Women, Handbags"
-                                onChange={(e) => handleUpdateNavItem(idx, 'label', e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  padding: '6px 10px',
-                                  borderRadius: '6px',
-                                  border: '1px solid #cbd5e1',
-                                  fontSize: '13px',
-                                  fontWeight: 600,
-                                  color: '#0f172a',
-                                  background: '#ffffff'
-                                }}
-                              />
-                            </div>
-
-                            {/* URL Input */}
-                            <div style={{ flex: '2 1 240px' }}>
-                              <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
-                                Target Link URL / Route
-                              </label>
-                              <input
-                                type="text"
-                                value={item.url || ''}
-                                placeholder="e.g. /womens, /mens, /kids, /shop?category=..."
-                                onChange={(e) => handleUpdateNavItem(idx, 'url', e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  padding: '6px 10px',
-                                  borderRadius: '6px',
-                                  border: '1px solid #cbd5e1',
-                                  fontSize: '13px',
-                                  fontFamily: 'monospace',
-                                  color: '#0f172a',
-                                  background: '#ffffff'
-                                }}
-                              />
-                            </div>
-
-                            {/* Quick Route Helper Buttons */}
-                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateNavItem(idx, 'url', '/womens')}
-                                style={{ fontSize: '10px', background: '#fce7f3', color: '#9d174d', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
-                                title="Set URL to /womens"
-                              >
-                                👩 Women
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateNavItem(idx, 'url', '/mens')}
-                                style={{ fontSize: '10px', background: '#e0f2fe', color: '#0369a1', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
-                                title="Set URL to /mens"
-                              >
-                                👤 Men
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateNavItem(idx, 'url', '/kids')}
-                                style={{ fontSize: '10px', background: '#fef3c7', color: '#b45309', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
-                                title="Set URL to /kids"
-                              >
-                                🧒 Kids
-                              </button>
-                            </div>
-
-                            {/* Delete Button */}
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteNavItem(idx)}
+                            <div
                               style={{
-                                background: '#fee2e2',
-                                border: '1px solid #fecaca',
-                                borderRadius: '6px',
-                                color: '#b91c1c',
-                                padding: '6px 10px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                marginLeft: 'auto'
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                flexWrap: 'wrap'
                               }}
-                              title="Delete Link"
                             >
-                              🗑️
-                            </button>
+                              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#94a3b8', width: '28px' }}>
+                                #{idx + 1}
+                              </span>
+
+                              {/* Move Up/Down Controls */}
+                              <div style={{ display: 'flex', gap: '3px' }}>
+                                <button
+                                  type="button"
+                                  disabled={isFirst}
+                                  onClick={() => handleMoveNavItem(idx, -1)}
+                                  style={{
+                                    background: isFirst ? '#f1f5f9' : '#e2e8f0',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    padding: '4px 7px',
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    cursor: isFirst ? 'not-allowed' : 'pointer',
+                                    color: isFirst ? '#94a3b8' : '#0f172a'
+                                  }}
+                                  title="Move Left / Up"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isLast}
+                                  onClick={() => handleMoveNavItem(idx, 1)}
+                                  style={{
+                                    background: isLast ? '#f1f5f9' : '#e2e8f0',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    padding: '4px 7px',
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    cursor: isLast ? 'not-allowed' : 'pointer',
+                                    color: isLast ? '#94a3b8' : '#0f172a'
+                                  }}
+                                  title="Move Right / Down"
+                                >
+                                  ▼
+                                </button>
+                              </div>
+
+                              {/* Label Input */}
+                              <div style={{ flex: '1 1 160px' }}>
+                                <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                                  Menu Label
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.label || ''}
+                                  placeholder="e.g. Women, Handbags"
+                                  onChange={(e) => handleUpdateNavItem(idx, 'label', e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    color: '#0f172a',
+                                    background: '#ffffff'
+                                  }}
+                                />
+                              </div>
+
+                              {/* URL Input */}
+                              <div style={{ flex: '2 1 200px' }}>
+                                <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                                  Target Link URL / Route
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.url || ''}
+                                  placeholder="e.g. /womens, /mens, /kids, /shop?category=..."
+                                  onChange={(e) => handleUpdateNavItem(idx, 'url', e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace',
+                                    color: '#0f172a',
+                                    background: '#ffffff'
+                                  }}
+                                />
+                              </div>
+
+                              {/* Quick Route Helper Buttons */}
+                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateNavItem(idx, 'url', '/womens')}
+                                  style={{ fontSize: '10px', background: '#fce7f3', color: '#9d174d', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Set URL to /womens"
+                                >
+                                  👩 Women
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateNavItem(idx, 'url', '/mens')}
+                                  style={{ fontSize: '10px', background: '#e0f2fe', color: '#0369a1', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Set URL to /mens"
+                                >
+                                  👤 Men
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateNavItem(idx, 'url', '/kids')}
+                                  style={{ fontSize: '10px', background: '#fef3c7', color: '#b45309', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Set URL to /kids"
+                                >
+                                  🧒 Kids
+                                </button>
+                              </div>
+
+                              {/* Submenu Expand Toggle Button */}
+                              <button
+                                type="button"
+                                onClick={() => toggleSubmenuExpand(idx)}
+                                style={{
+                                  background: isExpanded ? '#065935' : '#ffffff',
+                                  color: isExpanded ? '#ffffff' : '#065935',
+                                  border: '1.5px solid #065935',
+                                  borderRadius: '6px',
+                                  padding: '5px 10px',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                title="Edit hover dropdown categories for this menu link"
+                              >
+                                <span>{isExpanded ? '▲ Hide Sub-menu' : '▼ Sub-menu'}</span>
+                                <span
+                                  style={{
+                                    background: isExpanded ? 'rgba(255,255,255,0.25)' : '#dcfce7',
+                                    color: isExpanded ? '#ffffff' : '#065935',
+                                    borderRadius: '10px',
+                                    padding: '1px 6px',
+                                    fontSize: '11px',
+                                    fontWeight: 800
+                                  }}
+                                >
+                                  {subCount}
+                                </span>
+                              </button>
+
+                              {/* Delete Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteNavItem(idx)}
+                                style={{
+                                  background: '#fee2e2',
+                                  border: '1px solid #fecaca',
+                                  borderRadius: '6px',
+                                  color: '#b91c1c',
+                                  padding: '6px 10px',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  marginLeft: 'auto'
+                                }}
+                                title="Delete Link"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+
+                            {/* Expanded Sub-menu Items Manager */}
+                            {isExpanded && (
+                              <div
+                                style={{
+                                  marginTop: '6px',
+                                  padding: '14px 16px',
+                                  background: '#ffffff',
+                                  border: '1.5px dashed #065935',
+                                  borderRadius: '8px'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#065935' }}>
+                                      📁 Dropdown Sub-menu for &ldquo;{item.label || `Link #${idx + 1}`}&rdquo;
+                                    </span>
+                                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                      (shown when hovering over this ribbon item)
+                                    </span>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddSubItem(idx)}
+                                    style={{
+                                      background: '#065935',
+                                      color: '#ffffff',
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      padding: '5px 12px',
+                                      fontSize: '12px',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    <span>+ Add Sub-item</span>
+                                  </button>
+                                </div>
+
+                                {(!item.sub_items || item.sub_items.length === 0) ? (
+                                  <div style={{ color: '#94a3b8', fontSize: '12.5px', fontStyle: 'italic', padding: '10px 0' }}>
+                                    No sub-menu items configured yet. Click <strong>&ldquo;+ Add Sub-item&rdquo;</strong> to add category links that will appear in the dropdown popover.
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {item.sub_items.map((sub, sIdx) => (
+                                      <div
+                                        key={sIdx}
+                                        style={{
+                                          display: 'flex',
+                                          gap: '10px',
+                                          alignItems: 'center',
+                                          background: '#f8fafc',
+                                          padding: '8px 12px',
+                                          borderRadius: '6px',
+                                          border: '1px solid #e2e8f0',
+                                          flexWrap: 'wrap'
+                                        }}
+                                      >
+                                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800, width: '28px' }}>
+                                          {idx + 1}.{sIdx + 1}
+                                        </span>
+
+                                        <div style={{ flex: '1 1 180px' }}>
+                                          <input
+                                            type="text"
+                                            value={sub.label || ''}
+                                            placeholder="Sub-menu Title (e.g. Handbags, Tote Bags)"
+                                            onChange={(e) => handleUpdateSubItem(idx, sIdx, 'label', e.target.value)}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 10px',
+                                              borderRadius: '5px',
+                                              border: '1px solid #cbd5e1',
+                                              fontSize: '12.5px',
+                                              fontWeight: 600,
+                                              color: '#0f172a',
+                                              background: '#ffffff'
+                                            }}
+                                          />
+                                        </div>
+
+                                        <div style={{ flex: '2 1 240px' }}>
+                                          <input
+                                            type="text"
+                                            value={sub.url || ''}
+                                            placeholder="Route / URL (e.g. /shop?category=handbags)"
+                                            onChange={(e) => handleUpdateSubItem(idx, sIdx, 'url', e.target.value)}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 10px',
+                                              borderRadius: '5px',
+                                              border: '1px solid #cbd5e1',
+                                              fontSize: '12.5px',
+                                              fontFamily: 'monospace',
+                                              color: '#0f172a',
+                                              background: '#ffffff'
+                                            }}
+                                          />
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteSubItem(idx, sIdx)}
+                                          style={{
+                                            background: '#fee2e2',
+                                            border: 'none',
+                                            color: '#b91c1c',
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            fontWeight: 800,
+                                            cursor: 'pointer',
+                                            padding: '4px 8px'
+                                          }}
+                                          title="Remove this sub-item"
+                                        >
+                                          ✕ Remove
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}

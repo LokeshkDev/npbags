@@ -426,19 +426,23 @@ export default function AdminCategoriesPage() {
                           </button>
                           <button
                             type="button"
-                            className="action-btn"
+                            className="admin-btn admin-btn-outline"
+                            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
                             onClick={() => openEditModal(mainCat)}
                             title="Edit Category"
                           >
-                            <Icon name="edit" size={14} />
+                            <Icon name="edit" size={13} />
+                            <span>Edit</span>
                           </button>
                           <button
                             type="button"
-                            className="action-btn text-danger"
+                            className="admin-btn admin-btn-outline"
+                            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#dc2626', borderColor: '#fca5a5', background: '#fef2f2' }}
                             onClick={() => handleDelete(mainCat.id, mainCat.name)}
                             title="Delete Category"
                           >
-                            <Icon name="trash" size={14} />
+                            <Icon name="trash" size={13} />
+                            <span>Delete</span>
                           </button>
                         </div>
                       </div>
@@ -531,19 +535,23 @@ export default function AdminCategoriesPage() {
                                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                                         <button
                                           type="button"
-                                          className="action-btn"
+                                          className="admin-btn admin-btn-outline"
+                                          style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
                                           onClick={() => openEditModal(sub)}
                                           title="Edit Subcategory"
                                         >
-                                          <Icon name="edit" size={13} />
+                                          <Icon name="edit" size={12} />
+                                          <span>Edit</span>
                                         </button>
                                         <button
                                           type="button"
-                                          className="action-btn text-danger"
+                                          className="admin-btn admin-btn-outline"
+                                          style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#dc2626', borderColor: '#fca5a5', background: '#fef2f2' }}
                                           onClick={() => handleDelete(sub.id, sub.name)}
                                           title="Delete Subcategory"
                                         >
-                                          <Icon name="trash" size={13} />
+                                          <Icon name="trash" size={12} />
+                                          <span>Delete</span>
                                         </button>
                                       </div>
                                     </td>

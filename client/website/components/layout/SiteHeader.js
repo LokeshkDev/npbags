@@ -7,17 +7,108 @@ import { useCart } from '../../lib/cart-context';
 import { useWishlist } from '../../lib/wishlist-context';
 
 const defaultNavItems = [
-  { label: 'Home', url: '/' },
-  { label: 'Women', url: '/womens' },
-  { label: 'Men', url: '/mens' },
-  { label: 'Kids', url: '/kids' },
-  { label: 'Accessories', url: '/shop?category=Accessories' },
-  { label: 'Bags & Handbags', url: '/shop?category=Everyday+essentials' },
-  { label: 'Footwear', url: '/shop?category=Footwear' },
-  { label: 'Water Bottles', url: '/shop?category=Water+Bottles' },
-  { label: 'Key Chains', url: '/shop?category=Key+Chains' },
-  { label: 'Offers', url: '/shop?filter=sale' },
-  { label: 'New Arrivals', url: '/shop?filter=new' }
+  {
+    label: 'Women',
+    url: '/womens',
+    sub_items: [
+      { label: 'All Women', url: '/womens' },
+      { label: 'Handbags', url: '/womens?category=handbags' },
+      { label: 'Tote Bags', url: '/womens?category=tote-bags' },
+      { label: 'Shoulder Bags', url: '/womens?category=long-shoulder-bags' },
+      { label: 'Evening Clutches', url: '/womens?category=clutches-evening-bags' },
+      { label: 'Zip Purses', url: '/womens?category=womens-zip-purses' },
+      { label: 'Casual Daypacks', url: '/womens?category=womens-casual-daypacks' },
+      { label: 'Bag Charms & Scarves', url: '/womens?category=womens-bag-charms' }
+    ]
+  },
+  {
+    label: 'Men',
+    url: '/mens',
+    sub_items: [
+      { label: 'All Men', url: '/mens' },
+      { label: 'Bifold Wallets', url: '/mens?category=mens-bifold-wallets' },
+      { label: 'Slim Cardholders', url: '/mens?category=mens-slim-cardholders' },
+      { label: 'Work Backpacks', url: '/mens?category=mens-work-backpacks' },
+      { label: 'Leather Belts', url: '/mens?category=mens-leather-belts' }
+    ]
+  },
+  {
+    label: 'Kids',
+    url: '/kids',
+    sub_items: [
+      { label: 'All Kids', url: '/kids' },
+      { label: 'Coin Pouches', url: '/kids?category=kids-coin-pouches' },
+      { label: 'School Backpacks', url: '/kids?category=kids-school-backpacks' },
+      { label: 'Cute Keychains', url: '/kids?category=kids-keychains' }
+    ]
+  },
+  {
+    label: 'Accessories',
+    url: '/shop?category=accessories',
+    sub_items: [
+      { label: 'All Accessories', url: '/shop?category=accessories' },
+      { label: 'Leather Belts', url: '/shop?category=mens-leather-belts' },
+      { label: 'Keychains & Charms', url: '/shop?category=keychains' },
+      { label: 'Scarves & Charms', url: '/shop?category=womens-bag-charms' }
+    ]
+  },
+  {
+    label: 'Bags & Handbags',
+    url: '/shop?category=handbags',
+    sub_items: [
+      { label: 'All Bags', url: '/shop?category=handbags' },
+      { label: 'Handbags', url: '/shop?category=handbags' },
+      { label: 'Tote Bags', url: '/shop?category=tote-bags' },
+      { label: 'Shoulder Bags', url: '/shop?category=long-shoulder-bags' },
+      { label: 'Clutches', url: '/shop?category=clutches-evening-bags' },
+      { label: 'Backpacks & Travel', url: '/shop?category=backpacks-travel' }
+    ]
+  },
+  {
+    label: 'Footwear',
+    url: '/shop?category=footwear',
+    sub_items: [
+      { label: 'All Footwear', url: '/shop?category=footwear' },
+      { label: 'Casual Footwear', url: '/shop?category=footwear' },
+      { label: 'Sandals & Slides', url: '/shop?category=footwear' }
+    ]
+  },
+  {
+    label: 'Water Bottles',
+    url: '/shop?category=water-bottles',
+    sub_items: [
+      { label: 'All Water Bottles', url: '/shop?category=water-bottles' },
+      { label: 'Insulated Flasks', url: '/shop?category=water-bottles' },
+      { label: 'Stainless Steel', url: '/shop?category=water-bottles' }
+    ]
+  },
+  {
+    label: 'Key Chains',
+    url: '/shop?category=keychains',
+    sub_items: [
+      { label: 'All Key Chains', url: '/shop?category=keychains' },
+      { label: 'Cute Keychains', url: '/shop?category=kids-keychains' },
+      { label: 'Leather Key Rings', url: '/shop?category=keychains' }
+    ]
+  },
+  {
+    label: 'Offers',
+    url: '/shop?filter=sale',
+    sub_items: [
+      { label: 'Special Clearance', url: '/shop?filter=sale' },
+      { label: 'Under ₹499', url: '/shop?maxPrice=499' },
+      { label: 'Under ₹999', url: '/shop?maxPrice=999' }
+    ]
+  },
+  {
+    label: 'New Arrivals',
+    url: '/shop?filter=new',
+    sub_items: [
+      { label: 'This Week\'s Drops', url: '/shop?filter=new' },
+      { label: 'New in Handbags', url: '/shop?category=handbags&filter=new' },
+      { label: 'New in Wallets', url: '/shop?category=wallets-purses&filter=new' }
+    ]
+  }
 ];
 
 export function SiteHeader({ categories: initialCategories = [], navigationData = null }) {
@@ -27,6 +118,7 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
   const { wishlistCount } = useWishlist();
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [expandedMobileItem, setExpandedMobileItem] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
 
@@ -57,6 +149,7 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
     }
   };
 
+  // Dynamic CMS navigation items from database (only related data, no static forced Home link)
   const primaryNavItems = (navigationData?.items && Array.isArray(navigationData.items) && navigationData.items.length > 0)
     ? navigationData.items
     : defaultNavItems;
@@ -162,14 +255,36 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
             <ul className="primary-nav__list">
               {primaryNavItems.map((item, idx) => {
                 const isActive = item.url === '/' ? pathname === '/' : pathname.startsWith(item.url);
+                const hasSub = Array.isArray(item.sub_items) && item.sub_items.length > 0;
                 return (
-                  <li key={idx}>
+                  <li key={idx} className={`nav-item-wrap ${hasSub ? 'nav-item-has-dropdown' : ''}`}>
                     <Link
                       href={item.url}
                       className={`nav-link ${isActive ? 'is-active' : ''}`}
                     >
-                      {item.label}
+                      <span>{item.label}</span>
+                      {hasSub && (
+                        <svg className="nav-dropdown-chevron" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      )}
                     </Link>
+
+                    {/* Submenu Dropdown Popover */}
+                    {hasSub && (
+                      <div className="nav-dropdown-menu" role="menu">
+                        <ul className="nav-dropdown-list">
+                          {item.sub_items.map((sub, sIdx) => (
+                            <li key={sIdx} role="none">
+                              <Link href={sub.url} className="nav-dropdown-link" role="menuitem">
+                                <span>{sub.label}</span>
+                                <span className="nav-dropdown-arrow" aria-hidden="true">&rarr;</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -206,16 +321,63 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
           <ul className="mobile-drawer-list">
             {primaryNavItems.map((item, idx) => {
               const isActive = item.url === '/' ? pathname === '/' : pathname.startsWith(item.url);
+              const hasSub = Array.isArray(item.sub_items) && item.sub_items.length > 0;
+              const isExpanded = expandedMobileItem === idx;
+
               return (
-                <li key={idx} className="mobile-drawer-item">
-                  <Link
-                    href={item.url}
-                    className={`mobile-drawer-link ${isActive ? 'is-active' : ''}`}
-                    onClick={() => setMobileDrawerOpen(false)}
-                  >
-                    <span>{item.label}</span>
-                    <span className="mobile-drawer-arrow" aria-hidden="true">&rarr;</span>
-                  </Link>
+                <li key={idx} className="mobile-drawer-item" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <Link
+                      href={item.url}
+                      className={`mobile-drawer-link ${isActive ? 'is-active' : ''}`}
+                      onClick={() => setMobileDrawerOpen(false)}
+                      style={{ flexGrow: 1 }}
+                    >
+                      <span>{item.label}</span>
+                    </Link>
+                    {hasSub ? (
+                      <button
+                        type="button"
+                        aria-label={`Toggle ${item.label} submenu`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedMobileItem(isExpanded ? null : idx);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          color: '#6b7280',
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        {isExpanded ? '▲' : '▼'}
+                      </button>
+                    ) : (
+                      <span className="mobile-drawer-arrow" aria-hidden="true">&rarr;</span>
+                    )}
+                  </div>
+
+                  {/* Mobile Submenu Accordion */}
+                  {hasSub && isExpanded && (
+                    <ul style={{ listStyle: 'none', padding: '6px 12px 10px 24px', margin: '4px 0 8px', background: '#f8fafc', borderRadius: '8px', borderLeft: '3px solid var(--np-green, #065935)' }}>
+                      {item.sub_items.map((sub, sIdx) => (
+                        <li key={sIdx} style={{ padding: '7px 0' }}>
+                          <Link
+                            href={sub.url}
+                            onClick={() => setMobileDrawerOpen(false)}
+                            style={{ fontSize: '13px', color: '#4b5563', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                          >
+                            <span>{sub.label}</span>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>&rarr;</span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               );
             })}

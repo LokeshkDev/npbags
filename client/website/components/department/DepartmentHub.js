@@ -22,8 +22,38 @@ export function DepartmentHubContent({
   const [loadingProds, setLoadingProds] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
   const [sortBy, setSortBy] = useState('recommended');
+  const [pageBannerData, setPageBannerData] = useState(null);
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+
+  // Fetch page banners from CMS
+  useEffect(() => {
+    let isMounted = true;
+    fetch(`${apiBase}/cms/sections`)
+      .then(res => res.json())
+      .then(json => {
+        if (!isMounted) return;
+        const sections = json?.data || json;
+        let pb = null;
+        if (Array.isArray(sections)) {
+          pb = sections.find(s => s.section_key === 'page_banners');
+        } else if (sections && typeof sections === 'object') {
+          pb = sections.page_banners || null;
+        }
+
+        if (pb) {
+          const pbContent = pb.content || pb;
+          const deptKey = gender === 'women' ? 'womens' : gender === 'men' ? 'mens' : 'kids';
+          const currentDept = pbContent[deptKey];
+          if (currentDept) {
+            setPageBannerData(currentDept);
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [gender, apiBase]);
 
   // 1. Fetch categories for this department
   useEffect(() => {
@@ -176,6 +206,22 @@ export function DepartmentHubContent({
     return '#b45309';
   }, [gender]);
 
+  const activeBannerImage = useMemo(() => {
+    if (selectedCategorySlug && (activeCategory?.banner_image || activeCategory?.image)) {
+      return activeCategory.banner_image || activeCategory.image;
+    }
+    const deptImg = typeof pageBannerData === 'object' ? pageBannerData?.image : pageBannerData;
+    return deptImg || heroImage;
+  }, [selectedCategorySlug, activeCategory, pageBannerData, heroImage]);
+
+  const activeBannerLink = useMemo(() => {
+    if (selectedCategorySlug && activeCategory?.banner_link) {
+      return activeCategory.banner_link;
+    }
+    const deptLink = typeof pageBannerData === 'object' ? pageBannerData?.link : '';
+    return deptLink || null;
+  }, [selectedCategorySlug, activeCategory, pageBannerData]);
+
   return (
     <div className="categories-page department-page" style={{ paddingBlock: '20px 80px' }}>
       <div className="container">
@@ -194,32 +240,28 @@ export function DepartmentHubContent({
           )}
         </nav>
 
-        {/* Pure Department / Category Banner: NO OVERLAY, NO TEXT ON IMAGE, 100% CLEAN & OPTIMIZED */}
+        {/* Pure Department / Category Banner: Responsive Dimensions for Desktop & Mobile with Click Redirect */}
         <section
           className="department-pure-banner"
           aria-label="Department Page Banner"
-          style={{
-            position: 'relative',
-            borderRadius: '16px',
-            overflow: 'hidden',
-            marginBottom: '32px',
-            maxHeight: '260px',
-            width: '100%',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
-          }}
         >
-          <img
-            src={activeCategory?.banner_image || activeCategory?.image || heroImage}
-            alt={selectedCategorySlug && activeCategory ? `${activeCategory.name} — ${title}` : title}
-            style={{
-              width: '100%',
-              height: '100%',
-              maxHeight: '260px',
-              objectFit: 'cover',
-              display: 'block'
-            }}
-            loading="eager"
-          />
+          {activeBannerLink ? (
+            <Link href={activeBannerLink} style={{ display: 'block', width: '100%', height: '100%', cursor: 'pointer' }} title="Click to explore banner collection">
+              <img
+                src={activeBannerImage}
+                alt={selectedCategorySlug && activeCategory ? `${activeCategory.name} — ${title}` : title}
+                className="department-pure-banner__img"
+                loading="eager"
+              />
+            </Link>
+          ) : (
+            <img
+              src={activeBannerImage}
+              alt={selectedCategorySlug && activeCategory ? `${activeCategory.name} — ${title}` : title}
+              className="department-pure-banner__img"
+              loading="eager"
+            />
+          )}
         </section>
 
         {/* =============================================================
@@ -389,107 +431,10 @@ export function DepartmentHubContent({
           </div>
         ) : (
           /* =============================================================
-              STATE B: AJIO DESKTOP DEPARTMENT LANDING PAGE
+              STATE B: AJIO DESKTOP & MOBILE DEPARTMENT LANDING PAGE
               ============================================================= */
           <div className="department-categories-hub">
-            {/* 1. AJIO STYLE: "SHOP BY CATEGORY" CIRCLES CAROUSEL / ROW */}
-            <section style={{ marginBottom: '44px' }}>
-              <div style={{ textAlign: 'center', marginBottom: '26px' }}>
-                <div style={{ fontSize: '11.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.14em', color: genderThemeColor, marginBottom: '4px' }}>
-                  CATEGORIES AT A GLANCE
-                </div>
-                <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', margin: '0 0 6px', letterSpacing: '-0.01em' }}>
-                  Shop By Category
-                </h2>
-                <div style={{ width: '42px', height: '3px', background: genderThemeColor, margin: '0 auto', borderRadius: '2px' }} />
-              </div>
-
-              {/* Circular Category Bubbles Row */}
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '24px',
-                  justifyContent: 'center',
-                  flexWrap: 'wrap',
-                  padding: '10px 0'
-                }}
-              >
-                {filteredCategoryCards.map(cat => {
-                  const coverImg = cat.image || departmentDefaultImg;
-                  return (
-                    <div
-                      key={cat.id}
-                      onClick={() => handleSelectCategory(cat.slug)}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                        width: '120px',
-                        transition: 'transform 0.25s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        const avatar = e.currentTarget.querySelector('.ajio-cat-avatar');
-                        if (avatar) {
-                          avatar.style.transform = 'scale(1.08)';
-                          avatar.style.borderColor = genderThemeColor;
-                          avatar.style.boxShadow = `0 8px 24px ${genderThemeColor}33`;
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        const avatar = e.currentTarget.querySelector('.ajio-cat-avatar');
-                        if (avatar) {
-                          avatar.style.transform = 'none';
-                          avatar.style.borderColor = '#e2e8f0';
-                          avatar.style.boxShadow = '0 4px 14px rgba(0,0,0,0.06)';
-                        }
-                      }}
-                    >
-                      <div
-                        className="ajio-cat-avatar"
-                        style={{
-                          width: '104px',
-                          height: '104px',
-                          borderRadius: '50%',
-                          overflow: 'hidden',
-                          border: '2.5px solid #e2e8f0',
-                          background: '#f8fafc',
-                          boxShadow: '0 4px 14px rgba(0,0,0,0.06)',
-                          transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                          marginBottom: '10px'
-                        }}
-                      >
-                        <img
-                          src={coverImg}
-                          alt={cat.name}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          loading="lazy"
-                        />
-                      </div>
-                      <span
-                        style={{
-                          fontSize: '13px',
-                          fontWeight: 700,
-                          color: '#0f172a',
-                          textAlign: 'center',
-                          lineHeight: 1.3,
-                          maxWidth: '110px'
-                        }}
-                      >
-                        {cat.name}
-                      </span>
-                      {cat.product_count !== undefined && (
-                        <span style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                          {cat.product_count} {cat.product_count === 1 ? 'item' : 'items'}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* 2. AJIO STYLE: "CURATED CAPSULES & COLLECTIONS" GRID */}
+            {/* AJIO STYLE: "BROWSE CATEGORIES" CURATED PROMO CARDS */}
             <section>
               {/* Header with Search and Overview */}
               <div
@@ -500,33 +445,33 @@ export function DepartmentHubContent({
                   flexWrap: 'wrap',
                   gap: '16px',
                   marginBottom: '26px',
-                  paddingTop: '20px',
-                  borderTop: '1px solid #f1f5f9'
+                  paddingTop: '6px'
                 }}
               >
                 <div>
-                  <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                    The Curated Edit ({filteredCategoryCards.length} Categories)
+                  <h3 style={{ fontSize: '22px', fontWeight: 800, color: '#0f172a', margin: '0 0 4px', letterSpacing: '-0.01em' }}>
+                    Browse Categories
                   </h3>
-                  <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
-                    Select any collection to view the assigned products
+                  <p style={{ fontSize: '13.5px', color: '#64748b', margin: 0 }}>
+                    Select a category to view the assigned products
                   </p>
                 </div>
 
                 {/* Instant Category Search Filter */}
-                <div style={{ maxWidth: '300px', width: '100%' }}>
+                <div style={{ maxWidth: '320px', width: '100%' }}>
                   <input
                     type="text"
-                    placeholder={`Filter ${title.toLowerCase()} categories...`}
+                    placeholder={`Search ${title.toLowerCase()}' collection categories...`}
                     value={categorySearch}
                     onChange={(e) => setCategorySearch(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '9px 15px',
+                      padding: '10px 16px',
                       borderRadius: '8px',
                       border: '1.5px solid #dcd7ce',
                       fontSize: '13px',
-                      background: '#ffffff'
+                      background: '#ffffff',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
                     }}
                   />
                 </div>
@@ -534,9 +479,9 @@ export function DepartmentHubContent({
 
               {/* Showcase Grid */}
               {loadingCats ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '28px' }}>
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} style={{ height: '340px', background: '#f5f5f5', borderRadius: '16px' }} />
+                <div className="ajio-promo-grid">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} style={{ height: '420px', background: '#f5f5f5', borderRadius: '14px' }} />
                   ))}
                 </div>
               ) : filteredCategoryCards.length === 0 ? (
@@ -547,204 +492,84 @@ export function DepartmentHubContent({
                   </p>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '28px' }}>
-                  {filteredCategoryCards.map(cat => {
+                <div className="ajio-promo-grid">
+                  {filteredCategoryCards.map((cat, idx) => {
                     const subcats = cat.subcategories || [];
                     const coverImg = cat.image || departmentDefaultImg;
 
+                    // Curated tagline matching the Ajio screenshot aesthetic
+                    const taglines = [
+                      'Where Work Meets Wow',
+                      'Where Every Piece Tells a Story',
+                      'Fashion That Speaks Volumes',
+                      'Crafted for Everyday Elegance',
+                      'Iconic Styles for Every Journey'
+                    ];
+                    const taglineText = cat.tagline || taglines[idx % taglines.length];
+                    const offers = ['MIN. 40% OFF*', 'MIN. 50% OFF*', 'MIN. 55% OFF*', 'MIN. 60% OFF*'];
+                    const offerText = cat.offer_badge || offers[idx % offers.length];
+
                     return (
-                      <article
-                        key={cat.id}
-                        style={{
-                          background: '#ffffff',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '16px',
-                          overflow: 'hidden',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.04)',
-                          transition: 'transform 0.25s ease, box-shadow 0.25s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-4px)';
-                          e.currentTarget.style.boxShadow = '0 12px 28px rgba(0, 0, 0, 0.08)';
-                          const img = e.currentTarget.querySelector('.ajio-card-img');
-                          if (img) img.style.transform = 'scale(1.05)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'none';
-                          e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.04)';
-                          const img = e.currentTarget.querySelector('.ajio-card-img');
-                          if (img) img.style.transform = 'none';
-                        }}
-                      >
-                        {/* Category Cover Media */}
+                      <div key={cat.id} className="ajio-promo-wrapper">
+                        {/* 1. Tall Vertical Promo Card (Exact AJIO Screenshot Match) */}
                         <div
+                          className="ajio-promo-card"
                           onClick={() => handleSelectCategory(cat.slug)}
-                          style={{
-                            position: 'relative',
-                            width: '100%',
-                            height: '220px',
-                            overflow: 'hidden',
-                            background: '#f8fafc',
-                            cursor: 'pointer'
-                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleSelectCategory(cat.slug); }}
+                          title={`Explore ${cat.name}`}
                         >
                           <img
                             src={coverImg}
                             alt={cat.name}
-                            className="ajio-card-img"
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                              transition: 'transform 0.5s ease'
-                            }}
+                            className="ajio-promo-card__bg"
                             loading="lazy"
                           />
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '14px',
-                              left: '14px',
-                              background: genderThemeColor,
-                              color: '#ffffff',
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              fontSize: '11px',
-                              fontWeight: 800,
-                              letterSpacing: '0.08em',
-                              textTransform: 'uppercase',
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-                            }}
-                          >
+                          <div className="ajio-promo-card__gradient" />
+
+                          <div className="ajio-promo-card__badge-top">
                             {gender.toUpperCase()}
                           </div>
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '14px',
-                              right: '14px',
-                              background: 'rgba(255, 255, 255, 0.95)',
-                              color: '#111827',
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              fontSize: '11.5px',
-                              fontWeight: 700,
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
-                            }}
-                          >
-                            {cat.product_count || 0} Products
+
+                          <div className="ajio-promo-card__content">
+                            <span className="ajio-promo-card__tagline">{taglineText}</span>
+                            <h3 className="ajio-promo-card__title">{cat.name}</h3>
+                            <span className="ajio-promo-card__offer">{offerText}</span>
                           </div>
                         </div>
 
-                        {/* Category Card Body */}
-                        <div style={{ padding: '22px', display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-                          <div style={{ marginBottom: '12px' }}>
-                            <h3
-                              onClick={() => handleSelectCategory(cat.slug)}
-                              style={{
-                                fontSize: '20px',
-                                fontWeight: 800,
-                                color: '#111827',
-                                cursor: 'pointer',
-                                margin: '0 0 6px 0',
-                                letterSpacing: '-0.01em'
-                              }}
-                            >
-                              {cat.name}
-                            </h3>
-                            {cat.description && (
-                              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: 1.5 }}>
-                                {cat.description}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Subcategories Chips if any */}
-                          {subcats.length > 0 && (
-                            <div
-                              style={{
-                                marginTop: 'auto',
-                                marginBottom: '16px',
-                                paddingTop: '12px',
-                                borderTop: '1px solid #f1f5f9'
-                              }}
-                            >
-                              <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', marginBottom: '8px' }}>
-                                Popular Styles:
-                              </div>
-                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                {subcats.map(sub => (
-                                  <button
-                                    key={sub.id}
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleSelectCategory(sub.slug);
-                                    }}
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      padding: '5px 10px',
-                                      borderRadius: '6px',
-                                      background: '#f8fafc',
-                                      border: '1px solid #e2e8f0',
-                                      fontSize: '12px',
-                                      fontWeight: 600,
-                                      color: '#334155',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.15s ease'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = '#e2e8f0';
-                                      e.currentTarget.style.color = '#0f172a';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = '#f8fafc';
-                                      e.currentTarget.style.color = '#334155';
-                                    }}
-                                  >
-                                    <span>{sub.name}</span>
-                                    {sub.product_count > 0 && (
-                                      <span style={{ fontSize: '10px', color: '#64748b' }}>({sub.product_count})</span>
-                                    )}
-                                  </button>
-                                ))}
-                              </div>
+                        {/* 2. Subcategories Displayed Under Main Category (Only when subcategories exist) */}
+                        {subcats.length > 0 && (
+                          <div className="ajio-subcategories-block">
+                            <div className="ajio-subcategories-label">
+                              <span>SUBCATEGORIES:</span>
+                              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                                {subcats.length} {subcats.length === 1 ? 'type' : 'types'}
+                              </span>
                             </div>
-                          )}
-
-                          {/* Action CTA Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleSelectCategory(cat.slug)}
-                            style={{
-                              width: '100%',
-                              padding: '11px 16px',
-                              background: '#111827',
-                              color: '#ffffff',
-                              border: 'none',
-                              borderRadius: '8px',
-                              fontSize: '13.5px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '8px',
-                              marginTop: subcats.length === 0 ? 'auto' : '0',
-                              transition: 'background 0.2s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--brand-red, #c8102e)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = '#111827'; }}
-                          >
-                            <span>Explore {cat.name}</span>
-                            <span>→</span>
-                          </button>
-                        </div>
-                      </article>
+                            <div className="ajio-subcategories-chips">
+                              {subcats.map(sub => (
+                                <button
+                                  key={sub.id}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectCategory(sub.slug);
+                                  }}
+                                  className="ajio-subcat-chip"
+                                  title={`View ${sub.name}`}
+                                >
+                                  <span>{sub.name}</span>
+                                  {sub.product_count > 0 && (
+                                    <span style={{ fontSize: '10.5px', color: '#64748b' }}>({sub.product_count})</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

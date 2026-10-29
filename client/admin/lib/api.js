@@ -55,9 +55,14 @@ export async function loginAdmin(email, password) {
   });
 }
 
-// Stats
+// Stats & Analytics
 export async function getAdminStats() {
   return adminFetch('/admin/stats');
+}
+
+export async function getAdminDashboardAnalytics(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/stats/analytics${query ? `?${query}` : ''}`);
 }
 
 // Products
@@ -142,9 +147,10 @@ export async function updateAdminCategory(id, formData) {
   });
 }
 
-export async function updateCategoryBanner(categoryId, bannerUrl) {
+export async function updateCategoryBanner(categoryId, bannerUrl, bannerLink) {
   const formData = new FormData();
-  formData.append('banner_image', bannerUrl || '');
+  if (bannerUrl !== undefined) formData.append('banner_image', bannerUrl || '');
+  if (bannerLink !== undefined) formData.append('banner_link', bannerLink || '');
   return adminFetch(`/admin/categories/${categoryId}`, {
     method: 'PUT',
     body: formData
@@ -167,6 +173,19 @@ export async function updateOrderStatus(id, statusData) {
   return adminFetch(`/admin/orders/${id}/status`, {
     method: 'PUT',
     body: JSON.stringify(statusData)
+  });
+}
+
+export async function deleteAdminOrder(id, restock = true) {
+  return adminFetch(`/admin/orders/${id}?restock=${restock}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function updateAdminPOSOrderItems(id, data) {
+  return adminFetch(`/admin/orders/${id}/pos-items`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
   });
 }
 
@@ -333,4 +352,69 @@ export async function resetAdminCustomerPassword(id, newPassword) {
     body: JSON.stringify({ new_password: newPassword })
   });
 }
+
+// Barcodes & Label Generation
+export async function getProductBarcodes(productId) {
+  return adminFetch(`/admin/products/${productId}/barcodes`);
+}
+
+export async function generateProductBarcodes(productId) {
+  return adminFetch(`/admin/products/${productId}/barcodes/generate`, {
+    method: 'POST'
+  });
+}
+
+export async function lookupBarcode(code) {
+  return adminFetch(`/admin/barcodes/lookup?code=${encodeURIComponent(code)}`);
+}
+
+export async function deactivateBarcode(id) {
+  return adminFetch(`/admin/barcodes/${id}/deactivate`, {
+    method: 'PUT'
+  });
+}
+
+// POS Billing Counter
+export async function createAdminPOSOrder(data) {
+  return adminFetch('/admin/pos/orders', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function processAdminOrderReturn(orderId, data) {
+  return adminFetch(`/admin/orders/${orderId}/return`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+// Inventory Tracking & Audit Trail
+export async function getAdminInventoryTransactions(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/inventory/transactions${query ? '?' + query : ''}`);
+}
+
+export async function getAdminVariantStock(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/inventory/variants${query ? '?' + query : ''}`);
+}
+
+export async function adjustAdminVariantStock(data) {
+  return adminFetch('/admin/inventory/variants/stock', {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function getAdminAllBarcodes(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/barcodes${query ? '?' + query : ''}`);
+}
+
+export async function lookupCustomerByPhone(phone) {
+  return adminFetch(`/admin/customers/lookup?phone=${encodeURIComponent(phone)}`);
+}
+
+
 

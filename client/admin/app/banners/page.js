@@ -9,8 +9,10 @@ import { Icon } from '../../components/Icons';
 import {
   getAdminBanners,
   createAdminBanner,
+  updateAdminBanner,
   deleteAdminBanner,
   getAdminCategories,
+  createAdminCategory,
   updateCategoryBanner,
   uploadCMSMedia,
   getAdminCMSSections,
@@ -21,13 +23,15 @@ import {
 function CategoryBannerUploader({ category, onBannerUpdated }) {
   const [uploading, setUploading] = useState(false);
   const [urlInput, setUrlInput] = useState(category.banner_image || '');
+  const [linkInput, setLinkInput] = useState(category.banner_link || '');
   const [showUrlField, setShowUrlField] = useState(false);
   const [msg, setMsg] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     setUrlInput(category.banner_image || '');
-  }, [category.banner_image]);
+    setLinkInput(category.banner_link || '');
+  }, [category.banner_image, category.banner_link]);
 
   const handleFileUpload = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -44,8 +48,8 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
       const uploadedUrl = res?.url || (res?.data && res.data.url);
       if (!uploadedUrl) throw new Error('Image URL was not returned by server');
 
-      await updateCategoryBanner(category.id, uploadedUrl);
-      onBannerUpdated(category.id, uploadedUrl);
+      await updateCategoryBanner(category.id, uploadedUrl, linkInput.trim());
+      onBannerUpdated(category.id, uploadedUrl, linkInput.trim());
       setUrlInput(uploadedUrl);
       setMsg('✓ Banner uploaded successfully!');
       setTimeout(() => setMsg(''), 3500);
@@ -61,8 +65,8 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
     setUploading(true);
     setMsg('');
     try {
-      await updateCategoryBanner(category.id, urlInput.trim());
-      onBannerUpdated(category.id, urlInput.trim());
+      await updateCategoryBanner(category.id, urlInput.trim(), linkInput.trim());
+      onBannerUpdated(category.id, urlInput.trim(), linkInput.trim());
       setMsg('✓ Banner URL saved!');
       setTimeout(() => setMsg(''), 3500);
     } catch (err) {
@@ -72,12 +76,28 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
     }
   };
 
+  const handleSaveLink = async () => {
+    setUploading(true);
+    setMsg('');
+    try {
+      const currentBanner = urlInput.trim() || category.banner_image || '';
+      await updateCategoryBanner(category.id, currentBanner, linkInput.trim());
+      onBannerUpdated(category.id, currentBanner, linkInput.trim());
+      setMsg('✓ Redirect link saved!');
+      setTimeout(() => setMsg(''), 3500);
+    } catch (err) {
+      alert(err.message || 'Error saving redirect link');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleRemoveBanner = async () => {
     if (!confirm(`Remove custom banner for "${category.name}"?`)) return;
     setUploading(true);
     try {
-      await updateCategoryBanner(category.id, '');
-      onBannerUpdated(category.id, '');
+      await updateCategoryBanner(category.id, '', linkInput.trim());
+      onBannerUpdated(category.id, '', linkInput.trim());
       setUrlInput('');
       setMsg('Banner removed.');
       setTimeout(() => setMsg(''), 3000);
@@ -135,7 +155,7 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
         )}
       </div>
 
-      {/* Pure Banner Preview: NO OVERLAY, NO TEXT ON IMAGE, 100% CLEAN */}
+      {/* Pure Banner Preview: NO OVERLAY, NO TEXT ON IMAGE */}
       <div
         style={{
           width: '100%',
@@ -180,9 +200,9 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
         </div>
       </div>
 
-      {/* Banner Upload Controls */}
+      {/* Banner Upload & Redirect Link Controls */}
       <div style={{ padding: '16px 20px', background: '#fafafa', marginTop: 'auto', borderTop: '1px solid #f1f5f9' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <input
               type="file"
@@ -252,7 +272,7 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
 
         {/* URL Input Accordion */}
         {showUrlField && (
-          <div style={{ marginTop: '10px', display: 'flex', gap: '6px' }}>
+          <div style={{ marginBottom: '12px', display: 'flex', gap: '6px' }}>
             <input
               type="text"
               value={urlInput}
@@ -287,7 +307,55 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
           </div>
         )}
 
-        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>
+        {/* Editable Redirect Link URL */}
+        <div style={{ paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155' }}>
+              🔗 Banner Click Redirect URL
+            </label>
+            <span style={{ fontSize: '10px', color: '#64748b' }}>
+              (Clicking banner opens this link)
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input
+              type="text"
+              value={linkInput}
+              placeholder={`/shop?category=${category.slug}`}
+              onChange={(e) => setLinkInput(e.target.value)}
+              style={{
+                flexGrow: 1,
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                background: '#ffffff',
+                color: '#0f172a'
+              }}
+            />
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={handleSaveLink}
+              style={{
+                background: '#065935',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              Save Link
+            </button>
+          </div>
+        </div>
+
+        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '8px' }}>
           Recommended: 1600 × 400 px (Wide panoramic banner — JPG/WebP)
         </div>
       </div>
@@ -296,15 +364,21 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
 }
 
 // Department / Main Shop Banner Uploader Component
-function PageBannerItem({ pageKey, title, route, currentUrl, onSave }) {
+function PageBannerItem({ pageKey, title, route, currentData, currentUrl, onSave }) {
+  const data = currentData !== undefined ? currentData : currentUrl;
+  const currentImg = typeof data === 'object' ? data?.image : data;
+  const currentLink = typeof data === 'object' ? data?.link : '';
   const [uploading, setUploading] = useState(false);
-  const [url, setUrl] = useState(currentUrl || '');
+  const [url, setUrl] = useState(currentImg || '');
+  const [link, setLink] = useState(currentLink || '');
   const [msg, setMsg] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setUrl(currentUrl || '');
-  }, [currentUrl]);
+    const d = currentData !== undefined ? currentData : currentUrl;
+    setUrl(typeof d === 'object' ? d?.image || '' : d || '');
+    setLink(typeof d === 'object' ? d?.link || '' : '');
+  }, [currentData, currentUrl]);
 
   const handleUpload = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -321,7 +395,7 @@ function PageBannerItem({ pageKey, title, route, currentUrl, onSave }) {
       const uploadedUrl = res?.url || (res?.data && res.data.url);
       if (!uploadedUrl) throw new Error('Failed to retrieve image URL');
 
-      await onSave(pageKey, uploadedUrl);
+      await onSave(pageKey, { image: uploadedUrl, link: link.trim() });
       setUrl(uploadedUrl);
       setMsg('✓ Banner saved!');
       setTimeout(() => setMsg(''), 3500);
@@ -330,6 +404,20 @@ function PageBannerItem({ pageKey, title, route, currentUrl, onSave }) {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSaveLink = async () => {
+    setUploading(true);
+    setMsg('');
+    try {
+      await onSave(pageKey, { image: url, link: link.trim() });
+      setMsg('✓ Redirect link saved!');
+      setTimeout(() => setMsg(''), 3500);
+    } catch (err) {
+      alert(err.message || 'Error saving redirect link');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -371,34 +459,84 @@ function PageBannerItem({ pageKey, title, route, currentUrl, onSave }) {
         )}
       </div>
 
-      <div style={{ padding: '16px 20px', background: '#fafafa', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept="image/*"
-          style={{ display: 'none' }}
-          onChange={handleUpload}
-        />
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            background: '#065935',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '6px',
-            padding: '8px 16px',
-            fontSize: '12.5px',
-            fontWeight: 700,
-            cursor: uploading ? 'not-allowed' : 'pointer'
-          }}
-        >
-          📷 {uploading ? 'Uploading...' : 'Upload Page Banner'}
-        </button>
-        <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-          Recommended: 1800 × 450 px
-        </span>
+      <div style={{ padding: '16px 20px', background: '#fafafa', borderTop: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleUpload}
+          />
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              background: '#065935',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '8px 16px',
+              fontSize: '12.5px',
+              fontWeight: 700,
+              cursor: uploading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            📷 {uploading ? 'Uploading...' : 'Upload Page Banner'}
+          </button>
+          <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+            Recommended: 1800 × 450 px
+          </span>
+        </div>
+
+        {/* Editable Redirect Link for Page Banner */}
+        <div style={{ paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155' }}>
+              🔗 Banner Click Redirect URL
+            </label>
+            <span style={{ fontSize: '10px', color: '#64748b' }}>
+              (Where clicking this department banner redirects)
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input
+              type="text"
+              value={link}
+              placeholder={`e.g. ${route}`}
+              onChange={(e) => setLink(e.target.value)}
+              style={{
+                flexGrow: 1,
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                background: '#ffffff',
+                color: '#0f172a'
+              }}
+            />
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={handleSaveLink}
+              style={{
+                background: '#065935',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              Save Link
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -422,6 +560,7 @@ export default function AdminBannersPage() {
   // Hero Slides state
   const [heroBanners, setHeroBanners] = useState([]);
   const [isHeroModalOpen, setIsHeroModalOpen] = useState(false);
+  const [editingHeroSlide, setEditingHeroSlide] = useState(null);
   const [heroFormData, setHeroFormData] = useState({
     title: '',
     subtitle: '',
@@ -430,6 +569,20 @@ export default function AdminBannersPage() {
     image: null
   });
   const [savingHero, setSavingHero] = useState(false);
+
+  // Add Category Card Modal state
+  const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
+  const [newCatData, setNewCatData] = useState({
+    name: '',
+    slug: '',
+    gender: 'women',
+    parent_id: '',
+    description: '',
+    banner_link: '',
+    imageFile: null,
+    bannerFile: null
+  });
+  const [savingCat, setSavingCat] = useState(false);
 
   // 1. Load Categories
   const loadCategories = () => {
@@ -472,19 +625,43 @@ export default function AdminBannersPage() {
     loadHeroBanners();
   }, []);
 
-  const handleCategoryBannerUpdated = (catId, newBannerUrl) => {
+  const handleCategoryBannerUpdated = (catId, newBannerUrl, newBannerLink) => {
     setCategories(prev =>
-      prev.map(c => (c.id === catId ? { ...c, banner_image: newBannerUrl } : c))
+      prev.map(c => (c.id === catId ? { ...c, banner_image: newBannerUrl, banner_link: newBannerLink } : c))
     );
   };
 
-  const handleSavePageBanner = async (key, url) => {
-    const updated = { ...pageBanners, [key]: url };
+  const handleSavePageBanner = async (key, bannerData) => {
+    const updated = { ...pageBanners, [key]: bannerData };
     setPageBanners(updated);
     await updateAdminCMSSection('page_banners', {
       title: 'Page & Department Banners',
       content: updated
     });
+  };
+
+  const handleOpenEditHero = (slide) => {
+    setEditingHeroSlide(slide);
+    setHeroFormData({
+      title: slide.title || '',
+      subtitle: slide.subtitle || '',
+      link_url: slide.link_url || slide.cta_primary_link || '/shop',
+      sort_order: slide.sort_order || 0,
+      image: null
+    });
+    setIsHeroModalOpen(true);
+  };
+
+  const handleOpenAddHero = () => {
+    setEditingHeroSlide(null);
+    setHeroFormData({
+      title: '',
+      subtitle: '',
+      link_url: '/shop',
+      sort_order: 0,
+      image: null
+    });
+    setIsHeroModalOpen(true);
   };
 
   const handleHeroSubmit = async (e) => {
@@ -500,12 +677,18 @@ export default function AdminBannersPage() {
         data.append('image', heroFormData.image);
       }
 
-      await createAdminBanner(data);
+      if (editingHeroSlide) {
+        await updateAdminBanner(editingHeroSlide.id, data);
+      } else {
+        await createAdminBanner(data);
+      }
+
       setIsHeroModalOpen(false);
+      setEditingHeroSlide(null);
       setHeroFormData({ title: '', subtitle: '', link_url: '/shop', sort_order: 0, image: null });
       loadHeroBanners();
     } catch (err) {
-      alert(err.message || 'Error creating hero slide');
+      alert(err.message || 'Error saving hero slide');
     } finally {
       setSavingHero(false);
     }
@@ -518,6 +701,66 @@ export default function AdminBannersPage() {
       loadHeroBanners();
     } catch (err) {
       alert(err.message || 'Error deleting banner');
+    }
+  };
+
+  // Add Category Card Handler
+  const handleNewCatNameChange = (nameVal) => {
+    const autoSlug = nameVal.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+    setNewCatData(prev => ({
+      ...prev,
+      name: nameVal,
+      slug: autoSlug,
+      banner_link: prev.banner_link || `/shop?category=${autoSlug}`
+    }));
+  };
+
+  const handleCreateCategorySubmit = async (e) => {
+    e.preventDefault();
+    if (!newCatData.name.trim()) {
+      alert('Category name is required.');
+      return;
+    }
+
+    setSavingCat(true);
+    try {
+      let bannerImageUrl = '';
+      if (newCatData.bannerFile) {
+        const formData = new FormData();
+        formData.append('image', newCatData.bannerFile);
+        formData.append('folder', 'category-banners');
+        const res = await uploadCMSMedia(formData);
+        bannerImageUrl = res?.url || (res?.data && res.data.url) || '';
+      }
+
+      const catFormData = new FormData();
+      catFormData.append('name', newCatData.name.trim());
+      if (newCatData.slug.trim()) catFormData.append('slug', newCatData.slug.trim());
+      catFormData.append('gender', newCatData.gender);
+      if (newCatData.parent_id) catFormData.append('parent_id', newCatData.parent_id);
+      if (newCatData.description) catFormData.append('description', newCatData.description);
+      if (newCatData.imageFile) catFormData.append('image', newCatData.imageFile);
+      if (bannerImageUrl) catFormData.append('banner_image', bannerImageUrl);
+      if (newCatData.banner_link.trim()) catFormData.append('banner_link', newCatData.banner_link.trim());
+
+      await createAdminCategory(catFormData);
+      setIsAddCategoryModalOpen(false);
+      setNewCatData({
+        name: '',
+        slug: '',
+        gender: 'women',
+        parent_id: '',
+        description: '',
+        banner_link: '',
+        imageFile: null,
+        bannerFile: null
+      });
+      loadCategories();
+      alert('✓ New category card created successfully!');
+    } catch (err) {
+      alert(err.message || 'Error creating category card');
+    } finally {
+      setSavingCat(false);
     }
   };
 
@@ -656,22 +899,43 @@ export default function AdminBannersPage() {
                   ))}
                 </div>
 
-                {/* Search */}
-                <div style={{ maxWidth: '300px', width: '100%' }}>
-                  <input
-                    type="text"
-                    placeholder="Search category banner..."
-                    value={categorySearch}
-                    onChange={(e) => setCategorySearch(e.target.value)}
+                {/* Search & Add Category Card */}
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ maxWidth: '280px', width: '100%' }}>
+                    <input
+                      type="text"
+                      placeholder="Search category banner..."
+                      value={categorySearch}
+                      onChange={(e) => setCategorySearch(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        border: '1.5px solid #cbd5e1',
+                        fontSize: '13px',
+                        background: '#ffffff'
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAddCategoryModalOpen(true)}
+                    className="admin-btn admin-btn-primary"
                     style={{
-                      width: '100%',
-                      padding: '8px 14px',
-                      borderRadius: '8px',
-                      border: '1.5px solid #cbd5e1',
+                      background: '#065935',
+                      borderColor: '#065935',
+                      padding: '8px 16px',
                       fontSize: '13px',
-                      background: '#ffffff'
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
                     }}
-                  />
+                  >
+                    <Icon name="plus" size={15} />
+                    <span>+ Add New Category Card</span>
+                  </button>
                 </div>
               </div>
 
@@ -696,6 +960,127 @@ export default function AdminBannersPage() {
                   ))}
                 </div>
               )}
+
+              {/* Modal: Add New Category Card */}
+              <Modal
+                isOpen={isAddCategoryModalOpen}
+                onClose={() => setIsAddCategoryModalOpen(false)}
+                title="Add New Category Card & Banner"
+              >
+                <form onSubmit={handleCreateCategorySubmit}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Category Name *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. Leather Handbags"
+                        value={newCatData.name}
+                        onChange={(e) => handleNewCatNameChange(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Slug (Auto / Custom)</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="leather-handbags"
+                        value={newCatData.slug}
+                        onChange={(e) => setNewCatData({ ...newCatData, slug: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Department / Gender *</label>
+                      <select
+                        className="form-control"
+                        value={newCatData.gender}
+                        onChange={(e) => setNewCatData({ ...newCatData, gender: e.target.value })}
+                      >
+                        <option value="women">👩 Women</option>
+                        <option value="men">👤 Men</option>
+                        <option value="kids">🧒 Kids</option>
+                        <option value="all">🌐 All / Unisex</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Parent Category (Optional)</label>
+                      <select
+                        className="form-control"
+                        value={newCatData.parent_id}
+                        onChange={(e) => setNewCatData({ ...newCatData, parent_id: e.target.value })}
+                      >
+                        <option value="">None (Top-Level Category Card)</option>
+                        {categories.filter(c => !c.parent_id).map(parent => (
+                          <option key={parent.id} value={parent.id}>
+                            {parent.name} ({parent.gender})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '14px' }}>
+                    <label className="form-label">Banner Click Redirect URL</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder={`/shop?category=${newCatData.slug || 'slug'}`}
+                      value={newCatData.banner_link}
+                      onChange={(e) => setNewCatData({ ...newCatData, banner_link: e.target.value })}
+                    />
+                    <span style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'block' }}>
+                      Clicking this category banner on the store will redirect to this link.
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Promo Card Cover Image</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setNewCatData({ ...newCatData, imageFile: e.target.files[0] })}
+                      />
+                      <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>Square or Portrait (e.g. 600x800)</span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Category Shop Banner Image</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setNewCatData({ ...newCatData, bannerFile: e.target.files[0] })}
+                      />
+                      <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>Panoramic (e.g. 1600x400)</span>
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '18px' }}>
+                    <label className="form-label">Description (Optional)</label>
+                    <textarea
+                      className="form-control"
+                      rows={2}
+                      placeholder="Short description for this collection..."
+                      value={newCatData.description}
+                      onChange={(e) => setNewCatData({ ...newCatData, description: e.target.value })}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                    <button type="button" className="admin-btn admin-btn-outline" onClick={() => setIsAddCategoryModalOpen(false)}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="admin-btn admin-btn-primary" disabled={savingCat} style={{ background: '#065935', borderColor: '#065935' }}>
+                      {savingCat ? 'Creating...' : 'Create Category Card'}
+                    </button>
+                  </div>
+                </form>
+              </Modal>
             </div>
           )}
 
@@ -712,6 +1097,7 @@ export default function AdminBannersPage() {
                   pageKey="shop"
                   title="Main Shop Page Banner"
                   route="/shop"
+                  currentData={pageBanners.shop}
                   currentUrl={pageBanners.shop}
                   onSave={handleSavePageBanner}
                 />
@@ -719,6 +1105,7 @@ export default function AdminBannersPage() {
                   pageKey="womens"
                   title="Women's Department Banner"
                   route="/womens"
+                  currentData={pageBanners.womens}
                   currentUrl={pageBanners.womens}
                   onSave={handleSavePageBanner}
                 />
@@ -726,6 +1113,7 @@ export default function AdminBannersPage() {
                   pageKey="mens"
                   title="Men's Department Banner"
                   route="/mens"
+                  currentData={pageBanners.mens}
                   currentUrl={pageBanners.mens}
                   onSave={handleSavePageBanner}
                 />
@@ -733,6 +1121,7 @@ export default function AdminBannersPage() {
                   pageKey="kids"
                   title="Kids' Department Banner"
                   route="/kids"
+                  currentData={pageBanners.kids}
                   currentUrl={pageBanners.kids}
                   onSave={handleSavePageBanner}
                 />
@@ -757,7 +1146,7 @@ export default function AdminBannersPage() {
                 <button
                   type="button"
                   className="admin-btn admin-btn-primary"
-                  onClick={() => setIsHeroModalOpen(true)}
+                  onClick={handleOpenAddHero}
                   style={{ background: '#065935', borderColor: '#065935' }}
                 >
                   <Icon name="plus" size={15} />
@@ -785,19 +1174,32 @@ export default function AdminBannersPage() {
                       <div style={{ padding: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                           <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--ink)' }}>{b.title || 'Untitled Banner'}</h3>
-                          <button
-                            type="button"
-                            className="admin-btn admin-btn-outline"
-                            style={{ color: 'var(--brand-red)', borderColor: 'var(--brand-red)', padding: '4px 8px' }}
-                            onClick={() => handleHeroDelete(b.id)}
-                          >
-                            <Icon name="trash" size={14} />
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-outline"
+                              style={{ color: '#065935', borderColor: '#065935', padding: '4px 8px', fontSize: '12px' }}
+                              onClick={() => handleOpenEditHero(b)}
+                              title="Edit Slide & Redirect Link"
+                            >
+                              <Icon name="edit" size={13} />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-outline"
+                              style={{ color: 'var(--brand-red)', borderColor: 'var(--brand-red)', padding: '4px 8px' }}
+                              onClick={() => handleHeroDelete(b.id)}
+                              title="Delete Slide"
+                            >
+                              <Icon name="trash" size={13} />
+                            </button>
+                          </div>
                         </div>
                         {b.subtitle && <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '8px' }}>{b.subtitle}</p>}
-                        <div style={{ fontSize: '12px', color: 'var(--brand-red)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ fontSize: '12px', color: '#065935', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
                           <Icon name="externalLink" size={12} />
-                          <span>{b.link_url || '/shop'}</span>
+                          <span>{b.link_url || b.cta_primary_link || '/shop'}</span>
                         </div>
                       </div>
                     </div>
@@ -805,11 +1207,11 @@ export default function AdminBannersPage() {
                 )}
               </div>
 
-              {/* Add Hero Modal */}
+              {/* Add / Edit Hero Modal */}
               <Modal
                 isOpen={isHeroModalOpen}
                 onClose={() => setIsHeroModalOpen(false)}
-                title="Add Promotional Hero Slide"
+                title={editingHeroSlide ? 'Edit Promotional Hero Slide' : 'Add Promotional Hero Slide'}
               >
                 <form onSubmit={handleHeroSubmit}>
                   <div className="form-group" style={{ marginBottom: '14px' }}>
@@ -834,7 +1236,7 @@ export default function AdminBannersPage() {
                     />
                   </div>
                   <div className="form-group" style={{ marginBottom: '14px' }}>
-                    <label className="form-label">Target Link URL</label>
+                    <label className="form-label">Target Redirect Link URL</label>
                     <input
                       type="text"
                       className="form-control"
@@ -842,14 +1244,17 @@ export default function AdminBannersPage() {
                       value={heroFormData.link_url}
                       onChange={(e) => setHeroFormData({ ...heroFormData, link_url: e.target.value })}
                     />
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '2px' }}>
+                      Redirects to this link when customer clicks the banner slide.
+                    </span>
                   </div>
                   <div className="form-group" style={{ marginBottom: '18px' }}>
-                    <label className="form-label">Banner Image</label>
+                    <label className="form-label">Banner Image {editingHeroSlide && '(Leave empty to keep current image)'}</label>
                     <input
                       type="file"
                       accept="image/*"
                       onChange={(e) => setHeroFormData({ ...heroFormData, image: e.target.files[0] })}
-                      required
+                      required={!editingHeroSlide}
                     />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -857,7 +1262,7 @@ export default function AdminBannersPage() {
                       Cancel
                     </button>
                     <button type="submit" className="admin-btn admin-btn-primary" disabled={savingHero}>
-                      {savingHero ? 'Saving...' : 'Create Hero Slide'}
+                      {savingHero ? 'Saving...' : editingHeroSlide ? 'Update Hero Slide' : 'Create Hero Slide'}
                     </button>
                   </div>
                 </form>

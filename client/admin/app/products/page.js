@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
@@ -18,7 +19,9 @@ import {
   setPrimaryProductImage,
   uploadProductGalleryImage,
   uploadCMSMedia,
-  getAdminCategories
+  getAdminCategories,
+  getProductBarcodes,
+  generateProductBarcodes
 } from '../../lib/api';
 
 export default function AdminProductsPage() {
@@ -33,6 +36,16 @@ export default function AdminProductsPage() {
   const [isUploadingVariantIndex, setIsUploadingVariantIndex] = useState(null);
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Barcode management in edit modal
+  const [editingProductBarcodes, setEditingProductBarcodes] = useState([]);
+  const [loadingProductBarcodes, setLoadingProductBarcodes] = useState(false);
+  const [generatingProductBarcodes, setGeneratingProductBarcodes] = useState(false);
+
+  // Barcode quick view details popup
+  const [barcodePopupProduct, setBarcodePopupProduct] = useState(null);
+  const [popupBarcodes, setPopupBarcodes] = useState([]);
+  const [loadingPopupBarcodes, setLoadingPopupBarcodes] = useState(false);
 
   const galleryFileInputRef = useRef(null);
   const replaceFileInputRef = useRef(null);
@@ -297,6 +310,115 @@ export default function AdminProductsPage() {
       }
     } catch (err) {
       console.warn('Could not refresh product details:', err);
+    }
+
+    // Load existing barcodes for this product
+    setEditingProductBarcodes([]);
+    setLoadingProductBarcodes(true);
+    getProductBarcodes(p.id)
+      .then(res => {
+        if (Array.isArray(res)) setEditingProductBarcodes(res);
+      })
+      .catch(() => setEditingProductBarcodes([]))
+      .finally(() => setLoadingProductBarcodes(false));
+  };
+
+  // Generate barcodes for product being edited
+  const handleGenerateCurrentProductBarcodes = async (productId) => {
+    const id = productId || editingProduct?.id;
+    if (!id) return;
+    setGeneratingProductBarcodes(true);
+    try {
+      const res = await generateProductBarcodes(id);
+      if (res && res.barcodes) {
+        setEditingProductBarcodes(res.barcodes);
+        if (barcodePopupProduct && barcodePopupProduct.id === id) {
+          setPopupBarcodes(res.barcodes);
+        }
+      }
+      alert('✓ Code 128 barcodes generated and synchronized successfully!');
+    } catch (err) {
+      alert(err.message || 'Error generating barcodes');
+    } finally {
+      setGeneratingProductBarcodes(false);
+    }
+  };
+
+  // Open Product Barcode & Details Quick View Popup
+  const handleOpenBarcodePopup = (prod) => {
+    setBarcodePopupProduct(prod);
+    setPopupBarcodes([]);
+    setLoadingPopupBarcodes(true);
+
+    getProductBarcodes(prod.id)
+      .then(res => {
+        if (Array.isArray(res)) setPopupBarcodes(res);
+      })
+      .catch(() => setPopupBarcodes([]))
+      .finally(() => setLoadingPopupBarcodes(false));
+  };
+
+  // Print thermal barcode sticker
+  const printProductThermalSticker = (barcodeItem, copies = 3) => {
+    const priceVal = barcodeItem.price || barcodeItem.sale_price || editingProduct?.sale_price || editingProduct?.price || barcodePopupProduct?.price || 999;
+    const nameVal = barcodeItem.product_name || barcodeItem.barcode_short_name || editingProduct?.name || barcodePopupProduct?.name || 'Handbag Collection';
+
+    const printHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Print Barcode Stickers - ${barcodeItem.barcode}</title>
+<style>
+  @page { size: 105mm 25mm; margin: 0; }
+  * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    font-weight: 700;
+  }
+  .sticker-row { display: flex; flex-wrap: wrap; gap: 2mm; padding: 1mm 2mm; }
+  .barcode-sticker {
+    width: 32mm; height: 23mm; border: 0.5px solid #000000; padding: 1mm;
+    display: flex; flex-direction: column; justify-content: space-between;
+    align-items: center; text-align: center; page-break-inside: avoid;
+  }
+  .store-name { font-size: 7.5pt; font-weight: 900; text-transform: uppercase; letter-spacing: 0.2px; }
+  .product-name { font-size: 6pt; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30mm; }
+  .barcode-svg-container { width: 28mm; height: 10mm; display: flex; align-items: center; justify-content: center; }
+  .barcode-svg-container svg { width: 100%; height: 100%; fill: #000000 !important; stroke: #000000 !important; }
+  .code-text { font-size: 7.5pt; font-weight: 900; font-family: monospace; letter-spacing: 0.5px; }
+  .price-text { font-size: 7.5pt; font-weight: 900; }
+</style>
+</head>
+<body>
+  <div class="sticker-row">
+    ${Array.from({ length: copies }).map(() => `
+      <div class="barcode-sticker">
+        <div class="store-name">NP GRAND SHOPPING</div>
+        <div class="product-name">${nameVal}</div>
+        <div class="barcode-svg-container">${barcodeItem.svg || ''}</div>
+        <div class="code-text">${barcodeItem.barcode}</div>
+        <div class="price-text">MRP: ₹${Number(priceVal).toLocaleString('en-IN')}</div>
+      </div>
+    `).join('')}
+  </div>
+</body>
+</html>
+    `;
+
+    const printWin = window.open('', '_blank', 'width=600,height=400');
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(printHtml);
+      printWin.document.close();
+      setTimeout(() => {
+        printWin.focus();
+        printWin.print();
+        printWin.close();
+      }, 350);
     }
   };
 
@@ -682,6 +804,16 @@ export default function AdminProductsPage() {
                               >
                                 <Icon name="copy" size={14} />
                                 <span>Duplicate</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-btn admin-btn-outline"
+                                style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
+                                onClick={() => handleOpenBarcodePopup(p)}
+                                title="Show Barcode & Print Thermal Stickers"
+                              >
+                                <Icon name="barcode" size={14} />
+                                <span>Barcode</span>
                               </button>
                               <button
                                 type="button"
@@ -1443,6 +1575,149 @@ export default function AdminProductsPage() {
             onFileSelect={(file) => setSelectedFile(file)}
           />
 
+          {/* Barcode Generation & Thermal Printing Section (On Product Edit Place) */}
+          {editingProduct && (
+            <div style={{ marginTop: '24px', background: '#f8fafc', borderRadius: '10px', border: '1.5px solid #cbd5e1', padding: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>
+                    PRODUCT BARCODES &amp; THERMAL STICKERS
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                    Code 128 barcodes for hardware scanners and POS retail billing.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleGenerateCurrentProductBarcodes(editingProduct.id)}
+                  disabled={generatingProductBarcodes}
+                  style={{
+                    background: '#065935',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(6, 89, 53, 0.25)'
+                  }}
+                >
+                  {generatingProductBarcodes ? 'Generating...' : '⚡ Generate / Sync Barcodes'}
+                </button>
+              </div>
+
+              {loadingProductBarcodes ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
+                  Loading product barcodes...
+                </div>
+              ) : editingProductBarcodes.length === 0 ? (
+                <div style={{ background: '#ffffff', padding: '18px', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                    No Barcodes Generated Yet
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
+                    Generate standard NP-XXXX primary and variant barcodes for in-store scanning.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateCurrentProductBarcodes(editingProduct.id)}
+                    disabled={generatingProductBarcodes}
+                    style={{
+                      background: '#065935',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 16px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Generate Barcodes Now
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  {editingProductBarcodes.map((b, idx) => (
+                    <div
+                      key={b.id || idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: '#ffffff',
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        flexWrap: 'wrap',
+                        gap: '12px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div
+                          style={{ width: '115px', height: '36px', background: '#f8fafc', padding: '2px 4px', borderRadius: '4px', border: '1px solid #e2e8f0' }}
+                          dangerouslySetInnerHTML={{ __html: b.svg }}
+                        />
+                        <div>
+                          <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '14px', color: '#065935' }}>
+                            {b.barcode}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>
+                            <span style={{ fontWeight: 800, color: b.is_primary ? '#065935' : '#0369a1' }}>
+                              {b.is_primary ? 'PRIMARY' : 'VARIANT'}
+                            </span>
+                            {b.color_name && ` · ${b.color_name}`}
+                            {b.size_name && ` · ${b.size_name}`}
+                            {b.sku && ` · SKU: ${b.sku}`}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => printProductThermalSticker(b, 3)}
+                          style={{
+                            background: '#065935',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '5px',
+                            padding: '6px 12px',
+                            fontSize: '11.5px',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                          title="Print 3x thermal labels"
+                        >
+                          Print 3x
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => printProductThermalSticker(b, 1)}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #cbd5e1',
+                            color: '#0f172a',
+                            borderRadius: '5px',
+                            padding: '6px 10px',
+                            fontSize: '11.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                          title="Print 1 sticker"
+                        >
+                          Print 1x
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="modal-footer" style={{ padding: '16px 0 0', marginTop: '20px' }}>
             <button
               type="button"
@@ -1456,6 +1731,183 @@ export default function AdminProductsPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Standalone Product Barcode & Details Quick View Popup */}
+      <Modal
+        isOpen={!!barcodePopupProduct}
+        onClose={() => setBarcodePopupProduct(null)}
+        title={`Barcode Details: ${barcodePopupProduct?.name}`}
+        maxWidth="620px"
+      >
+        {barcodePopupProduct && (
+          <div>
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
+              <img
+                src={barcodePopupProduct.primary_image || barcodePopupProduct.image || barcodePopupProduct.gallery?.[0] || '/assets/bestsellers/best-handbag.png'}
+                alt=""
+                style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff' }}
+              />
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>
+                  {barcodePopupProduct.name}
+                </h3>
+                <div style={{ fontSize: '12.5px', color: '#64748b' }}>
+                  Category: <strong>{categories.find(c => String(c.id) === String(barcodePopupProduct.category_id))?.name || 'General'}</strong> &bull; Price: <strong style={{ color: '#065935' }}>₹{barcodePopupProduct.price}</strong>
+                </div>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                  Storefront URL: <code>/product/{barcodePopupProduct.slug || barcodePopupProduct.id}</code>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <strong style={{ fontSize: '13px', color: '#0f172a' }}>
+                REGISTERED PRODUCT BARCODES ({popupBarcodes.length})
+              </strong>
+              <button
+                type="button"
+                onClick={() => handleGenerateCurrentProductBarcodes(barcodePopupProduct.id)}
+                disabled={generatingProductBarcodes}
+                style={{
+                  background: '#065935',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
+              >
+                {generatingProductBarcodes ? 'Generating...' : '⚡ Generate / Sync'}
+              </button>
+            </div>
+
+            {loadingPopupBarcodes ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                Loading barcodes...
+              </div>
+            ) : popupBarcodes.length === 0 ? (
+              <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                  No Barcodes Generated Yet
+                </div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
+                  Generate Code 128 barcodes formatted as NP-XXXX for label printing and hardware scanners.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleGenerateCurrentProductBarcodes(barcodePopupProduct.id)}
+                  disabled={generatingProductBarcodes}
+                  style={{
+                    background: '#065935',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Generate Barcodes Now
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px', maxHeight: '300px', overflowY: 'auto' }}>
+                {popupBarcodes.map((b, idx) => (
+                  <div
+                    key={b.id || idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: '#ffffff',
+                      padding: '12px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      flexWrap: 'wrap',
+                      gap: '12px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div
+                        style={{ width: '120px', height: '38px', background: '#f8fafc', padding: '2px 4px', borderRadius: '4px', border: '1px solid #e2e8f0' }}
+                        dangerouslySetInnerHTML={{ __html: b.svg }}
+                      />
+                      <div>
+                        <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '14px', color: '#065935' }}>
+                          {b.barcode}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                          <span style={{ fontWeight: 800, color: b.is_primary ? '#065935' : '#0369a1' }}>
+                            {b.is_primary ? 'PRIMARY' : 'VARIANT'}
+                          </span>
+                          {b.color_name && ` · ${b.color_name}`}
+                          {b.size_name && ` · ${b.size_name}`}
+                          {b.sku && ` · SKU: ${b.sku}`}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => printProductThermalSticker(b, 3)}
+                        style={{
+                          background: '#065935',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '5px',
+                          padding: '6px 12px',
+                          fontSize: '11.5px',
+                          fontWeight: 800,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Print 3x
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => printProductThermalSticker(b, 1)}
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #cbd5e1',
+                          color: '#0f172a',
+                          borderRadius: '5px',
+                          padding: '6px 10px',
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Print 1x
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+              <Link
+                href="/barcodes"
+                style={{ fontSize: '12px', color: '#065935', fontWeight: 800, textDecoration: 'none' }}
+              >
+                Go to Full Barcode Registry &rarr;
+              </Link>
+
+              <button
+                type="button"
+                className="admin-btn admin-btn-outline"
+                onClick={() => setBarcodePopupProduct(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

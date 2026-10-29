@@ -208,12 +208,54 @@ async function resetCustomerPasswordAdmin(req, res, next) {
   }
 }
 
+/**
+ * Fast lookup customer by phone number for POS auto-population
+ */
+async function lookupCustomerByPhone(req, res, next) {
+  try {
+    const rawPhone = (req.query.phone || '').trim().replace(/\D/g, '');
+    if (!rawPhone || rawPhone.length < 5) {
+      return sendSuccess(res, null, 'Phone query too short');
+    }
+
+    const tenDigit = rawPhone.length >= 10 ? rawPhone.slice(-10) : rawPhone;
+
+    // 1. Check registered users table
+    const users = await query(
+      `SELECT id, name, email, phone FROM users WHERE phone LIKE ? OR phone LIKE ? LIMIT 1`,
+      [`%${rawPhone}%`, `%${tenDigit}%`]
+    );
+
+    if (users.length > 0) {
+      return sendSuccess(res, users[0], 'Customer found in users');
+    }
+
+    // 2. Check orders table for past walk-in or POS billing
+    const orderCustomer = await query(
+      `SELECT customer_name AS name, customer_email AS email, customer_phone AS phone
+       FROM orders
+       WHERE customer_phone LIKE ? OR customer_phone LIKE ?
+       ORDER BY id DESC LIMIT 1`,
+      [`%${rawPhone}%`, `%${tenDigit}%`]
+    );
+
+    if (orderCustomer.length > 0) {
+      return sendSuccess(res, orderCustomer[0], 'Customer found in orders');
+    }
+
+    return sendSuccess(res, null, 'No customer found');
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getAllCustomersAdmin,
   getCustomerByIdAdmin,
   createCustomerAdmin,
   updateCustomerAdmin,
   deleteCustomerAdmin,
-  resetCustomerPasswordAdmin
+  resetCustomerPasswordAdmin,
+  lookupCustomerByPhone
 };
 

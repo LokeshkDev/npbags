@@ -63,6 +63,15 @@ export function Icon({ name, className = '', size = 20, strokeWidth = 2.2, fill 
     ),
     check: <polyline points="20 6 9 17 4 12" strokeWidth={2.5} />,
 
+    // POS & Barcode Icons
+    barcode: <path d="M3 5v14M6 5v14M10 5v14M13 5v14M17 5v14M21 5v14" />,
+    pos: (
+      <>
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="M2 10h20M6 14h2M10 14h2M14 14h2M6 17h10" />
+      </>
+    ),
+
     // Admin & Extended matching icon set
     plus: <path d="M12 5v14M5 12h14" />,
     minus: <path d="M5 12h14" />,
@@ -215,6 +224,24 @@ export function Icon({ name, className = '', size = 20, strokeWidth = 2.2, fill 
     ),
     sparkles: (
       <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z" />
+    ),
+    whatsapp: (
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    ),
+    printer: (
+      <>
+        <polyline points="6 9 6 2 18 2 18 9" />
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <rect x="6" y="14" width="12" height="8" />
+      </>
+    ),
+    refresh: (
+      <>
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        <path d="M3 21v-5h5" />
+      </>
     )
   };
 

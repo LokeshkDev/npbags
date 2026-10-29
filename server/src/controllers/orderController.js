@@ -1,5 +1,7 @@
 const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { deductInventoryForOrder, restoreInventoryForOrder } = require('../utils/inventory');
+const { calculateOrderTax } = require('../utils/gst');
 
 async function createOrder(req, res, next) {
   try {
@@ -133,6 +135,9 @@ async function createOrder(req, res, next) {
         [orderId, vItem.product_id, vItem.product_name, vItem.variant_info, vItem.price, vItem.quantity, vItem.total, vItem.image_url]
       );
     }
+
+    // Automatically deduct inventory for online order and log transaction
+    await deductInventoryForOrder(validatedItems, order_number, { query });
 
     return sendSuccess(res, {
       order_id: orderId,
@@ -348,11 +353,23 @@ async function getAllOrdersAdmin(req, res, next) {
   }
 }
 
-// Admin: Update order status
+// Admin: Update order status (with auto-restock if cancelled)
 async function updateOrderStatus(req, res, next) {
   try {
     const { id } = req.params;
     const { order_status, payment_status, notes } = req.body;
+
+    const existingOrders = await query(`SELECT * FROM orders WHERE id = ?`, [id]);
+    if (existingOrders.length === 0) {
+      return sendError(res, 'Order not found', 404);
+    }
+    const existing = existingOrders[0];
+
+    // If changing to cancelled and was not already cancelled, restock items
+    if (order_status === 'cancelled' && existing.order_status !== 'cancelled') {
+      const items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [id]);
+      await restoreInventoryForOrder(items, `CANCEL-${existing.order_number}`, { query });
+    }
 
     await query(
       `UPDATE orders SET
@@ -369,12 +386,337 @@ async function updateOrderStatus(req, res, next) {
   }
 }
 
+// Admin / POS Counter: Create In-Store POS Order
+async function createPOSOrder(req, res, next) {
+  try {
+    const {
+      customer_name = 'Walk-in Customer',
+      customer_phone = '',
+      customer_email = '',
+      items = [],
+      payment_method = 'Cash',
+      received_amount = 0,
+      discount_amount = 0,
+      notes = ''
+    } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return sendError(res, 'POS order must contain at least one item', 400);
+    }
+
+    // 1. Calculate tax breakdown via GST engine
+    const taxSummary = calculateOrderTax({
+      items,
+      discountAmount: discount_amount,
+      shippingAmount: 0,
+      isGstInclusive: true,
+      shippingState: 'Tamil Nadu'
+    });
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const order_number = `NP-POS-${dateStr}-${randomSuffix}`;
+    const grandTotal = taxSummary.grandTotal;
+    const received = Number(received_amount) > 0 ? Number(received_amount) : grandTotal;
+    const balance = Math.max(0, received - grandTotal);
+
+    const orderResult = await query(
+      `INSERT INTO orders (
+        order_number, user_id, customer_name, customer_email, customer_phone,
+        shipping_address, subtotal, discount, shipping_fee, total_amount,
+        payment_method, payment_status, order_status, notes,
+        order_type, received_amount, balance_amount, gst_rate, is_gst_inclusive,
+        taxable_amount, cgst_amount, sgst_amount, igst_amount
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, 18.00, 1, ?, ?, ?, ?)`,
+      [
+        order_number,
+        req.user ? req.user.id : null,
+        customer_name.trim() || 'Walk-in Customer',
+        customer_email.trim() || 'walkin@npgrandshopping.com',
+        customer_phone.trim() || '',
+        JSON.stringify({ address: 'In-Store POS Billing Counter', city: 'Chennai', state: 'Tamil Nadu' }),
+        taxSummary.subtotal,
+        taxSummary.discountAmount,
+        grandTotal,
+        payment_method,
+        notes || 'In-store POS counter billing',
+        received,
+        balance,
+        taxSummary.taxableAmount,
+        taxSummary.cgstAmount,
+        taxSummary.sgstAmount,
+        taxSummary.igstAmount
+      ]
+    );
+
+    const orderId = orderResult.insertId;
+
+    // 2. Insert line items
+    for (const item of taxSummary.items) {
+      await query(
+        `INSERT INTO order_items (
+          order_id, product_id, product_name, variant_info, sku, hsn_code,
+          price, quantity, gst_rate, taxable_amount, cgst_amount, sgst_amount,
+          igst_amount, total_tax, total, image_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          item.product_id || item.id,
+          item.product_name || item.name,
+          item.variant_info || (item.size ? `${item.color || ''} · ${item.size}` : item.color || null),
+          item.sku || null,
+          item.hsn_code || '4202',
+          item.price,
+          item.quantity,
+          item.gstRate || 18.00,
+          item.taxableAmount,
+          item.cgstAmount,
+          item.sgstAmount,
+          item.igstAmount,
+          item.totalTax,
+          item.lineTotal,
+          item.image || item.image_url || null
+        ]
+      );
+    }
+
+    // 3. Deduct stock from product_variants and products tables
+    await deductInventoryForOrder(taxSummary.items, order_number, { query });
+
+    return sendSuccess(res, {
+      order_id: orderId,
+      order_number,
+      total_amount: grandTotal,
+      subtotal: taxSummary.subtotal,
+      discount: taxSummary.discountAmount,
+      taxable_amount: taxSummary.taxableAmount,
+      cgst_amount: taxSummary.cgstAmount,
+      sgst_amount: taxSummary.sgstAmount,
+      igst_amount: taxSummary.igstAmount,
+      received_amount: received,
+      balance_amount: balance,
+      customer_name: customer_name.trim() || 'Walk-in Customer',
+      customer_phone,
+      payment_method,
+      items: taxSummary.items,
+      created_at: new Date().toISOString()
+    }, 'POS order placed successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Admin / POS: Process Order Returns or Replacements
+async function processOrderReturn(req, res, next) {
+  try {
+    const { id: orderId } = req.params;
+    const {
+      return_type = 'return',
+      returned_items = [],
+      replacement_items = [],
+      refund_amount = 0,
+      balance_collected = 0,
+      reason = 'Customer Request'
+    } = req.body;
+
+    const orders = await query(`SELECT * FROM orders WHERE id = ?`, [orderId]);
+    if (orders.length === 0) {
+      return sendError(res, 'Order not found', 404);
+    }
+    const order = orders[0];
+
+    // 1. Record return in order_returns table
+    await query(
+      `INSERT INTO order_returns (
+        order_id, order_number, return_type, returned_items, replacement_items,
+        total_refund_amount, balance_collected, reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        orderId,
+        order.order_number,
+        return_type,
+        JSON.stringify(returned_items),
+        JSON.stringify(replacement_items),
+        Number(refund_amount) || 0,
+        Number(balance_collected) || 0,
+        reason
+      ]
+    );
+
+    // 2. Restore stock for returned items
+    if (returned_items.length > 0) {
+      await restoreInventoryForOrder(returned_items, `RETURN-${order.order_number}`, { query });
+
+      // Update returned_quantity on order_items
+      for (const ret of returned_items) {
+        if (ret.item_id || ret.id) {
+          await query(
+            `UPDATE order_items SET returned_quantity = returned_quantity + ? WHERE id = ?`,
+            [ret.quantity || 1, ret.item_id || ret.id]
+          );
+        }
+      }
+    }
+
+    // 3. If replacements, deduct inventory for replacement items
+    if (replacement_items.length > 0) {
+      await deductInventoryForOrder(replacement_items, `EXCHANGE-${order.order_number}`, { query });
+    }
+
+    return sendSuccess(res, { order_id: orderId, return_type }, 'Return processed successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Admin: Delete order (with auto-inventory restock)
+async function deleteOrderAdmin(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { restock = 'true' } = req.query;
+
+    const orders = await query(`SELECT * FROM orders WHERE id = ?`, [id]);
+    if (orders.length === 0) {
+      return sendError(res, 'Order not found', 404);
+    }
+    const order = orders[0];
+
+    // If restock is enabled and order was not already cancelled, restore inventory
+    if (restock !== 'false' && order.order_status !== 'cancelled') {
+      const items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [id]);
+      if (items.length > 0) {
+        await restoreInventoryForOrder(items, `DELETE-${order.order_number}`, { query });
+      }
+    }
+
+    // Delete order (cascades to order_items and order_returns)
+    await query(`DELETE FROM orders WHERE id = ?`, [id]);
+
+    return sendSuccess(res, { id, order_number: order.order_number }, 'Order deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Admin / POS: Edit products/items in a POS Billing order
+async function updatePOSOrderItems(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { items = [], discount_amount = 0, notes = '' } = req.body;
+
+    const orders = await query(`SELECT * FROM orders WHERE id = ?`, [id]);
+    if (orders.length === 0) {
+      return sendError(res, 'Order not found', 404);
+    }
+    const order = orders[0];
+
+    if ((order.order_type || '').toLowerCase() !== 'pos') {
+      return sendError(res, 'Only POS billing orders can have line items edited directly', 400);
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return sendError(res, 'Order must contain at least one item', 400);
+    }
+
+    // 1. Restore previous inventory for this order
+    const oldItems = await query(`SELECT * FROM order_items WHERE order_id = ?`, [id]);
+    if (oldItems.length > 0 && order.order_status !== 'cancelled') {
+      await restoreInventoryForOrder(oldItems, `POS-EDIT-RESTORE-${order.order_number}`, { query });
+    }
+
+    // 2. Calculate updated taxes
+    const taxSummary = calculateOrderTax({
+      items,
+      discountAmount: Number(discount_amount) || 0,
+      shippingAmount: 0,
+      isGstInclusive: true,
+      shippingState: 'Tamil Nadu'
+    });
+
+    const grandTotal = taxSummary.grandTotal;
+
+    // 3. Delete old items and insert updated items
+    await query(`DELETE FROM order_items WHERE order_id = ?`, [id]);
+
+    for (const item of taxSummary.items) {
+      await query(
+        `INSERT INTO order_items (
+          order_id, product_id, product_name, variant_info, sku, hsn_code,
+          price, quantity, gst_rate, taxable_amount, cgst_amount, sgst_amount,
+          igst_amount, total_tax, total, image_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          item.product_id || item.id,
+          item.product_name || item.name,
+          item.variant_info || (item.size ? `${item.color || ''} · ${item.size}` : item.color || null),
+          item.sku || null,
+          item.hsn_code || '4202',
+          item.price,
+          item.quantity,
+          item.gstRate || 18.00,
+          item.taxableAmount,
+          item.cgstAmount,
+          item.sgstAmount,
+          item.igstAmount,
+          item.totalTax,
+          item.lineTotal,
+          item.image || item.image_url || null
+        ]
+      );
+    }
+
+    // 4. Update order financial totals
+    await query(
+      `UPDATE orders SET
+         subtotal = ?,
+         discount = ?,
+         total_amount = ?,
+         taxable_amount = ?,
+         cgst_amount = ?,
+         sgst_amount = ?,
+         igst_amount = ?,
+         notes = COALESCE(?, notes)
+       WHERE id = ?`,
+      [
+        taxSummary.subtotal,
+        taxSummary.discountAmount,
+        grandTotal,
+        taxSummary.taxableAmount,
+        taxSummary.cgstAmount,
+        taxSummary.sgstAmount,
+        taxSummary.igstAmount,
+        notes || null,
+        id
+      ]
+    );
+
+    // 5. Deduct new inventory for updated items
+    if (order.order_status !== 'cancelled') {
+      await deductInventoryForOrder(taxSummary.items, `POS-EDIT-DEDUCT-${order.order_number}`, { query });
+    }
+
+    // Fetch updated order and items
+    const updatedOrder = (await query(`SELECT * FROM orders WHERE id = ?`, [id]))[0];
+    updatedOrder.items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [id]);
+
+    return sendSuccess(res, updatedOrder, 'POS order items updated successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createOrder,
   getOrderDetails,
   getMyOrders,
   validateCoupon,
   getAllOrdersAdmin,
-  updateOrderStatus
+  updateOrderStatus,
+  createPOSOrder,
+  processOrderReturn,
+  deleteOrderAdmin,
+  updatePOSOrderItems
 };
+
 

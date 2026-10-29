@@ -46,6 +46,7 @@ function ShopContent() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [banners, setBanners] = useState([]);
+  const [pageBannerData, setPageBannerData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
@@ -87,8 +88,9 @@ function ShopContent() {
     Promise.allSettled([
       fetch(`${apiBase}/products`).then(res => res.json()),
       fetch(`${apiBase}/categories`).then(res => res.json()),
-      fetch(`${apiBase}/banners`).then(res => res.json())
-    ]).then(([prodRes, catRes, banRes]) => {
+      fetch(`${apiBase}/banners`).then(res => res.json()),
+      fetch(`${apiBase}/cms/sections`).then(res => res.json())
+    ]).then(([prodRes, catRes, banRes, cmsRes]) => {
       if (!isMounted) return;
 
       if (prodRes.status === 'fulfilled' && prodRes.value?.data?.products) {
@@ -99,6 +101,21 @@ function ShopContent() {
       }
       if (banRes.status === 'fulfilled' && Array.isArray(banRes.value?.data)) {
         setBanners(banRes.value.data);
+      }
+      if (cmsRes.status === 'fulfilled') {
+        const sections = cmsRes.value?.data || cmsRes.value;
+        let pb = null;
+        if (Array.isArray(sections)) {
+          pb = sections.find(s => s.section_key === 'page_banners');
+        } else if (sections && typeof sections === 'object') {
+          pb = sections.page_banners || null;
+        }
+        if (pb) {
+          const pbContent = pb.content || pb;
+          if (pbContent.shop) {
+            setPageBannerData(pbContent.shop);
+          }
+        }
       }
       setLoading(false);
     }).catch(() => {
@@ -129,16 +146,27 @@ function ShopContent() {
     return categories.find(c => c.id === activeCategoryObj.parent_id) || null;
   }, [activeCategoryObj, categories]);
 
-  // Dynamic Banner Background Image resolution (Category -> Parent -> CMS Banner -> Fallback)
+  // Dynamic Banner Background Image resolution (Category -> Parent -> Main Shop Banner -> Hero Banner -> Fallback)
   const activeBannerImage = useMemo(() => {
     if (activeCategoryObj?.banner_image) return activeCategoryObj.banner_image;
     if (activeCategoryObj?.image) return activeCategoryObj.image;
     if (parentCategoryObj?.banner_image) return parentCategoryObj.banner_image;
     if (parentCategoryObj?.image) return parentCategoryObj.image;
+    const shopBannerImg = typeof pageBannerData === 'object' ? pageBannerData?.image : pageBannerData;
+    if (shopBannerImg) return shopBannerImg;
     const firstActive = banners.find(b => b.is_active !== 0 && (b.image_url || b.image));
     if (firstActive?.image_url || firstActive?.image) return firstActive.image_url || firstActive.image;
     return DEFAULT_BANNER_IMG;
-  }, [activeCategoryObj, parentCategoryObj, banners]);
+  }, [activeCategoryObj, parentCategoryObj, pageBannerData, banners]);
+
+  // Dynamic Banner Click Redirect Link
+  const activeBannerLink = useMemo(() => {
+    if (activeCategoryObj?.banner_link) return activeCategoryObj.banner_link;
+    if (parentCategoryObj?.banner_link) return parentCategoryObj.banner_link;
+    const shopBannerLink = typeof pageBannerData === 'object' ? pageBannerData?.link : '';
+    if (shopBannerLink) return shopBannerLink;
+    return null;
+  }, [activeCategoryObj, parentCategoryObj, pageBannerData]);
 
   // Dynamic Banner Title resolution
   const bannerTitle = useMemo(() => {
@@ -402,22 +430,43 @@ function ShopContent() {
               boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
             }}
           >
-            <img
-              key={activeBannerImage}
-              className="shop-pure-banner__img"
-              src={activeBannerImage}
-              alt={bannerTitle}
-              fetchPriority="high"
-              decoding="async"
-              loading="eager"
-              style={{
-                width: '100%',
-                height: '100%',
-                maxHeight: '260px',
-                objectFit: 'cover',
-                display: 'block'
-              }}
-            />
+            {activeBannerLink ? (
+              <Link href={activeBannerLink} style={{ display: 'block', width: '100%', height: '100%', cursor: 'pointer' }} title="Explore collection">
+                <img
+                  key={activeBannerImage}
+                  className="shop-pure-banner__img"
+                  src={activeBannerImage}
+                  alt={bannerTitle}
+                  fetchPriority="high"
+                  decoding="async"
+                  loading="eager"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    maxHeight: '260px',
+                    objectFit: 'cover',
+                    display: 'block'
+                  }}
+                />
+              </Link>
+            ) : (
+              <img
+                key={activeBannerImage}
+                className="shop-pure-banner__img"
+                src={activeBannerImage}
+                alt={bannerTitle}
+                fetchPriority="high"
+                decoding="async"
+                loading="eager"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  maxHeight: '260px',
+                  objectFit: 'cover',
+                  display: 'block'
+                }}
+              />
+            )}
           </section>
         )}
 

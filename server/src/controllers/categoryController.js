@@ -56,7 +56,7 @@ async function getAllCategories(req, res, next) {
 
 async function createCategory(req, res, next) {
   try {
-    const { name, slug: customSlug, parent_id, description, display_order, gender } = req.body;
+    const { name, slug: customSlug, parent_id, description, display_order, gender, banner_image, banner_link } = req.body;
     if (!name) return sendError(res, 'Category name is required.', 400);
 
     let slug = customSlug
@@ -79,12 +79,12 @@ async function createCategory(req, res, next) {
       : 'all';
 
     const result = await query(
-      `INSERT INTO categories (parent_id, slug, name, description, image, display_order, gender, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
-      [parentIdVal, slug, name, description || null, image, Number(display_order) || 0, genderVal]
+      `INSERT INTO categories (parent_id, slug, name, description, image, banner_image, banner_link, display_order, gender, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+      [parentIdVal, slug, name, description || null, image, banner_image || null, banner_link || null, Number(display_order) || 0, genderVal]
     );
 
-    return sendSuccess(res, { id: result.insertId, parent_id: parentIdVal, slug, name, gender: genderVal }, 'Category created successfully', 201);
+    return sendSuccess(res, { id: result.insertId, parent_id: parentIdVal, slug, name, gender: genderVal, banner_link }, 'Category created successfully', 201);
   } catch (error) {
     next(error);
   }
@@ -93,7 +93,7 @@ async function createCategory(req, res, next) {
 async function updateCategory(req, res, next) {
   try {
     const { id } = req.params;
-    const { name, slug: customSlug, parent_id, description, display_order, is_active, gender, banner_image } = req.body;
+    const { name, slug: customSlug, parent_id, description, display_order, is_active, gender, banner_image, banner_link } = req.body;
 
     let image = null;
     let hasNewImage = false;
@@ -165,6 +165,10 @@ async function updateCategory(req, res, next) {
     if (banner_image !== undefined) {
       updates.push('banner_image = ?');
       params.push(banner_image || null);
+    }
+    if (banner_link !== undefined) {
+      updates.push('banner_link = ?');
+      params.push(banner_link || null);
     }
 
     if (updates.length > 0) {
