@@ -82,7 +82,17 @@ export default function AdminDashboardPage() {
     getAdminDashboardAnalytics(params)
       .then(res => {
         if (res) {
-          setData(res);
+          setData(prev => ({
+            ...prev,
+            ...res,
+            today: { ...(prev.today || {}), ...(res.today || {}) },
+            period_totals: { ...(prev.period_totals || {}), ...(res.period_totals || {}) },
+            chart_series: Array.isArray(res.chart_series) ? res.chart_series : [],
+            payment_methods: Array.isArray(res.payment_methods) ? res.payment_methods : [],
+            top_products: Array.isArray(res.top_products) ? res.top_products : [],
+            recent_feed: Array.isArray(res.recent_feed) ? res.recent_feed : [],
+            inventory_health: { ...(prev.inventory_health || {}), ...(res.inventory_health || {}) }
+          }));
         }
       })
       .catch(err => {
@@ -95,8 +105,21 @@ export default function AdminDashboardPage() {
     setLoadingAging(true);
     getAdminProductAgingAlerts({ minDays: 60 })
       .then(res => {
-        if (res && res.summary) {
-          setAgingData(res);
+        if (res) {
+          const list = Array.isArray(res.aging_products)
+            ? res.aging_products
+            : (Array.isArray(res.products) ? res.products : []);
+          setAgingData({
+            summary: res.summary || {
+              total_aging_items: list.length,
+              total_aging_products: list.length,
+              slow_moving_count: 0,
+              dead_stock_count: 0,
+              total_tied_capital: 0
+            },
+            aging_products: list,
+            products: list
+          });
         }
       })
       .catch(err => {
@@ -120,19 +143,42 @@ export default function AdminDashboardPage() {
     return () => window.removeEventListener('np_order_updated', handleOrderSync);
   }, [fetchAnalytics, fetchAgingAlerts]);
 
+  // Safe memoized accessors preventing undefined length errors
+  const chartSeries = useMemo(() => Array.isArray(data?.chart_series) ? data.chart_series : [], [data?.chart_series]);
+  const topProducts = useMemo(() => Array.isArray(data?.top_products) ? data.top_products : [], [data?.top_products]);
+  const paymentMethods = useMemo(() => Array.isArray(data?.payment_methods) ? data.payment_methods : [], [data?.payment_methods]);
+  const recentFeed = useMemo(() => Array.isArray(data?.recent_feed) ? data.recent_feed : [], [data?.recent_feed]);
+
+  const agingProductsList = useMemo(() => {
+    if (!agingData) return [];
+    if (Array.isArray(agingData.aging_products)) return agingData.aging_products;
+    if (Array.isArray(agingData.products)) return agingData.products;
+    return [];
+  }, [agingData]);
+
+  const agingSummary = useMemo(() => {
+    return agingData?.summary || {
+      total_aging_items: agingProductsList.length,
+      total_aging_products: agingProductsList.length,
+      slow_moving_count: 0,
+      dead_stock_count: 0,
+      total_tied_capital: 0
+    };
+  }, [agingData, agingProductsList]);
+
   // Chart computation helpers
   const chartMax = useMemo(() => {
-    if (!data.chart_series || data.chart_series.length === 0) return 100;
+    if (!chartSeries || chartSeries.length === 0) return 100;
     const maxVal = Math.max(
-      ...data.chart_series.map(pt =>
+      ...chartSeries.map(pt =>
         chartMetric === 'revenue'
-          ? Math.max(pt.online_sales + pt.pos_sales, pt.total_sales, 1)
-          : Math.max(pt.online_orders + pt.pos_orders, pt.total_orders, 1)
+          ? Math.max((Number(pt.online_sales) || 0) + (Number(pt.pos_sales) || 0), Number(pt.total_sales) || 0, 1)
+          : Math.max((Number(pt.online_orders) || 0) + (Number(pt.pos_orders) || 0), Number(pt.total_orders) || 0, 1)
       ),
       1
     );
     return Math.ceil(maxVal * 1.15);
-  }, [data.chart_series, chartMetric]);
+  }, [chartSeries, chartMetric]);
 
   const formatCurrency = (num) => {
     return '₹' + Number(num || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -595,7 +641,7 @@ export default function AdminDashboardPage() {
             </div>
 
             {/* Pure Responsive SVG Graph Container */}
-            {data.chart_series.length === 0 ? (
+            {chartSeries.length === 0 ? (
               <div style={{ padding: '60px 20px', textAlign: 'center', color: '#94a3b8' }}>
                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>📊</div>
                 <div style={{ fontSize: '14px', fontWeight: 700, color: '#475569' }}>No completed orders in this timeframe.</div>
@@ -603,7 +649,7 @@ export default function AdminDashboardPage() {
               </div>
             ) : (
               <div style={{ width: '100%', overflowX: 'auto' }}>
-                <div style={{ minWidth: `${Math.max(500, data.chart_series.length * 55)}px`, height: '240px', position: 'relative' }}>
+                <div style={{ minWidth: `${Math.max(500, chartSeries.length * 55)}px`, height: '240px', position: 'relative' }}>
                   {/* Grid Lines */}
                   {[1, 0.75, 0.5, 0.25, 0].map((ratio) => (
                     <div
@@ -649,7 +695,7 @@ export default function AdminDashboardPage() {
                       gap: '8px'
                     }}
                   >
-                    {data.chart_series.map((pt, idx) => {
+                    {chartSeries.map((pt, idx) => {
                       const posVal = chartMetric === 'revenue' ? pt.pos_sales : pt.pos_orders;
                       const onlineVal = chartMetric === 'revenue' ? pt.online_sales : pt.online_orders;
                       const totalVal = posVal + onlineVal;
@@ -797,13 +843,13 @@ export default function AdminDashboardPage() {
                 </Link>
               </div>
 
-              {data.top_products.length === 0 ? (
+              {topProducts.length === 0 ? (
                 <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
                   No item sales recorded in this timeframe.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {data.top_products.map((p, idx) => (
+                  {topProducts.map((p, idx) => (
                     <div
                       key={idx}
                       style={{
@@ -845,13 +891,13 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
 
-              {data.payment_methods.length === 0 ? (
+              {paymentMethods.length === 0 ? (
                 <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
                   No payment data in this period.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {data.payment_methods.map((pm, idx) => {
+                  {paymentMethods.map((pm, idx) => {
                     const percentage = data.period_totals.total_sales > 0
                       ? Math.round((pm.amount / data.period_totals.total_sales) * 100)
                       : 0;
@@ -966,7 +1012,7 @@ export default function AdminDashboardPage() {
                     color: agingFilter === 'all' ? '#ffffff' : '#475569'
                   }}
                 >
-                  All Aging ({agingData.aging_products.length})
+                  All Aging ({agingProductsList.length})
                 </button>
                 <button
                   type="button"
@@ -982,7 +1028,7 @@ export default function AdminDashboardPage() {
                     color: agingFilter === '60_90' ? '#ffffff' : '#475569'
                   }}
                 >
-                  60–90 Days ({agingData.summary.slow_moving_count})
+                  60–90 Days ({agingSummary.slow_moving_count || 0})
                 </button>
                 <button
                   type="button"
@@ -998,7 +1044,7 @@ export default function AdminDashboardPage() {
                     color: agingFilter === '90_plus' ? '#ffffff' : '#475569'
                   }}
                 >
-                  90+ Days Dead Stock ({agingData.summary.dead_stock_count})
+                  90+ Days Dead Stock ({agingSummary.dead_stock_count || 0})
                 </button>
               </div>
 
@@ -1015,7 +1061,7 @@ export default function AdminDashboardPage() {
               <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
                 Analyzing stock aging telemetry...
               </div>
-            ) : agingData.aging_products.length === 0 ? (
+            ) : agingProductsList.length === 0 ? (
               <div style={{ padding: '36px', textAlign: 'center', background: '#f0fdf4' }}>
                 <span style={{ fontSize: '24px' }}>🎉</span>
                 <div style={{ fontWeight: 800, color: '#166534', fontSize: '14px', marginTop: '4px' }}>
@@ -1040,7 +1086,7 @@ export default function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {agingData.aging_products
+                    {agingProductsList
                       .filter(p => {
                         if (agingFilter === '60_90') return p.days_in_stock >= 60 && p.days_in_stock < 90;
                         if (agingFilter === '90_plus') return p.days_in_stock >= 90;
@@ -1052,9 +1098,9 @@ export default function AdminDashboardPage() {
                           <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '10px 18px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                {p.image ? (
+                                {p.primary_image || p.image ? (
                                   <img
-                                    src={p.image}
+                                    src={p.primary_image || p.image}
                                     alt={p.name}
                                     style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }}
                                   />
@@ -1083,7 +1129,7 @@ export default function AdminDashboardPage() {
                             </td>
 
                             <td style={{ padding: '10px 18px', textAlign: 'center', fontWeight: 800, color: '#334155' }}>
-                              {p.stock_quantity} units
+                              {p.stock ?? p.stock_quantity ?? 0} units
                             </td>
 
                             <td style={{ padding: '10px 18px', textAlign: 'right', fontWeight: 900, color: '#0284c7' }}>
@@ -1165,14 +1211,14 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.recent_feed.length === 0 ? (
+                {recentFeed.length === 0 ? (
                   <tr>
                     <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: '#94a3b8', fontSize: '13px' }}>
                       No transactions recorded yet.
                     </td>
                   </tr>
                 ) : (
-                  data.recent_feed.map((o) => {
+                  recentFeed.map((o) => {
                     const isPOS = (o.order_type || '').toLowerCase() === 'pos';
                     return (
                       <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>

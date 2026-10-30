@@ -61,6 +61,12 @@ export default function AdminAuditLogsPage() {
         setLogs(res.logs);
         setTotalCount(res.total || 0);
         setTotalPages(res.totalPages || 1);
+      } else if (Array.isArray(res)) {
+        setLogs(res);
+        setTotalCount(res.length);
+        setTotalPages(1);
+      } else {
+        setLogs([]);
       }
     } catch (err) {
       console.error('Failed to load audit logs:', err);

@@ -62,8 +62,19 @@ export default function AdminSalespersonsPage() {
         params.endDate = endDate;
       }
       const data = await getAdminSalespersonReport(params);
-      if (data && data.summary) {
-        setReport(data);
+      if (data) {
+        setReport({
+          summary: data.summary || {
+            total_staff: 0,
+            active_staff: 0,
+            total_bills: 0,
+            total_sales_volume: 0,
+            total_commission_due: 0,
+            average_order_value: 0
+          },
+          staff: Array.isArray(data.staff) ? data.staff : [],
+          recent_sales: Array.isArray(data.recent_sales) ? data.recent_sales : []
+        });
       }
     } catch (err) {
       showToast(err.message || 'Failed to fetch sales staff report', 'error');
@@ -664,7 +675,7 @@ export default function AdminSalespersonsPage() {
               </p>
             </div>
 
-            {report.recent_sales.length === 0 ? (
+            {(!report.recent_sales || report.recent_sales.length === 0) ? (
               <div style={{ padding: '36px', textAlign: 'center', color: '#94a3b8', fontSize: '12.5px' }}>
                 No attributed sales in this timeframe. Make sales via POS Billing and select a sales staff member.
               </div>

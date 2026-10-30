@@ -51,6 +51,10 @@ export default function AdminVendorsPage() {
       const data = await getAdminVendors();
       if (Array.isArray(data)) {
         setVendors(data);
+      } else if (data && Array.isArray(data.vendors)) {
+        setVendors(data.vendors);
+      } else {
+        setVendors([]);
       }
     } catch (err) {
       showToast(err.message || 'Failed to load vendors', 'error');

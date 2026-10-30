@@ -54,11 +54,13 @@ async function getProductAgingAlerts(req, res) {
     res.json({
       summary: {
         total_aging_products: formatted.length,
+        total_aging_items: formatted.length,
         slow_moving_count: slowMovingCount,
         dead_stock_count: deadStockCount,
         total_tied_capital: Math.round(totalTiedCapital * 100) / 100
       },
-      products: formatted
+      products: formatted,
+      aging_products: formatted
     });
   } catch (err) {
     console.error('Error fetching product aging alerts:', err);
