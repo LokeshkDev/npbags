@@ -180,12 +180,14 @@ async function lookupBarcode(req, res, next) {
       });
     }
 
-    // 3. Fallback: Lookup directly on products table by barcode, id, or exact slug
+    // 3. Fallback: Lookup directly on products table by id or exact slug
     const prodRows = await query(
-      `SELECT p.* FROM products p
-       WHERE p.barcode = ? OR p.id = ? OR p.slug = ?
+      `SELECT p.*,
+              (SELECT barcode FROM product_barcodes WHERE product_id = p.id AND is_primary = 1 AND status = 'active' LIMIT 1) AS primary_barcode
+       FROM products p
+       WHERE (p.id = ? OR p.slug = ?) AND p.is_active = TRUE
        LIMIT 1`,
-      [code, !isNaN(code) ? parseInt(code, 10) : -1, code]
+      [code, code]
     );
 
     if (prodRows.length > 0) {
@@ -196,11 +198,12 @@ async function lookupBarcode(req, res, next) {
       );
       const displayImage = imgs[0]?.image_url || '/assets/bestsellers/best-handbag.png';
       const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
+      const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
 
       return sendSuccess(res, {
         found_by: 'product',
-        barcode: p.barcode || `NP-${p.id}`,
-        svg: generateBarcodeSVG(p.barcode || `NP-${p.id}`, { height: 45, moduleWidth: 2 }),
+        barcode: effectiveBarcode,
+        svg: generateBarcodeSVG(effectiveBarcode, { height: 45, moduleWidth: 2 }),
         is_primary: true,
         product_id: p.id,
         product_name: p.name,
@@ -211,16 +214,18 @@ async function lookupBarcode(req, res, next) {
         hsn_code: p.hsn_code || '4202',
         image: displayImage,
         variant: null,
-        stock_quantity: 50
+        stock_quantity: p.stock || 50
       });
     }
 
-    // 4. Fallback: Fuzzy match by product name if length >= 3
-    if (code.length >= 3) {
+    // 4. Fallback: Fuzzy match by product name if length >= 2
+    if (code.length >= 2) {
       const nameRows = await query(
-        `SELECT p.* FROM products p
-         WHERE p.name LIKE ?
-         ORDER BY p.is_featured DESC, p.id DESC
+        `SELECT p.*,
+                (SELECT barcode FROM product_barcodes WHERE product_id = p.id AND is_primary = 1 AND status = 'active' LIMIT 1) AS primary_barcode
+         FROM products p
+         WHERE p.name LIKE ? AND p.is_active = TRUE
+         ORDER BY p.is_featured DESC, p.created_at DESC
          LIMIT 1`,
         [`%${code}%`]
       );
@@ -233,11 +238,12 @@ async function lookupBarcode(req, res, next) {
         );
         const displayImage = imgs[0]?.image_url || '/assets/bestsellers/best-handbag.png';
         const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
+        const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
 
         return sendSuccess(res, {
           found_by: 'name_match',
-          barcode: p.barcode || `NP-${p.id}`,
-          svg: generateBarcodeSVG(p.barcode || `NP-${p.id}`, { height: 45, moduleWidth: 2 }),
+          barcode: effectiveBarcode,
+          svg: generateBarcodeSVG(effectiveBarcode, { height: 45, moduleWidth: 2 }),
           is_primary: true,
           product_id: p.id,
           product_name: p.name,
@@ -248,7 +254,7 @@ async function lookupBarcode(req, res, next) {
           hsn_code: p.hsn_code || '4202',
           image: displayImage,
           variant: null,
-          stock_quantity: 50
+          stock_quantity: p.stock || 50
         });
       }
     }

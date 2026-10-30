@@ -397,6 +397,10 @@ async function createPOSOrder(req, res, next) {
       payment_method = 'Cash',
       received_amount = 0,
       discount_amount = 0,
+      discount_type = 'flat',
+      discount_value = 0,
+      sales_person_id = null,
+      sales_person_name = null,
       notes = ''
     } = req.body;
 
@@ -426,8 +430,9 @@ async function createPOSOrder(req, res, next) {
         shipping_address, subtotal, discount, shipping_fee, total_amount,
         payment_method, payment_status, order_status, notes,
         order_type, received_amount, balance_amount, gst_rate, is_gst_inclusive,
-        taxable_amount, cgst_amount, sgst_amount, igst_amount
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, 18.00, 1, ?, ?, ?, ?)`,
+        taxable_amount, cgst_amount, sgst_amount, igst_amount,
+        sales_person_id, sales_person_name, discount_type, discount_value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, 18.00, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         order_number,
         req.user ? req.user.id : null,
@@ -445,7 +450,11 @@ async function createPOSOrder(req, res, next) {
         taxSummary.taxableAmount,
         taxSummary.cgstAmount,
         taxSummary.sgstAmount,
-        taxSummary.igstAmount
+        taxSummary.igstAmount,
+        sales_person_id ? parseInt(sales_person_id, 10) : null,
+        sales_person_name || null,
+        discount_type || 'flat',
+        parseFloat(discount_value) || parseFloat(discount_amount) || 0
       ]
     );
 
@@ -453,12 +462,16 @@ async function createPOSOrder(req, res, next) {
 
     // 2. Insert line items
     for (const item of taxSummary.items) {
+      const itemSalesPersonId = item.sales_person_id ? parseInt(item.sales_person_id, 10) : (sales_person_id ? parseInt(sales_person_id, 10) : null);
+      const itemSalesPersonName = item.sales_person_name || sales_person_name || null;
+
       await query(
         `INSERT INTO order_items (
           order_id, product_id, product_name, variant_info, sku, hsn_code,
           price, quantity, gst_rate, taxable_amount, cgst_amount, sgst_amount,
-          igst_amount, total_tax, total, image_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          igst_amount, total_tax, total, image_url,
+          sales_person_id, sales_person_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           orderId,
           item.product_id || item.id,
@@ -475,13 +488,32 @@ async function createPOSOrder(req, res, next) {
           item.igstAmount,
           item.totalTax,
           item.lineTotal,
-          item.image || item.image_url || null
+          item.image || item.image_url || null,
+          itemSalesPersonId,
+          itemSalesPersonName
         ]
       );
     }
 
     // 3. Deduct stock from product_variants and products tables
     await deductInventoryForOrder(taxSummary.items, order_number, { query });
+
+    // 4. Log POS sale in audit logs
+    try {
+      const { recordAuditLog } = require('./auditLogController');
+      const firstItem = taxSummary.items[0];
+      await recordAuditLog({
+        entity_type: 'pos',
+        entity_id: order_number,
+        action: 'pos_sale',
+        summary: `Walk-in POS Bill ${order_number} created for ${customer_name.trim() || 'Walk-in'} (Total: ₹${grandTotal}, ${taxSummary.items.length} items)`,
+        product_name: firstItem?.product_name || 'POS Bill',
+        product_image: firstItem?.image || firstItem?.image_url || null,
+        performed_by: sales_person_name || 'Cashier Counter'
+      });
+    } catch (e) {
+      console.error('Audit log error on POS order:', e);
+    }
 
     return sendSuccess(res, {
       order_id: orderId,

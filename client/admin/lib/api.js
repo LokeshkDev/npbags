@@ -416,5 +416,77 @@ export async function lookupCustomerByPhone(phone) {
   return adminFetch(`/admin/customers/lookup?phone=${encodeURIComponent(phone)}`);
 }
 
+// Vendors & Suppliers
+export async function getAdminVendors() {
+  return adminFetch('/admin/vendors');
+}
+
+export async function getAdminVendorById(id) {
+  return adminFetch(`/admin/vendors/${id}`);
+}
+
+export async function createAdminVendor(data) {
+  return adminFetch('/admin/vendors', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminVendor(id, data) {
+  return adminFetch(`/admin/vendors/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminVendor(id) {
+  return adminFetch(`/admin/vendors/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+// Sales Persons / Staff
+export async function getAdminSalespersons(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/salespersons${query ? '?' + query : ''}`);
+}
+
+export async function getAdminSalespersonReport(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/salespersons/report${query ? '?' + query : ''}`);
+}
+
+export async function createAdminSalesperson(data) {
+  return adminFetch('/admin/salespersons', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminSalesperson(id, data) {
+  return adminFetch(`/admin/salespersons/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminSalesperson(id) {
+  return adminFetch(`/admin/salespersons/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+// Audit & Activity Logs
+export async function getAdminAuditLogs(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/audit-logs${query ? '?' + query : ''}`);
+}
+
+// Product Aging & Slow-Moving Stock Alerts
+export async function getAdminProductAgingAlerts(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/dashboard/aging${query ? '?' + query : ''}`);
+}
+
 
 

@@ -6,7 +6,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Icon } from '../../components/Icons';
 import { usePOSModal } from '../../lib/pos-modal-context';
-import { getAdminDashboardAnalytics } from '../../lib/api';
+import { getAdminDashboardAnalytics, getAdminProductAgingAlerts } from '../../lib/api';
 
 export default function AdminDashboardPage() {
   const { openPOS } = usePOSModal();
@@ -18,6 +18,19 @@ export default function AdminDashboardPage() {
   const [chartMetric, setChartMetric] = useState('revenue'); // 'revenue' | 'orders'
   const [loading, setLoading] = useState(true);
   const [hoveredPoint, setHoveredPoint] = useState(null);
+
+  // Aging alerts state (Products in stock > 60 days)
+  const [agingData, setAgingData] = useState({
+    summary: {
+      total_aging_items: 0,
+      slow_moving_count: 0,
+      dead_stock_count: 0,
+      total_tied_capital: 0
+    },
+    aging_products: []
+  });
+  const [loadingAging, setLoadingAging] = useState(false);
+  const [agingFilter, setAgingFilter] = useState('all'); // 'all', '60_90', '90_plus'
 
   // Analytics data state
   const [data, setData] = useState({
@@ -78,18 +91,34 @@ export default function AdminDashboardPage() {
       .finally(() => setLoading(false));
   }, [period, startDate, endDate]);
 
+  const fetchAgingAlerts = useCallback(() => {
+    setLoadingAging(true);
+    getAdminProductAgingAlerts({ minDays: 60 })
+      .then(res => {
+        if (res && res.summary) {
+          setAgingData(res);
+        }
+      })
+      .catch(err => {
+        console.warn('Could not load product aging alerts:', err);
+      })
+      .finally(() => setLoadingAging(false));
+  }, []);
+
   useEffect(() => {
     fetchAnalytics();
-  }, [fetchAnalytics]);
+    fetchAgingAlerts();
+  }, [fetchAnalytics, fetchAgingAlerts]);
 
   // Real-time synchronization: refresh data whenever orders are placed or edited
   useEffect(() => {
     const handleOrderSync = () => {
       fetchAnalytics();
+      fetchAgingAlerts();
     };
     window.addEventListener('np_order_updated', handleOrderSync);
     return () => window.removeEventListener('np_order_updated', handleOrderSync);
-  }, [fetchAnalytics]);
+  }, [fetchAnalytics, fetchAgingAlerts]);
 
   // Chart computation helpers
   const chartMax = useMemo(() => {
@@ -849,6 +878,259 @@ export default function AdminDashboardPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* 6.5. PRODUCT AGING & SLOW-MOVING STOCK ALERTS (60+ DAYS IN STOCK) */}
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '14px',
+              border: '1.5px solid #e2e8f0',
+              overflow: 'hidden',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              marginBottom: '26px'
+            }}
+          >
+            {/* Aging Header */}
+            <div
+              style={{
+                padding: '18px 24px',
+                borderBottom: '1px solid #f1f5f9',
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '14px',
+                background: '#fafaf9'
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>⏳</span>
+                  <h3 style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                    Product Aging & Slow-Moving Stock Alerts (60+ Days)
+                  </h3>
+                  {agingData.summary.total_aging_items > 0 && (
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: '#fef3c7',
+                        color: '#92400e',
+                        fontSize: '11px',
+                        fontWeight: 800
+                      }}
+                    >
+                      {agingData.summary.total_aging_items} Items Alerted
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+                  Identifies stock held in warehouse for over 60 days to prevent dead stock and unlock working capital.
+                </div>
+              </div>
+
+              {/* Summary KPIs */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ padding: '6px 14px', borderRadius: '8px', background: '#fef3c7', border: '1px solid #fde68a' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#92400e', textTransform: 'uppercase' }}>Slow Moving (60–90d)</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#b45309' }}>{agingData.summary.slow_moving_count} items</div>
+                </div>
+
+                <div style={{ padding: '6px 14px', borderRadius: '8px', background: '#fee2e2', border: '1px solid #fecaca' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>Dead Stock (90d+)</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#b91c1c' }}>{agingData.summary.dead_stock_count} items</div>
+                </div>
+
+                <div style={{ padding: '6px 14px', borderRadius: '8px', background: '#e0f2fe', border: '1px solid #bae6fd' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#075985', textTransform: 'uppercase' }}>Tied-Up Capital</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#0284c7' }}>₹{agingData.summary.total_tied_capital.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Aging Filter Sub-toolbar */}
+            <div style={{ padding: '10px 24px', background: '#ffffff', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setAgingFilter('all')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: agingFilter === 'all' ? '#0f172a' : '#f1f5f9',
+                    color: agingFilter === 'all' ? '#ffffff' : '#475569'
+                  }}
+                >
+                  All Aging ({agingData.aging_products.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAgingFilter('60_90')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: agingFilter === '60_90' ? '#d97706' : '#f1f5f9',
+                    color: agingFilter === '60_90' ? '#ffffff' : '#475569'
+                  }}
+                >
+                  60–90 Days ({agingData.summary.slow_moving_count})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAgingFilter('90_plus')}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: agingFilter === '90_plus' ? '#dc2626' : '#f1f5f9',
+                    color: agingFilter === '90_plus' ? '#ffffff' : '#475569'
+                  }}
+                >
+                  90+ Days Dead Stock ({agingData.summary.dead_stock_count})
+                </button>
+              </div>
+
+              <Link
+                href="/products"
+                style={{ fontSize: '11.5px', fontWeight: 700, color: '#065935', textDecoration: 'none' }}
+              >
+                Manage Clearance Discounts &rarr;
+              </Link>
+            </div>
+
+            {/* Aging Table */}
+            {loadingAging ? (
+              <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
+                Analyzing stock aging telemetry...
+              </div>
+            ) : agingData.aging_products.length === 0 ? (
+              <div style={{ padding: '36px', textAlign: 'center', background: '#f0fdf4' }}>
+                <span style={{ fontSize: '24px' }}>🎉</span>
+                <div style={{ fontWeight: 800, color: '#166534', fontSize: '14px', marginTop: '4px' }}>
+                  No Aging or Slow-Moving Inventory!
+                </div>
+                <div style={{ fontSize: '12px', color: '#15803d', marginTop: '2px' }}>
+                  All stock items have had activity or been added within the last 60 days.
+                </div>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="admin-table" style={{ width: '100%', margin: 0, fontSize: '12.5px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800 }}>
+                      <th style={{ padding: '10px 18px' }}>PRODUCT ITEM</th>
+                      <th style={{ padding: '10px 18px' }}>VENDOR / SUPPLIER</th>
+                      <th style={{ padding: '10px 18px', textAlign: 'center' }}>DAYS IN STOCK</th>
+                      <th style={{ padding: '10px 18px', textAlign: 'center' }}>QTY IN STOCK</th>
+                      <th style={{ padding: '10px 18px', textAlign: 'right' }}>TIED CAPITAL</th>
+                      <th style={{ padding: '10px 18px', textAlign: 'center' }}>AGING STATUS</th>
+                      <th style={{ padding: '10px 18px', textAlign: 'center' }}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agingData.aging_products
+                      .filter(p => {
+                        if (agingFilter === '60_90') return p.days_in_stock >= 60 && p.days_in_stock < 90;
+                        if (agingFilter === '90_plus') return p.days_in_stock >= 90;
+                        return true;
+                      })
+                      .map((p) => {
+                        const isDead = p.days_in_stock >= 90;
+                        return (
+                          <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '10px 18px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {p.image ? (
+                                  <img
+                                    src={p.image}
+                                    alt={p.name}
+                                    style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }}
+                                  />
+                                ) : (
+                                  <div style={{ width: '36px', height: '36px', borderRadius: '6px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>
+                                    👜
+                                  </div>
+                                )}
+                                <div>
+                                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '13px' }}>{p.name}</div>
+                                  <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                    {p.category_name || 'NP Grand'} • Price: ₹{p.price}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td style={{ padding: '10px 18px', color: '#475569', fontSize: '12px' }}>
+                              {p.vendor_name || <span style={{ color: '#94a3b8' }}>Unassigned</span>}
+                            </td>
+
+                            <td style={{ padding: '10px 18px', textAlign: 'center' }}>
+                              <span style={{ fontWeight: 900, color: isDead ? '#dc2626' : '#d97706', fontSize: '13px' }}>
+                                {p.days_in_stock} days
+                              </span>
+                            </td>
+
+                            <td style={{ padding: '10px 18px', textAlign: 'center', fontWeight: 800, color: '#334155' }}>
+                              {p.stock_quantity} units
+                            </td>
+
+                            <td style={{ padding: '10px 18px', textAlign: 'right', fontWeight: 900, color: '#0284c7' }}>
+                              ₹{Number(p.tied_capital || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                            </td>
+
+                            <td style={{ padding: '10px 18px', textAlign: 'center' }}>
+                              <span
+                                style={{
+                                  padding: '3px 9px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  background: isDead ? '#fee2e2' : '#fef3c7',
+                                  color: isDead ? '#b91c1c' : '#b45309',
+                                  border: `1px solid ${isDead ? '#fecaca' : '#fde68a'}`
+                                }}
+                              >
+                                {isDead ? '🛑 Dead Stock (90+ Days)' : '⚠️ Slow Moving (60–90d)'}
+                              </span>
+                            </td>
+
+                            <td style={{ padding: '10px 18px', textAlign: 'center' }}>
+                              <Link
+                                href="/products"
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '5px',
+                                  background: isDead ? '#b91c1c' : '#065935',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  textDecoration: 'none',
+                                  display: 'inline-block'
+                                }}
+                              >
+                                Edit / Discount
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* 7. LIVE UNIFIED RECENT TRANSACTIONS FEED (Online Orders + POS Bills) */}

@@ -790,7 +790,7 @@ export default function AdminOrdersPage() {
                         {item.quantity}x {item.product_name}
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                        {item.sku ? `SKU: ${item.sku}` : ''} {item.hsn_code ? `· HSN: ${item.hsn_code}` : ''}
+                        {item.sku ? `SKU: ${item.sku}` : ''}
                       </div>
                       <div style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
                         Unit Price: ₹{parseFloat(item.price || 0).toFixed(2)}

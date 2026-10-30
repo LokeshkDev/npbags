@@ -3,7 +3,18 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { usePOSModal } from '../lib/pos-modal-context';
 import useScannerInput from '../hooks/useScannerInput';
-import { lookupBarcode, createAdminPOSOrder, updateAdminPOSOrderItems, getAdminStoreSettings, getAdminProducts, lookupCustomerByPhone } from '../lib/api';
+import {
+  lookupBarcode,
+  createAdminPOSOrder,
+  updateAdminPOSOrderItems,
+  getAdminStoreSettings,
+  getAdminProducts,
+  lookupCustomerByPhone,
+  getAdminSalespersons,
+  createAdminSalesperson,
+  updateAdminSalesperson,
+  deleteAdminSalesperson
+} from '../lib/api';
 
 export function POSBillingModal() {
   const { isPOSOpen, closePOS, editingOrder, setEditingOrder } = usePOSModal();
@@ -22,9 +33,9 @@ export function POSBillingModal() {
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [customItem, setCustomItem] = useState({
     name: '',
+    mrp: '',
     price: '',
-    quantity: 1,
-    hsn_code: '4202'
+    quantity: 1
   });
 
   // Customer info
@@ -36,8 +47,22 @@ export function POSBillingModal() {
   // Payment state
   const [paymentMethod, setPaymentMethod] = useState('Cash'); // 'Cash' | 'UPI' | 'Card'
   const [receivedAmount, setReceivedAmount] = useState('');
-  const [discountAmount, setDiscountAmount] = useState(0);
+  const [discountType, setDiscountType] = useState('flat'); // 'flat' | 'percent'
+  const [discountInput, setDiscountInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sales Staff Attribution
+  const [salespersons, setSalespersons] = useState([]);
+  const [selectedSalespersonId, setSelectedSalespersonId] = useState('');
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffPhone, setNewStaffPhone] = useState('');
+  const [newStaffCommission, setNewStaffCommission] = useState('');
+  const [savingStaff, setSavingStaff] = useState(false);
+  const [editingStaffId, setEditingStaffId] = useState(null);
+  const [editStaffName, setEditStaffName] = useState('');
+  const [editStaffPhone, setEditStaffPhone] = useState('');
+  const [editStaffCommission, setEditStaffCommission] = useState('');
 
   // Completed order & receipt modal
   const [completedOrder, setCompletedOrder] = useState(null);
@@ -72,13 +97,47 @@ export function POSBillingModal() {
 
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
+  const customerPhoneInputRef = useRef(null);
 
-  // Focus search input when modal opens
+  // Load sales staff members
+  const loadSalesStaff = () => {
+    getAdminSalespersons()
+      .then(data => {
+        if (Array.isArray(data)) {
+          setSalespersons(data);
+          if (data.length > 0 && !selectedSalespersonId) {
+            setSelectedSalespersonId(String(data[0].id));
+          }
+        }
+      })
+      .catch(() => {});
+  };
+
+  // Load catalog products for POS search & autocomplete
+  const loadCatalogProducts = () => {
+    getAdminProducts({ limit: 500 })
+      .then(res => {
+        const list = res?.products || res?.data?.products || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list) && list.length > 0) {
+          setAllProducts(list);
+        }
+      })
+      .catch(err => {
+        console.warn('Could not load products for POS:', err);
+      });
+  };
+
+  // Keyboard Autofocus: User instructed to FIRST focus keyboard on customer phone number
   useEffect(() => {
     if (isPOSOpen) {
+      loadSalesStaff();
+      loadCatalogProducts();
       setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 150);
+        if (customerPhoneInputRef.current) {
+          customerPhoneInputRef.current.focus();
+          customerPhoneInputRef.current.select();
+        }
+      }, 120);
     }
   }, [isPOSOpen]);
 
@@ -89,7 +148,15 @@ export function POSBillingModal() {
       setCustomerPhone(editingOrder.customer_phone || '');
       setCustomerEmail(editingOrder.customer_email || '');
       setPaymentMethod(editingOrder.payment_method || 'Cash');
-      setDiscountAmount(Number(editingOrder.discount) || 0);
+      setDiscountType(editingOrder.discount_type || 'flat');
+      setDiscountInput(
+        editingOrder.discount_value !== undefined && editingOrder.discount_value !== null
+          ? String(editingOrder.discount_value)
+          : (editingOrder.discount ? String(editingOrder.discount) : '')
+      );
+      if (editingOrder.sales_person_id) {
+        setSelectedSalespersonId(String(editingOrder.sales_person_id));
+      }
       setReceivedAmount(editingOrder.received_amount ? String(editingOrder.received_amount) : '');
 
       const parsedItems = Array.isArray(editingOrder.items)
@@ -100,9 +167,10 @@ export function POSBillingModal() {
             barcode_short_name: item.product_name || item.name,
             price: Number(item.price) || 0,
             regular_price: Number(item.price) || 0,
-            hsn_code: item.hsn_code || '4202',
             image: item.image || item.image_url || null,
             variant: item.sku ? { sku: item.sku, size: item.size, color: item.color } : null,
+            sales_person_id: item.sales_person_id ? String(item.sales_person_id) : (editingOrder.sales_person_id ? String(editingOrder.sales_person_id) : ''),
+            sales_person_name: item.sales_person_name || editingOrder.sales_person_name || null,
             quantity: Number(item.quantity) || 1,
             stock_quantity: 50
           }))
@@ -147,7 +215,7 @@ export function POSBillingModal() {
   // Autocomplete Suggestions computation (instant live trigger on typing or fast picks on focus)
   const suggestions = useMemo(() => {
     if (!searchInput || !searchInput.trim()) {
-      return allProducts.slice(0, 6).map(p => ({
+      return allProducts.slice(0, 8).map(p => ({
         product: p,
         matchedVariant: null
       }));
@@ -161,6 +229,8 @@ export function POSBillingModal() {
       const pShort = (p.barcode_short_name || '').toLowerCase();
       const pCat = (p.category_name || '').toLowerCase();
       const pSku = (p.sku || '').toLowerCase();
+      const pSlug = (p.slug || '').toLowerCase();
+      const pId = String(p.id || '').toLowerCase();
 
       let matchedVariant = null;
       if (Array.isArray(p.variants)) {
@@ -178,6 +248,8 @@ export function POSBillingModal() {
         pShort.includes(q) ||
         pCat.includes(q) ||
         pSku.includes(q) ||
+        pSlug.includes(q) ||
+        pId.includes(q) ||
         matchedVariant
       ) {
         matches.push({
@@ -186,7 +258,7 @@ export function POSBillingModal() {
         });
       }
 
-      if (matches.length >= 10) break;
+      if (matches.length >= 15) break;
     }
     return matches;
   }, [allProducts, searchInput]);
@@ -259,35 +331,114 @@ export function POSBillingModal() {
     showToast(`Added: ${item.product_name} [${item.barcode || 'ITEM'}]`, 'success', 2200);
   };
 
-  // Add Custom Product to cart
+  // Add Custom Product to cart (Supports Name, MRP, Selling Price, and instant Enter key submit)
   const handleAddCustomProduct = (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!customItem.name.trim()) {
-      alert('Please enter a custom product name.');
+      alert('Please enter a product name.');
       return;
     }
-    const priceNum = Number(customItem.price);
-    if (isNaN(priceNum) || priceNum <= 0) {
-      alert('Please enter a valid price.');
+
+    const mrpNum = parseFloat(customItem.mrp) || 0;
+    const sellingPriceNum = parseFloat(customItem.price) || (mrpNum > 0 ? mrpNum : 0);
+
+    if (sellingPriceNum <= 0) {
+      alert('Please enter a valid selling price or MRP.');
       return;
     }
+
+    const effectiveMrp = mrpNum > 0 ? mrpNum : sellingPriceNum;
 
     const newItem = {
       product_id: `custom-${Date.now()}`,
       product_name: customItem.name.trim(),
       barcode: `CUSTOM-${Date.now().toString().slice(-4)}`,
       barcode_short_name: customItem.name.trim(),
-      price: priceNum,
-      regular_price: priceNum,
-      hsn_code: customItem.hsn_code.trim() || '4202',
+      price: sellingPriceNum,
+      mrp: effectiveMrp,
+      regular_price: effectiveMrp,
       quantity: Math.max(1, parseInt(customItem.quantity, 10) || 1),
       variant: null
     };
 
     handleAddItemToCart(newItem);
     setIsCustomModalOpen(false);
-    setCustomItem({ name: '', price: '', quantity: 1, hsn_code: '4202' });
+    setCustomItem({ name: '', mrp: '', price: '', quantity: 1 });
     setTimeout(() => searchInputRef.current?.focus(), 100);
+  };
+
+  // Staff Quick-Add Handler
+  const handleAddStaff = async (e) => {
+    e.preventDefault();
+    if (!newStaffName.trim()) {
+      showToast('Please enter staff name', 'error');
+      return;
+    }
+    try {
+      setSavingStaff(true);
+      const res = await createAdminSalesperson({
+        name: newStaffName.trim(),
+        phone: newStaffPhone.trim() || null,
+        commission_rate: newStaffCommission ? parseFloat(newStaffCommission) : 0
+      });
+      showToast(`Sales staff "${newStaffName.trim()}" added successfully!`, 'success');
+      setNewStaffName('');
+      setNewStaffPhone('');
+      setNewStaffCommission('');
+      loadSalesStaff();
+      if (res && res.id) {
+        setSelectedSalespersonId(String(res.id));
+      }
+      setIsStaffModalOpen(false);
+    } catch (err) {
+      showToast(err.message || 'Failed to add staff', 'error');
+    } finally {
+      setSavingStaff(false);
+    }
+  };
+
+  // Staff Edit Handlers
+  const startEditStaff = (staff) => {
+    setEditingStaffId(staff.id);
+    setEditStaffName(staff.name || '');
+    setEditStaffPhone(staff.phone || '');
+    setEditStaffCommission(staff.commission_percent !== undefined ? String(staff.commission_percent) : (staff.commission_rate !== undefined ? String(staff.commission_rate) : '0'));
+  };
+
+  const handleUpdateStaff = async (staffId) => {
+    if (!editStaffName.trim()) {
+      showToast('Staff name is required', 'error');
+      return;
+    }
+    try {
+      setSavingStaff(true);
+      await updateAdminSalesperson(staffId, {
+        name: editStaffName.trim(),
+        phone: editStaffPhone.trim() || null,
+        commission_percent: editStaffCommission ? parseFloat(editStaffCommission) : 0
+      });
+      showToast(`Staff "${editStaffName.trim()}" updated successfully!`, 'success');
+      setEditingStaffId(null);
+      loadSalesStaff();
+    } catch (err) {
+      showToast(err.message || 'Failed to update staff', 'error');
+    } finally {
+      setSavingStaff(false);
+    }
+  };
+
+  const handleDeleteStaff = async (staff) => {
+    if (!window.confirm(`Are you sure you want to delete sales staff "${staff.name}"?`)) return;
+    try {
+      await deleteAdminSalesperson(staff.id);
+      showToast(`Sales staff "${staff.name}" deleted.`, 'info');
+      if (selectedSalespersonId === String(staff.id)) {
+        setSelectedSalespersonId('');
+      }
+      loadSalesStaff();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete staff', 'error');
+    }
   };
 
   // Barcode / Scanner Hook Handler
@@ -317,15 +468,13 @@ export function POSBillingModal() {
   // Manual search submit
   const handleSearchSubmit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
-      const item = suggestions[highlightedIndex];
-      handlePickSuggestion(item.product, item.matchedVariant);
-      return;
-    }
-    if (suggestions.length === 1) {
-      const item = suggestions[0];
-      handlePickSuggestion(item.product, item.matchedVariant);
-      return;
+    if (suggestions.length > 0) {
+      const pickIndex = highlightedIndex >= 0 ? highlightedIndex : 0;
+      const item = suggestions[pickIndex];
+      if (item && item.product) {
+        handlePickSuggestion(item.product, item.matchedVariant);
+        return;
+      }
     }
     if (searchInput.trim()) {
       handleBarcodeScanned(searchInput.trim());
@@ -378,16 +527,26 @@ export function POSBillingModal() {
     if (cart.length === 0) return;
     if (window.confirm('Clear all items from current billing cart?')) {
       setCart([]);
-      setDiscountAmount(0);
+      setDiscountInput('');
+      setDiscountType('flat');
       setReceivedAmount('');
-      searchInputRef.current?.focus();
+      customerPhoneInputRef.current?.focus();
     }
   };
 
-  // Cart financial calculations (GST 18% inclusive standard)
+  // Cart financial calculations (Flat vs % discount, GST 18% inclusive standard)
   const cartFinancials = useMemo(() => {
     const rawSubtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const disc = Math.min(Number(discountAmount) || 0, rawSubtotal);
+    const parsedDiscountVal = parseFloat(discountInput) || 0;
+
+    let disc = 0;
+    if (discountType === 'percent') {
+      const pct = Math.min(100, Math.max(0, parsedDiscountVal));
+      disc = Math.round(((rawSubtotal * pct) / 100) * 100) / 100;
+    } else {
+      disc = Math.min(Math.max(0, parsedDiscountVal), rawSubtotal);
+    }
+
     const grandTotal = Math.max(0, rawSubtotal - disc);
 
     const gstRate = 18;
@@ -402,6 +561,8 @@ export function POSBillingModal() {
     return {
       rawSubtotal,
       discountAmount: disc,
+      discountType,
+      discountValue: parsedDiscountVal,
       grandTotal,
       taxableAmount,
       totalTax,
@@ -410,7 +571,7 @@ export function POSBillingModal() {
       received,
       changeDue
     };
-  }, [cart, discountAmount, receivedAmount]);
+  }, [cart, discountType, discountInput, receivedAmount]);
 
   // Handle Checkout & Order Submission
   const handleCheckout = async () => {
@@ -421,25 +582,34 @@ export function POSBillingModal() {
 
     setIsSubmitting(true);
     try {
+      const chosenStaff = salespersons.find(s => String(s.id) === String(selectedSalespersonId));
       const payload = {
         customer_name: customerName.trim() || 'Walk-in Customer',
         customer_phone: customerPhone.trim(),
         customer_email: customerEmail.trim(),
         payment_method: paymentMethod,
         discount_amount: cartFinancials.discountAmount,
+        discount_type: discountType,
+        discount_value: cartFinancials.discountValue,
+        sales_person_id: chosenStaff ? chosenStaff.id : null,
+        sales_person_name: chosenStaff ? chosenStaff.name : null,
         received_amount: paymentMethod === 'Cash' ? (Number(receivedAmount) || cartFinancials.grandTotal) : cartFinancials.grandTotal,
-        items: cart.map(item => ({
-          product_id: item.product_id,
-          product_name: item.product_name,
-          barcode: item.barcode,
-          price: item.price,
-          quantity: item.quantity,
-          sku: item.variant?.sku || null,
-          hsn_code: item.hsn_code || '4202',
-          size: item.variant?.size || null,
-          color: item.variant?.color || null,
-          image: item.image
-        }))
+        items: cart.map(item => {
+          const itemStaff = item.sales_person_id ? salespersons.find(s => String(s.id) === String(item.sales_person_id)) : chosenStaff;
+          return {
+            product_id: item.product_id,
+            product_name: item.product_name,
+            barcode: item.barcode,
+            price: item.price,
+            quantity: item.quantity,
+            sku: item.variant?.sku || null,
+            size: item.variant?.size || null,
+            color: item.variant?.color || null,
+            sales_person_id: itemStaff ? itemStaff.id : null,
+            sales_person_name: itemStaff ? itemStaff.name : null,
+            image: item.image
+          };
+        })
       };
 
       let orderObj = null;
@@ -503,13 +673,15 @@ export function POSBillingModal() {
         if (cart.length > 0) handleCheckout();
       } else if (e.key === 'F7') {
         e.preventDefault();
-        setCustomItem({ name: searchInput.trim() || '', price: '', quantity: 1, hsn_code: '4202' });
+        setCustomItem({ name: searchInput.trim() || '', mrp: '', price: '', quantity: 1 });
         setIsCustomModalOpen(true);
       } else if (e.key === 'F9') {
         e.preventDefault();
         clearCart();
       } else if (e.key === 'Escape') {
-        if (isCustomModalOpen) {
+        if (isStaffModalOpen) {
+          setIsStaffModalOpen(false);
+        } else if (isCustomModalOpen) {
           setIsCustomModalOpen(false);
         } else if (completedOrder) {
           setCompletedOrder(null);
@@ -522,7 +694,7 @@ export function POSBillingModal() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, completedOrder, showSuggestions, closePOS, searchInput]);
+  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, completedOrder, showSuggestions, closePOS, searchInput]);
 
   // Thermal Receipt Printing (Standard ESC/POS HTML) - Pure Solid Black #000000 with 300 Bold Density
   const printThermalReceipt = (orderData, overrideSettings) => {
@@ -555,6 +727,7 @@ export function POSBillingModal() {
         <div class="flex-row"><span>Date:</span><span class="bold">${dateStr}</span></div>
         <div class="flex-row"><span>Customer:</span><span class="bold">${order.customer_name || customerName}</span></div>
         ${(order.customer_phone || customerPhone) ? `<div class="flex-row"><span>Phone:</span><span class="bold">${order.customer_phone || customerPhone}</span></div>` : ''}
+        ${(order.sales_person_name || salespersons.find(s => String(s.id) === String(selectedSalespersonId))?.name) ? `<div class="flex-row"><span>Sales Staff:</span><span class="bold">${order.sales_person_name || salespersons.find(s => String(s.id) === String(selectedSalespersonId))?.name}</span></div>` : ''}
         <div class="flex-row"><span>Payment:</span><span class="bold">${(order.payment_method || paymentMethod).toUpperCase()}</span></div>
         <div class="divider"></div>
 
@@ -572,7 +745,7 @@ export function POSBillingModal() {
               <tr>
                 <td>
                   <div class="bold">${it.product_name}</div>
-                  <div class="subtext">[${it.barcode}] ${it.hsn_code ? `HSN:${it.hsn_code}` : ''}</div>
+                  <div class="subtext">[${it.barcode}]</div>
                 </td>
                 <td class="right bold">${it.quantity}</td>
                 <td class="right bold">${Number(it.price).toFixed(2)}</td>
@@ -586,7 +759,7 @@ export function POSBillingModal() {
         <div class="flex-row"><span>Items Count:</span><span class="bold">${items.reduce((s, i) => s + Number(i.quantity), 0)}</span></div>
         <div class="flex-row"><span>Gross Total:</span><span class="bold">Rs. ${(Number(order.subtotal || cartFinancials.rawSubtotal || (Number(order.total_amount || cartFinancials.grandTotal) + Number(order.discount || order.discount_amount || cartFinancials.discountAmount || 0)))).toFixed(2)}</span></div>
         ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount || 0) > 0 ? `
-          <div class="flex-row bold"><span>Discount:</span><span class="bold">- Rs. ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount).toFixed(2)}</span></div>
+          <div class="flex-row bold"><span>Discount ${(order.discount_type === 'percent' || discountType === 'percent') ? `(${order.discount_value || discountInput}%)` : ''}:</span><span class="bold">- Rs. ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount).toFixed(2)}</span></div>
         ` : ''}
         <div class="flex-row"><span>Taxable Value:</span><span class="bold">Rs. ${Number(order.taxable_amount || cartFinancials.taxableAmount).toFixed(2)}</span></div>
         <div class="flex-row"><span>CGST (9%):</span><span class="bold">Rs. ${Number(order.cgst_amount || cartFinancials.cgstAmount).toFixed(2)}</span></div>
@@ -903,11 +1076,12 @@ export function POSBillingModal() {
           {/* Top Controls: Scanner Bar + Custom Item Button + Customer Inputs */}
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
             {/* Search and Scan Container with Autocomplete Dropdown */}
-            <div ref={searchContainerRef} style={{ position: 'relative', marginBottom: '12px' }}>
+            <div ref={searchContainerRef} style={{ position: 'relative', zIndex: 100, marginBottom: '12px' }}>
               <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '10px' }}>
                 <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
                   <input
                     ref={searchInputRef}
+                    id="pos-main-search-input"
                     type="text"
                     placeholder="Scan barcode (NP-XXXX) or type product name, SKU to auto-suggest... [Press Enter]"
                     value={searchInput}
@@ -916,7 +1090,7 @@ export function POSBillingModal() {
                       setShowSuggestions(true);
                     }}
                     onFocus={() => {
-                      if (suggestions.length > 0) setShowSuggestions(true);
+                      setShowSuggestions(true);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'ArrowDown') {
@@ -995,7 +1169,7 @@ export function POSBillingModal() {
                 <button
                   type="button"
                   onClick={() => {
-                    setCustomItem({ name: searchInput.trim() || '', price: '', quantity: 1, hsn_code: '4202' });
+                    setCustomItem({ name: searchInput.trim() || '', mrp: '', price: '', quantity: 1 });
                     setIsCustomModalOpen(true);
                   }}
                   style={{
@@ -1110,7 +1284,7 @@ export function POSBillingModal() {
                   {/* QUICK ADD CUSTOM PRODUCT OPTION IN DROPDOWN */}
                   <div
                     onClick={() => {
-                      setCustomItem({ name: searchInput.trim() || 'Custom Item', price: '', quantity: 1, hsn_code: '4202' });
+                      setCustomItem({ name: searchInput.trim() || 'Custom Item', mrp: '', price: '', quantity: 1 });
                       setIsCustomModalOpen(true);
                       setShowSuggestions(false);
                     }}
@@ -1141,8 +1315,48 @@ export function POSBillingModal() {
               )}
             </div>
 
-            {/* Customer Information (Auto-populated on 10-digit phone match) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+            {/* Customer & Sales Staff Information (Autofocus on Mobile First per user instruction) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', alignItems: 'end' }}>
+              {/* 1. Mobile Phone (FIRST KEYBOARD FOCUS) */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#065935' }}>
+                    📱 MOBILE (AUTOFOCUS)
+                  </label>
+                  {customerFoundBadge && (
+                    <span style={{ fontSize: '10px', color: '#065935', fontWeight: 800 }}>
+                      [{customerFoundBadge}]
+                    </span>
+                  )}
+                </div>
+                <input
+                  ref={customerPhoneInputRef}
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      searchInputRef.current?.focus();
+                      searchInputRef.current?.select();
+                    }
+                  }}
+                  placeholder="10-digit mobile [Press Enter to Scan]"
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: customerFoundBadge ? '2px solid #065935' : '1.5px solid #065935',
+                    background: customerFoundBadge ? '#f0fdf4' : '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    outlineColor: '#065935'
+                  }}
+                />
+              </div>
+
+              {/* 2. Customer Name */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569' }}>
@@ -1158,6 +1372,12 @@ export function POSBillingModal() {
                   type="text"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      searchInputRef.current?.focus();
+                    }
+                  }}
                   placeholder="Walk-in Customer"
                   style={{
                     width: '100%',
@@ -1172,35 +1392,54 @@ export function POSBillingModal() {
                 />
               </div>
 
+              {/* 3. Salesperson / Staff Selection */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569' }}>
-                    MOBILE (WHATSAPP BILLING)
+                    SALES STAFF
                   </label>
-                  {customerFoundBadge && (
-                    <span style={{ fontSize: '10px', color: '#065935', fontWeight: 800 }}>
-                      [RECOGNIZED: {customerFoundBadge}]
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsStaffModalOpen(true)}
+                    style={{ fontSize: '10px', color: '#065935', fontWeight: 800, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  >
+                    [+ MANAGE STAFF]
+                  </button>
                 </div>
-                <input
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="Enter 10-digit mobile number"
+                <select
+                  value={selectedSalespersonId}
+                  onChange={(e) => {
+                    const spId = e.target.value;
+                    setSelectedSalespersonId(spId);
+                    const spObj = salespersons.find(s => String(s.id) === String(spId));
+                    setCart(prev => prev.map(item => ({
+                      ...item,
+                      sales_person_id: spId || null,
+                      sales_person_name: spObj ? spObj.name : null
+                    })));
+                  }}
                   style={{
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: customerFoundBadge ? '1.5px solid #065935' : '1px solid #cbd5e1',
-                    background: customerFoundBadge ? '#f0fdf4' : '#ffffff',
+                    border: '1px solid #cbd5e1',
                     fontSize: '13px',
                     fontWeight: 600,
-                    color: '#1e293b'
+                    color: '#1e293b',
+                    background: '#ffffff',
+                    cursor: 'pointer'
                   }}
-                />
+                >
+                  <option value="">General Counter Staff</option>
+                  {salespersons.map(sp => (
+                    <option key={sp.id} value={sp.id}>
+                      👤 {sp.name} {sp.code ? `(${sp.code})` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
+              {/* 4. Customer Email (Optional) */}
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
                   EMAIL (OPTIONAL)
@@ -1284,14 +1523,14 @@ export function POSBillingModal() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800, textAlign: 'left' }}>
-                    <th style={{ padding: '10px 16px' }}>#</th>
-                    <th style={{ padding: '10px 16px' }}>PRODUCT &amp; BARCODE</th>
-                    <th style={{ padding: '10px 16px' }}>HSN</th>
-                    <th style={{ padding: '10px 16px', textAlign: 'right' }}>PRICE</th>
-                    <th style={{ padding: '10px 16px', textAlign: 'center' }}>QTY</th>
-                    <th style={{ padding: '10px 16px', textAlign: 'right' }}>TAX (18%)</th>
-                    <th style={{ padding: '10px 16px', textAlign: 'right' }}>TOTAL</th>
-                    <th style={{ padding: '10px 16px', textAlign: 'center' }}>ACTION</th>
+                    <th style={{ padding: '10px 14px' }}>#</th>
+                    <th style={{ padding: '10px 14px' }}>PRODUCT &amp; BARCODE</th>
+                    <th style={{ padding: '10px 14px' }}>STAFF</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>PRICE / MRP</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'center' }}>QTY</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>TAX (18%)</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>TOTAL</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'center' }}>ACTION</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1308,8 +1547,8 @@ export function POSBillingModal() {
                           background: idx % 2 === 0 ? '#ffffff' : '#fcfcfc'
                         }}
                       >
-                        <td style={{ padding: '12px 16px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
-                        <td style={{ padding: '12px 16px' }}>
+                        <td style={{ padding: '12px 14px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
+                        <td style={{ padding: '12px 14px' }}>
                           <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
                           <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '8px' }}>
                             <span style={{ fontWeight: 700, color: '#065935' }}>{item.barcode}</span>
@@ -1317,9 +1556,46 @@ export function POSBillingModal() {
                             {item.variant?.size && <span>Size: {item.variant.size}</span>}
                           </div>
                         </td>
-                        <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '12px' }}>{item.hsn_code || '4202'}</td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <select
+                            value={item.sales_person_id || selectedSalespersonId || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const spObj = salespersons.find(s => String(s.id) === String(val));
+                              setCart(prev => {
+                                const copy = [...prev];
+                                copy[idx] = {
+                                  ...copy[idx],
+                                  sales_person_id: val || null,
+                                  sales_person_name: spObj ? spObj.name : null
+                                };
+                                return copy;
+                              });
+                            }}
+                            style={{
+                              padding: '4px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              background: '#ffffff',
+                              color: '#334155',
+                              maxWidth: '120px'
+                            }}
+                          >
+                            <option value="">Default ({salespersons.find(s => String(s.id) === String(selectedSalespersonId))?.name || 'Counter'})</option>
+                            {salespersons.map(sp => (
+                              <option key={sp.id} value={sp.id}>{sp.name}</option>
+                            ))}
+                          </select>
+                        </td>
                         <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
-                          ₹{Number(item.price).toLocaleString('en-IN')}
+                          <div>₹{Number(item.price).toLocaleString('en-IN')}</div>
+                          {((item.mrp && item.mrp > item.price) || (item.regular_price && item.regular_price > item.price)) && (
+                            <div style={{ fontSize: '11px', color: '#94a3b8', textDecoration: 'line-through' }}>
+                              MRP ₹{Number(item.mrp || item.regular_price).toLocaleString('en-IN')}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
@@ -1418,26 +1694,55 @@ export function POSBillingModal() {
               <span style={{ fontWeight: 700, color: '#0f172a' }}>₹{cartFinancials.rawSubtotal.toLocaleString('en-IN')}</span>
             </div>
 
-            {/* Discount Input */}
+            {/* Discount Input with Flat ₹ vs % Dropdown */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '13px', color: '#475569' }}>
-              <span>Discount (₹)</span>
-              <input
-                type="number"
-                min="0"
-                value={discountAmount || ''}
-                onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
-                placeholder="0"
-                style={{
-                  width: '90px',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  textAlign: 'right',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: '#ef4444'
-                }}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontWeight: 600 }}>Discount:</span>
+                <select
+                  value={discountType}
+                  onChange={(e) => setDiscountType(e.target.value)}
+                  style={{
+                    padding: '3px 6px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    background: '#f1f5f9',
+                    color: '#334155',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="flat">₹ Flat</option>
+                  <option value="percent">% Percent</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="number"
+                  min="0"
+                  max={discountType === 'percent' ? 100 : cartFinancials.rawSubtotal}
+                  value={discountInput}
+                  onChange={(e) => setDiscountInput(e.target.value)}
+                  placeholder="0"
+                  style={{
+                    width: '85px',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: '1.5px solid #cbd5e1',
+                    textAlign: 'right',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    color: '#ef4444',
+                    background: '#ffffff'
+                  }}
+                />
+                {discountType === 'percent' && (
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#15803d', whiteSpace: 'nowrap' }}>
+                    (-₹{cartFinancials.discountAmount.toFixed(2)})
+                  </span>
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: '#64748b' }}>
@@ -1648,41 +1953,81 @@ export function POSBillingModal() {
             </div>
 
             <form onSubmit={handleAddCustomProduct}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                  ITEM NAME / DESCRIPTION
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
+                  ITEM NAME / DESCRIPTION <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Special Leather Clutch, Gift Packaging"
+                  placeholder="e.g. Leather Handbag, Custom Gift Box, Shoulder Strap"
                   value={customItem.name}
                   onChange={(e) => setCustomItem(prev => ({ ...prev, name: e.target.value }))}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13px' }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddCustomProduct(e);
+                    }
+                  }}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13.5px' }}
                   autoFocus
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    UNIT PRICE (₹)
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
+                    MRP (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 1299"
+                    value={customItem.mrp}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCustomItem(prev => ({
+                        ...prev,
+                        mrp: v,
+                        price: (prev.price === '' || prev.price === prev.mrp) ? v : prev.price
+                      }));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomProduct(e);
+                      }
+                    }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13.5px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#065935', marginBottom: '4px' }}>
+                    SELLING PRICE (₹) <span style={{ color: '#ef4444' }}>*</span>
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     min="1"
                     required
-                    placeholder="999"
+                    placeholder="e.g. 999"
                     value={customItem.price}
                     onChange={(e) => setCustomItem(prev => ({ ...prev, price: e.target.value }))}
-                    style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13px', fontWeight: 700 }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomProduct(e);
+                      }
+                    }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #065935', fontSize: '13.5px', fontWeight: 800, color: '#065935' }}
                   />
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    QUANTITY
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
+                    QUANTITY <span style={{ color: '#ef4444' }}>*</span>
                   </label>
                   <input
                     type="number"
@@ -1690,21 +2035,20 @@ export function POSBillingModal() {
                     required
                     value={customItem.quantity}
                     onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
-                    style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomProduct(e);
+                      }
+                    }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13.5px', fontWeight: 700 }}
                   />
                 </div>
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                  HSN / SAC CODE (DEFAULT: 4202 FOR BAGS)
-                </label>
-                <input
-                  type="text"
-                  value={customItem.hsn_code}
-                  onChange={(e) => setCustomItem(prev => ({ ...prev, hsn_code: e.target.value }))}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13px' }}
-                />
+              <div style={{ fontSize: '12px', color: '#64748b', background: '#f8fafc', padding: '9px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '14px' }}>💡</span>
+                <span>Press <strong>[ENTER]</strong> in any box or click <strong>ADD TO BILL</strong> to immediately add the item.</span>
               </div>
 
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -1713,13 +2057,13 @@ export function POSBillingModal() {
                   onClick={() => setIsCustomModalOpen(false)}
                   style={{ padding: '9px 16px', borderRadius: '6px', background: '#f1f5f9', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
                 >
-                  CANCEL
+                  CANCEL [ESC]
                 </button>
                 <button
                   type="submit"
-                  style={{ padding: '9px 20px', borderRadius: '6px', background: '#065935', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                  style={{ padding: '9px 22px', borderRadius: '6px', background: '#065935', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
-                  ADD TO BILL
+                  <span>+ ADD TO BILL [ENTER]</span>
                 </button>
               </div>
             </form>
@@ -1871,7 +2215,7 @@ export function POSBillingModal() {
                           <tr key={idx} style={{ verticalAlign: 'top' }}>
                             <td style={{ padding: '3px 0' }}>
                               <div style={{ fontWeight: 900 }}>{it.product_name}</div>
-                              <div style={{ fontSize: '8.5px', fontWeight: 700 }}>[{it.barcode}] {it.hsn_code ? `HSN:${it.hsn_code}` : ''}</div>
+                              <div style={{ fontSize: '8.5px', fontWeight: 700 }}>[{it.barcode}]</div>
                             </td>
                             <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 900 }}>{it.quantity}</td>
                             <td style={{ padding: '3px 0', textAlign: 'right' }}>{Number(it.price).toFixed(2)}</td>
@@ -2033,6 +2377,345 @@ export function POSBillingModal() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* 5. SALES STAFF MANAGEMENT MODAL */}
+      {isStaffModalOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.7)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 99999,
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsStaffModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              maxWidth: '520px',
+              width: '100%',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '16px 22px',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#f8fafc'
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                  Manage Sales Staff
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '11.5px', color: '#64748b' }}>
+                  Assign sales attribution & track employee commissions
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStaffModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: '6px'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Existing Staff List */}
+            <div style={{ padding: '16px 22px', maxHeight: '240px', overflowY: 'auto' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                Active Salespersons ({salespersons.length})
+              </div>
+              {salespersons.length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                  No sales staff recorded yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {salespersons.map(staff => {
+                    const isEditing = editingStaffId === staff.id;
+                    const commVal = staff.commission_percent !== undefined ? staff.commission_percent : (staff.commission_rate || 0);
+
+                    return (
+                      <div
+                        key={staff.id}
+                        style={{
+                          padding: '10px 14px',
+                          background: isEditing ? '#fefce8' : '#f8fafc',
+                          border: `1px solid ${isEditing ? '#fde047' : '#e2e8f0'}`,
+                          borderRadius: '8px',
+                          display: 'flex',
+                          flexDirection: isEditing ? 'column' : 'row',
+                          alignItems: isEditing ? 'stretch' : 'center',
+                          justifyContent: 'space-between',
+                          gap: '10px'
+                        }}
+                      >
+                        {isEditing ? (
+                          /* Inline Edit Mode */
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 800, color: '#b45309' }}>
+                              EDIT STAFF MEMBER #{staff.id}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '8px' }}>
+                              <input
+                                type="text"
+                                placeholder="Staff Name"
+                                value={editStaffName}
+                                onChange={(e) => setEditStaffName(e.target.value)}
+                                style={{ padding: '6px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                              />
+                              <input
+                                type="tel"
+                                placeholder="Phone"
+                                value={editStaffPhone}
+                                onChange={(e) => setEditStaffPhone(e.target.value)}
+                                style={{ padding: '6px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                              />
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                placeholder="Comm. %"
+                                value={editStaffCommission}
+                                onChange={(e) => setEditStaffCommission(e.target.value)}
+                                style={{ padding: '6px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '2px' }}>
+                              <button
+                                type="button"
+                                onClick={() => setEditingStaffId(null)}
+                                style={{ padding: '5px 10px', borderRadius: '5px', background: '#f1f5f9', border: '1px solid #cbd5e1', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingStaff}
+                                onClick={() => handleUpdateStaff(staff.id)}
+                                style={{ padding: '5px 14px', borderRadius: '5px', background: '#065935', color: '#fff', border: 'none', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                {savingStaff ? 'Saving...' : 'Save Changes'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* View Mode */
+                          <>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                                {staff.name} {staff.code ? <span style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 600 }}>({staff.code})</span> : null}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                {staff.phone || 'No phone'} • Commission: <strong style={{ color: '#065935' }}>{commVal}%</strong>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSalespersonId(String(staff.id));
+                                  setIsStaffModalOpen(false);
+                                  showToast(`Selected: ${staff.name}`, 'success');
+                                }}
+                                style={{
+                                  padding: '5px 10px',
+                                  borderRadius: '6px',
+                                  background: selectedSalespersonId === String(staff.id) ? '#065935' : '#ffffff',
+                                  color: selectedSalespersonId === String(staff.id) ? '#ffffff' : '#065935',
+                                  border: '1px solid #065935',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {selectedSalespersonId === String(staff.id) ? 'Selected' : 'Select'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => startEditStaff(staff)}
+                                title="Edit staff name & commission"
+                                style={{
+                                  padding: '5px 8px',
+                                  borderRadius: '6px',
+                                  background: '#f8fafc',
+                                  color: '#334155',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteStaff(staff)}
+                                title="Delete staff"
+                                style={{
+                                  padding: '5px 7px',
+                                  borderRadius: '6px',
+                                  background: '#fef2f2',
+                                  color: '#dc2626',
+                                  border: '1px solid #fee2e2',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '6px 22px 10px', display: 'flex', justifyContent: 'flex-end', background: '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+              <Link
+                href="/salespersons"
+                target="_blank"
+                style={{ fontSize: '11px', fontWeight: 800, color: '#065935', textDecoration: 'none' }}
+              >
+                📊 Open Full Sales Staff Reports &rarr;
+              </Link>
+            </div>
+
+            {/* Add New Staff Form */}
+            <form onSubmit={handleAddStaff} style={{ padding: '16px 22px', borderTop: '1px solid #e2e8f0', background: '#fafaf9' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' }}>
+                Add New Staff Member
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                    FULL NAME *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Priya S."
+                    value={newStaffName}
+                    onChange={(e) => setNewStaffName(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                    PHONE NUMBER
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="10-digit mobile"
+                    value={newStaffPhone}
+                    onChange={(e) => setNewStaffPhone(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                    COMM. %
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    placeholder="2.0"
+                    value={newStaffCommission}
+                    onChange={(e) => setNewStaffCommission(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsStaffModalOpen(false)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingStaff}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    background: '#065935',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: savingStaff ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {savingStaff ? 'Saving...' : '+ Add Staff'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

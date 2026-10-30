@@ -242,6 +242,20 @@ export function Icon({ name, className = '', size = 20, strokeWidth = 2.2, fill 
         <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
         <path d="M3 21v-5h5" />
       </>
+    ),
+    vendor: (
+      <>
+        <rect x="1" y="3" width="15" height="13" rx="1" />
+        <polygon points="16 8 20 8 23 11 23 16 16 8" />
+        <circle cx="5.5" cy="18.5" r="2.5" />
+        <circle cx="18.5" cy="18.5" r="2.5" />
+      </>
+    ),
+    history: (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 14 16 14" />
+      </>
     )
   };
 

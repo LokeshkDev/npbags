@@ -15,6 +15,10 @@ const settingsController = require('../controllers/settingsController');
 const customerController = require('../controllers/customerController');
 const barcodeController = require('../controllers/barcodeController');
 const inventoryController = require('../controllers/inventoryController');
+const vendorController = require('../controllers/vendorController');
+const salespersonController = require('../controllers/salespersonController');
+const auditLogController = require('../controllers/auditLogController');
+const agingController = require('../controllers/agingController');
 
 // All admin routes require authentication and admin role
 router.use(authenticate, requireAdmin);
@@ -101,6 +105,26 @@ router.post('/customers', customerController.createCustomerAdmin);
 router.put('/customers/:id', customerController.updateCustomerAdmin);
 router.delete('/customers/:id', customerController.deleteCustomerAdmin);
 router.post('/customers/:id/reset-password', customerController.resetCustomerPasswordAdmin);
+
+// Vendors
+router.get('/vendors', vendorController.getAllVendors);
+router.get('/vendors/:id', vendorController.getVendorById);
+router.post('/vendors', vendorController.createVendor);
+router.put('/vendors/:id', vendorController.updateVendor);
+router.delete('/vendors/:id', vendorController.deleteVendor);
+
+// Sales Persons / Staff & Commission Reports
+router.get('/salespersons/report', salespersonController.getSalespersonReport);
+router.get('/salespersons', salespersonController.getAllSalespersons);
+router.post('/salespersons', salespersonController.createSalesperson);
+router.put('/salespersons/:id', salespersonController.updateSalesperson);
+router.delete('/salespersons/:id', salespersonController.deleteSalesperson);
+
+// Audit & Activity Logs
+router.get('/audit-logs', auditLogController.getAuditLogs);
+
+// Dashboard Product Aging & Slow-Moving Stock Alerts
+router.get('/dashboard/aging', agingController.getProductAgingAlerts);
 
 module.exports = router;
 

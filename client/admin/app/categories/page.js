@@ -23,7 +23,9 @@ export default function AdminCategoriesPage() {
     image: null
   });
   const [saving, setSaving] = useState(false);
-  const [genderFilter, setGenderFilter] = useState('all'); // 'all', 'women', 'men', 'kids'
+  const [genderFilter, setGenderFilter] = useState('all'); // 'all', 'women', 'men', 'kids', 'unisex'
+  const [levelFilter, setLevelFilter] = useState('all'); // 'all', 'with_sub', 'no_sub'
+  const [categorySort, setCategorySort] = useState('order'); // 'order', 'name_asc', 'sub_count'
 
   const loadCategories = () => {
     getAdminCategories()
@@ -187,28 +189,67 @@ export default function AdminCategoriesPage() {
     );
   };
 
-  // Filtered categories according to gender filter and search query
-  const filteredMainCategories = mainCategories.filter(main => {
-    // Department / Gender filter
-    if (genderFilter !== 'all') {
-      const subcats = categories.filter(c => c.parent_id === main.id);
-      const matchesMainGender = (main.gender || 'all').toLowerCase() === genderFilter;
-      const matchesSubGender = subcats.some(s => (s.gender || 'all').toLowerCase() === genderFilter);
-      if (!matchesMainGender && !matchesSubGender) return false;
-    }
-
-    if (!categorySearch.trim()) return true;
-    const q = categorySearch.toLowerCase();
-    const matchesMain = main.name.toLowerCase().includes(q) || (main.slug && main.slug.toLowerCase().includes(q));
-    const subcats = categories.filter(c => c.parent_id === main.id);
-    const matchesSub = subcats.some(s => s.name.toLowerCase().includes(q) || (s.slug && s.slug.toLowerCase().includes(q)));
-    return matchesMain || matchesSub;
-  });
-
   // Department counts
   const womenCount = categories.filter(c => (c.gender || '').toLowerCase() === 'women').length;
   const menCount = categories.filter(c => (c.gender || '').toLowerCase() === 'men').length;
   const kidsCount = categories.filter(c => (c.gender || '').toLowerCase() === 'kids').length;
+  const unisexCount = categories.filter(c => {
+    const g = (c.gender || 'all').toLowerCase();
+    return g === 'all' || g === 'unisex';
+  }).length;
+  const totalSubcategoriesCount = categories.filter(c => Boolean(c.parent_id)).length;
+
+  // Filtered categories according to gender filter, level filter, search query, and sorting
+  const filteredMainCategories = mainCategories.filter(main => {
+    const subcats = categories.filter(c => c.parent_id === main.id);
+
+    // 1. Department / Gender filter
+    if (genderFilter !== 'all') {
+      if (genderFilter === 'unisex') {
+        const isMainUnisex = (main.gender || 'all').toLowerCase() === 'all' || (main.gender || '').toLowerCase() === 'unisex';
+        const isSubUnisex = subcats.some(s => (s.gender || 'all').toLowerCase() === 'all' || (s.gender || '').toLowerCase() === 'unisex');
+        if (!isMainUnisex && !isSubUnisex) return false;
+      } else {
+        const matchesMainGender = (main.gender || 'all').toLowerCase() === genderFilter;
+        const matchesSubGender = subcats.some(s => (s.gender || 'all').toLowerCase() === genderFilter);
+        if (!matchesMainGender && !matchesSubGender) return false;
+      }
+    }
+
+    // 2. Hierarchy Level Filter
+    if (levelFilter === 'with_sub' && subcats.length === 0) return false;
+    if (levelFilter === 'no_sub' && subcats.length > 0) return false;
+
+    // 3. Search text query
+    if (!categorySearch.trim()) return true;
+    const q = categorySearch.toLowerCase();
+    const matchesMain = main.name.toLowerCase().includes(q) || (main.slug && main.slug.toLowerCase().includes(q));
+    const matchesSub = subcats.some(s => s.name.toLowerCase().includes(q) || (s.slug && s.slug.toLowerCase().includes(q)));
+    return matchesMain || matchesSub;
+  }).sort((a, b) => {
+    if (categorySort === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+    if (categorySort === 'sub_count') {
+      const subsA = categories.filter(c => c.parent_id === a.id).length;
+      const subsB = categories.filter(c => c.parent_id === b.id).length;
+      return subsB - subsA;
+    }
+    // Default display order
+    return (a.display_order ?? 0) - (b.display_order ?? 0);
+  });
+
+  const hasCategoryFilters = Boolean(
+    categorySearch.trim() ||
+    genderFilter !== 'all' ||
+    levelFilter !== 'all' ||
+    categorySort !== 'order'
+  );
+
+  const handleClearCategoryFilters = () => {
+    setCategorySearch('');
+    setGenderFilter('all');
+    setLevelFilter('all');
+    setCategorySort('order');
+  };
 
   return (
     <div className="admin-layout">
@@ -252,13 +293,14 @@ export default function AdminCategoriesPage() {
             </div>
           </div>
 
-          {/* Department Filter Tabs (AJIO Reference: All, Women, Men, Kids) */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
+          {/* Department Filter Tabs (All, Women, Men, Kids, Unisex) */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
             {[
               { id: 'all', label: 'All Categories', count: categories.length },
               { id: 'women', label: '👩 Women', count: womenCount },
               { id: 'men', label: '👤 Men', count: menCount },
-              { id: 'kids', label: '🧒 Kids', count: kidsCount }
+              { id: 'kids', label: '🧒 Kids', count: kidsCount },
+              { id: 'unisex', label: '🌐 Unisex', count: unisexCount }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -296,20 +338,101 @@ export default function AdminCategoriesPage() {
             ))}
           </div>
 
-          {/* Search bar */}
-          <div style={{ marginBottom: '20px', maxWidth: '400px' }}>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="Search categories or subcategories..."
-                className="form-control"
-                value={categorySearch}
-                onChange={(e) => setCategorySearch(e.target.value)}
-                style={{ paddingLeft: '36px' }}
-              />
-              <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }}>
-                <Icon name="search" size={16} />
-              </span>
+          {/* Category Filter and Search Toolbar */}
+          <div className="admin-card" style={{ padding: '14px 18px', marginBottom: '20px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', alignItems: 'center' }}>
+              {/* Search bar */}
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="Search categories or subcategories..."
+                  className="form-control"
+                  value={categorySearch}
+                  onChange={(e) => setCategorySearch(e.target.value)}
+                  style={{ paddingLeft: '34px', fontSize: '13px', height: '38px', background: '#ffffff' }}
+                />
+                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
+                  <Icon name="search" size={15} />
+                </span>
+                {categorySearch && (
+                  <button
+                    type="button"
+                    onClick={() => setCategorySearch('')}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '13px' }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Hierarchy / Level Filter */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={levelFilter}
+                  onChange={(e) => setLevelFilter(e.target.value)}
+                >
+                  <option value="all">📂 Hierarchy: All Levels ({mainCategories.length} Main, {totalSubcategoriesCount} Subs)</option>
+                  <option value="with_sub">📂 Has Subcategories Only</option>
+                  <option value="no_sub">📄 Standalone Categories (No Subcategories)</option>
+                </select>
+              </div>
+
+              {/* Sort By */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={categorySort}
+                  onChange={(e) => setCategorySort(e.target.value)}
+                >
+                  <option value="order">↕️ Sort: Custom Display Order</option>
+                  <option value="name_asc">Name: A → Z</option>
+                  <option value="sub_count">Most Subcategories First</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Active Filters Row */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ fontSize: '12.5px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span>Showing <strong>{filteredMainCategories.length}</strong> of {mainCategories.length} main categories ({categories.length} total categories)</span>
+                {genderFilter !== 'all' && (
+                  <span style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Dept: {genderFilter}
+                    <button type="button" onClick={() => setGenderFilter('all')} style={{ border: 'none', background: 'none', color: '#9d174d', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {levelFilter !== 'all' && (
+                  <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Level: {levelFilter.replace('_', ' ')}
+                    <button type="button" onClick={() => setLevelFilter('all')} style={{ border: 'none', background: 'none', color: '#1e40af', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+              </div>
+
+              {hasCategoryFilters && (
+                <button
+                  type="button"
+                  onClick={handleClearCategoryFilters}
+                  style={{
+                    fontSize: '12px',
+                    color: '#ef4444',
+                    background: '#fee2e2',
+                    border: '1px solid #fecaca',
+                    padding: '3px 10px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  ✕ Reset All Filters
+                </button>
+              )}
             </div>
           </div>
 

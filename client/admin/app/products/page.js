@@ -20,6 +20,7 @@ import {
   uploadProductGalleryImage,
   uploadCMSMedia,
   getAdminCategories,
+  getAdminVendors,
   getProductBarcodes,
   generateProductBarcodes
 } from '../../lib/api';
@@ -27,6 +28,7 @@ import {
 export default function AdminProductsPage() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -36,6 +38,13 @@ export default function AdminProductsPage() {
   const [isUploadingVariantIndex, setIsUploadingVariantIndex] = useState(null);
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Filter & sorting states
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [genderFilter, setGenderFilter] = useState('all');
+  const [stockFilter, setStockFilter] = useState('all');
+  const [badgeFilter, setBadgeFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
 
   // Barcode management in edit modal
   const [editingProductBarcodes, setEditingProductBarcodes] = useState([]);
@@ -73,7 +82,15 @@ export default function AdminProductsPage() {
     seo_keywords: '',
     is_featured: true,
     is_new_arrival: false,
-    is_best_selling: false
+    is_best_selling: false,
+    vendor_id: '',
+    purchase_price: '',
+    mrp: '',
+    gst_type: 'without_gst',
+    gst_rate: '18',
+    landing_cost: '',
+    purchase_margin: '',
+    landing_margin: ''
   });
 
   const generateSlug = (val) => {
@@ -125,6 +142,40 @@ export default function AdminProductsPage() {
     };
   };
 
+  // Helper to dynamically calculate costing, margins, and landing costs
+  const updateCostingFields = (changedFields) => {
+    setFormData(prev => {
+      const next = { ...prev, ...changedFields };
+      const pPrice = parseFloat(next.purchase_price) || 0;
+      const mrpVal = parseFloat(next.mrp) || 0;
+      const sellPrice = parseFloat(next.sale_price || next.price) || 0;
+      const rate = parseFloat(next.gst_rate) || 0;
+
+      // Landing Cost: If without GST, landing cost = purchase price * (1 + rate / 100); if with GST, landing cost = purchase price
+      let landing = pPrice;
+      if (next.gst_type === 'without_gst') {
+        landing = Math.round(pPrice * (1 + rate / 100) * 100) / 100;
+      }
+
+      // Purchase Margin % = ((MRP - Purchase Price) / MRP) * 100
+      let pMargin = 0;
+      if (mrpVal > 0 && pPrice > 0) {
+        pMargin = Math.round(((mrpVal - pPrice) / mrpVal) * 100 * 10) / 10;
+      }
+
+      // Landing Margin % (Net Profit %) = ((Selling Price - Landing Cost) / Selling Price) * 100
+      let lMargin = 0;
+      if (sellPrice > 0 && landing > 0) {
+        lMargin = Math.round(((sellPrice - landing) / sellPrice) * 100 * 10) / 10;
+      }
+
+      next.landing_cost = landing > 0 ? String(landing) : '';
+      next.purchase_margin = pMargin !== 0 ? String(pMargin) : '';
+      next.landing_margin = lMargin !== 0 ? String(lMargin) : '';
+      return next;
+    });
+  };
+
   const loadData = () => {
     getAdminProducts({ limit: 100 })
       .then(data => {
@@ -135,6 +186,12 @@ export default function AdminProductsPage() {
     getAdminCategories()
       .then(data => {
         if (Array.isArray(data)) setCategories(data);
+      })
+      .catch(() => {});
+
+    getAdminVendors()
+      .then(data => {
+        if (Array.isArray(data)) setVendors(data);
       })
       .catch(() => {});
   };
@@ -172,7 +229,15 @@ export default function AdminProductsPage() {
       seo_keywords: '',
       is_featured: true,
       is_new_arrival: false,
-      is_best_selling: false
+      is_best_selling: false,
+      vendor_id: '',
+      purchase_price: '',
+      mrp: '',
+      gst_type: 'without_gst',
+      gst_rate: '18',
+      landing_cost: '',
+      purchase_margin: '',
+      landing_margin: ''
     });
     setSelectedFile(null);
     setModalOpen(true);
@@ -229,7 +294,15 @@ export default function AdminProductsPage() {
       seo_keywords: defaultSeoKw,
       is_featured: Boolean(p.is_featured),
       is_new_arrival: Boolean(p.is_new_arrival),
-      is_best_selling: Boolean(p.is_best_selling)
+      is_best_selling: Boolean(p.is_best_selling),
+      vendor_id: p.vendor_id ? String(p.vendor_id) : '',
+      purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? String(p.purchase_price) : '',
+      mrp: p.mrp !== null && p.mrp !== undefined ? String(p.mrp) : (p.price ? String(p.price) : ''),
+      gst_type: p.gst_type || 'without_gst',
+      gst_rate: p.gst_rate !== null && p.gst_rate !== undefined ? String(p.gst_rate) : '18',
+      landing_cost: p.landing_cost !== null && p.landing_cost !== undefined ? String(p.landing_cost) : '',
+      purchase_margin: p.purchase_margin !== null && p.purchase_margin !== undefined ? String(p.purchase_margin) : '',
+      landing_margin: p.landing_margin !== null && p.landing_margin !== undefined ? String(p.landing_margin) : ''
     });
 
     // Populate variants
@@ -305,7 +378,15 @@ export default function AdminProductsPage() {
           shipping_info: detailed.shipping_info !== undefined ? (detailed.shipping_info || '') : prev.shipping_info,
           seo_title: detailed.seo_title || prev.seo_title,
           seo_description: detailed.seo_description || prev.seo_description,
-          seo_keywords: detailed.seo_keywords || prev.seo_keywords
+          seo_keywords: detailed.seo_keywords || prev.seo_keywords,
+          vendor_id: detailed.vendor_id ? String(detailed.vendor_id) : prev.vendor_id,
+          purchase_price: detailed.purchase_price !== null && detailed.purchase_price !== undefined ? String(detailed.purchase_price) : prev.purchase_price,
+          mrp: detailed.mrp !== null && detailed.mrp !== undefined ? String(detailed.mrp) : prev.mrp,
+          gst_type: detailed.gst_type || prev.gst_type,
+          gst_rate: detailed.gst_rate !== null && detailed.gst_rate !== undefined ? String(detailed.gst_rate) : prev.gst_rate,
+          landing_cost: detailed.landing_cost !== null && detailed.landing_cost !== undefined ? String(detailed.landing_cost) : prev.landing_cost,
+          purchase_margin: detailed.purchase_margin !== null && detailed.purchase_margin !== undefined ? String(detailed.purchase_margin) : prev.purchase_margin,
+          landing_margin: detailed.landing_margin !== null && detailed.landing_margin !== undefined ? String(detailed.landing_margin) : prev.landing_margin
         }));
       }
     } catch (err) {
@@ -654,12 +735,112 @@ export default function AdminProductsPage() {
     }
   };
 
-  const filtered = products.filter(p =>
-    (p.name && p.name.toLowerCase().includes(search.toLowerCase())) ||
-    (p.slug && p.slug.toLowerCase().includes(search.toLowerCase())) ||
-    (p.category_name && p.category_name.toLowerCase().includes(search.toLowerCase())) ||
-    (p.cat && p.cat.toLowerCase().includes(search.toLowerCase()))
+  const getProductStock = (p) => {
+    if (Array.isArray(p.variants) && p.variants.length > 0) {
+      return p.variants.reduce((sum, v) => sum + (parseInt(v.stock_quantity, 10) || 0), 0);
+    }
+    if (Array.isArray(p.colors) && p.colors.length > 0) {
+      return p.colors.reduce((sum, c) => sum + (parseInt(c.stock_quantity, 10) || 0), 0);
+    }
+    return parseInt(p.stock_quantity, 10) || 0;
+  };
+
+  const mainCategoriesList = categories.filter(c => !c.parent_id);
+  const getSubcategories = (parentId) => categories.filter(c => String(c.parent_id) === String(parentId));
+
+  const getCategoryProductCount = (catId) => {
+    const cidStr = String(catId);
+    const subIds = categories.filter(c => String(c.parent_id) === cidStr).map(c => String(c.id));
+    const allIds = [cidStr, ...subIds];
+    return products.filter(p => allIds.includes(String(p.category_id || '')) || (p.parent_id && allIds.includes(String(p.parent_id)))).length;
+  };
+
+  const countWomen = products.filter(p => (p.gender || '').toLowerCase() === 'women').length;
+  const countMen = products.filter(p => (p.gender || '').toLowerCase() === 'men').length;
+  const countKids = products.filter(p => (p.gender || '').toLowerCase() === 'kids').length;
+  const countUnisex = products.filter(p => {
+    const g = (p.gender || 'all').toLowerCase();
+    return g === 'all' || g === 'unisex';
+  }).length;
+
+  const countInStock = products.filter(p => getProductStock(p) > 10).length;
+  const countLowStock = products.filter(p => {
+    const s = getProductStock(p);
+    return s > 0 && s <= 10;
+  }).length;
+  const countOutOfStock = products.filter(p => getProductStock(p) === 0).length;
+
+  const hasActiveFilters = Boolean(
+    search.trim() ||
+    categoryFilter !== 'all' ||
+    genderFilter !== 'all' ||
+    stockFilter !== 'all' ||
+    badgeFilter !== 'all' ||
+    sortBy !== 'newest'
   );
+
+  const handleClearAllFilters = () => {
+    setSearch('');
+    setCategoryFilter('all');
+    setGenderFilter('all');
+    setStockFilter('all');
+    setBadgeFilter('all');
+    setSortBy('newest');
+  };
+
+  const filtered = products.filter(p => {
+    // 1. Search text
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const matchesName = p.name && p.name.toLowerCase().includes(q);
+      const matchesSlug = p.slug && p.slug.toLowerCase().includes(q);
+      const matchesCat = (p.category_name && p.category_name.toLowerCase().includes(q)) || (p.cat && p.cat.toLowerCase().includes(q));
+      const matchesBadge = p.badge && p.badge.toLowerCase().includes(q);
+      if (!matchesName && !matchesSlug && !matchesCat && !matchesBadge) return false;
+    }
+
+    // 2. Category Filter (Main category includes its subcategories, or specific subcategory)
+    if (categoryFilter !== 'all') {
+      const catIdStr = String(categoryFilter);
+      const subcatIds = categories.filter(c => String(c.parent_id) === catIdStr).map(c => String(c.id));
+      const allowedCatIds = [catIdStr, ...subcatIds];
+      const pCatId = String(p.category_id || '');
+      const pParentId = String(p.parent_id || '');
+      const matchesCategory = allowedCatIds.includes(pCatId) || (pParentId && allowedCatIds.includes(pParentId));
+      if (!matchesCategory) return false;
+    }
+
+    // 3. Gender / Department Filter
+    if (genderFilter !== 'all') {
+      const pGender = (p.gender || 'all').toLowerCase();
+      if (genderFilter === 'unisex') {
+        if (pGender !== 'all' && pGender !== 'unisex') return false;
+      } else {
+        if (pGender !== genderFilter && pGender !== 'all') return false;
+      }
+    }
+
+    // 4. Stock Level Filter
+    const totalStock = getProductStock(p);
+    if (stockFilter === 'in_stock' && totalStock <= 10) return false;
+    if (stockFilter === 'low_stock' && (totalStock <= 0 || totalStock > 10)) return false;
+    if (stockFilter === 'out_of_stock' && totalStock > 0) return false;
+
+    // 5. Badge / Highlight Filter
+    if (badgeFilter === 'featured' && !p.is_featured) return false;
+    if (badgeFilter === 'new_arrival' && !p.is_new_arrival) return false;
+    if (badgeFilter === 'best_selling' && !p.is_best_selling) return false;
+    if (badgeFilter === 'sale' && !(p.sale_price > 0 && p.sale_price < p.price)) return false;
+
+    return true;
+  }).sort((a, b) => {
+    if (sortBy === 'price_asc') return (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0);
+    if (sortBy === 'price_desc') return (parseFloat(b.price) || 0) - (parseFloat(a.price) || 0);
+    if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+    if (sortBy === 'stock_asc') return getProductStock(a) - getProductStock(b);
+    if (sortBy === 'stock_desc') return getProductStock(b) - getProductStock(a);
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
 
   return (
     <div className="admin-layout">
@@ -668,26 +849,235 @@ export default function AdminProductsPage() {
         <Topbar title="Product Catalog Management" />
 
         <div className="admin-content">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '14px' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <input
-                type="search"
-                placeholder="Search products by title, slug or category..."
-                className="form-control"
-                style={{ width: '340px' }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+          {/* Main Top Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
+            <div>
+              <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ink)' }}>Product Catalog &amp; Inventory</h1>
+              <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>
+                Manage all items, category mappings, stock levels, variants, and product barcodes.
+              </p>
             </div>
-            <button
-              type="button"
-              className="admin-btn admin-btn-primary"
-              onClick={openAddModal}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-            >
-              <Icon name="plus" size={16} />
-              <span>Add New Product</span>
-            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Link
+                href="/categories"
+                className="admin-btn admin-btn-outline"
+                style={{ fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span>📁 Manage Categories</span>
+              </Link>
+              <button
+                type="button"
+                className="admin-btn admin-btn-primary"
+                onClick={openAddModal}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Icon name="plus" size={16} />
+                <span>Add New Product</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Department Quick Filter Tabs */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+            {[
+              { id: 'all', label: 'All Products', count: products.length },
+              { id: 'women', label: '👩 Women', count: countWomen },
+              { id: 'men', label: '👤 Men', count: countMen },
+              { id: 'kids', label: '🧒 Kids', count: countKids },
+              { id: 'unisex', label: '🌐 Unisex', count: countUnisex }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setGenderFilter(tab.id)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '7px 14px',
+                  borderRadius: '20px',
+                  fontSize: '12.5px',
+                  fontWeight: genderFilter === tab.id ? 700 : 500,
+                  border: genderFilter === tab.id ? '1.5px solid var(--ink, #111)' : '1px solid #e2e8f0',
+                  background: genderFilter === tab.id ? 'var(--ink, #111)' : '#ffffff',
+                  color: genderFilter === tab.id ? '#ffffff' : '#4b5563',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>{tab.label}</span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: '10px',
+                    background: genderFilter === tab.id ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                    color: genderFilter === tab.id ? '#ffffff' : '#64748b'
+                  }}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Comprehensive Multi-Filter Bar (Category, Stock, Badges, Search, Sorting) */}
+          <div className="admin-card" style={{ padding: '16px 18px', marginBottom: '20px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'center' }}>
+              {/* Search text box */}
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="Search title, slug, SKU, category..."
+                  className="form-control"
+                  style={{ paddingLeft: '34px', fontSize: '13px', height: '38px', background: '#ffffff' }}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
+                  <Icon name="search" size={15} />
+                </span>
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '13px' }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Category-wise Filter Dropdown */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <option value="all">📁 Filter by Category: All ({products.length})</option>
+                  {mainCategoriesList.map(main => {
+                    const subcats = getSubcategories(main.id);
+                    const mainCount = getCategoryProductCount(main.id);
+                    return (
+                      <React.Fragment key={main.id}>
+                        <option value={main.id} style={{ fontWeight: 700 }}>
+                          📂 {main.name} ({mainCount})
+                        </option>
+                        {subcats.map(sub => (
+                          <option key={sub.id} value={sub.id}>
+                            &nbsp;&nbsp;&nbsp;&nbsp;↳ {sub.name} ({getCategoryProductCount(sub.id)})
+                          </option>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Stock Level Filter */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={stockFilter}
+                  onChange={(e) => setStockFilter(e.target.value)}
+                >
+                  <option value="all">📦 Stock: All Statuses</option>
+                  <option value="in_stock">✅ In Stock &gt; 10 ({countInStock})</option>
+                  <option value="low_stock">⚠️ Low Stock 1-10 ({countLowStock})</option>
+                  <option value="out_of_stock">❌ Out of Stock ({countOutOfStock})</option>
+                </select>
+              </div>
+
+              {/* Badges / Promotion Filter */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={badgeFilter}
+                  onChange={(e) => setBadgeFilter(e.target.value)}
+                >
+                  <option value="all">🏷️ Badge: All Items</option>
+                  <option value="featured">🌟 Featured Only</option>
+                  <option value="new_arrival">✨ New Arrivals</option>
+                  <option value="best_selling">🔥 Best Sellers</option>
+                  <option value="sale">🏷️ On Sale (Discounted)</option>
+                </select>
+              </div>
+
+              {/* Sort By */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                >
+                  <option value="newest">↕️ Sort: Newest Added</option>
+                  <option value="price_asc">Price: Low → High</option>
+                  <option value="price_desc">Price: High → Low</option>
+                  <option value="name_asc">Product Name: A → Z</option>
+                  <option value="stock_asc">Stock: Low → High</option>
+                  <option value="stock_desc">Stock: High → Low</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Active Filter Indicators & Reset Row */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ fontSize: '12.5px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span>Showing <strong>{filtered.length}</strong> of {products.length} products</span>
+                {categoryFilter !== 'all' && (
+                  <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Category: {categories.find(c => String(c.id) === String(categoryFilter))?.name || categoryFilter}
+                    <button type="button" onClick={() => setCategoryFilter('all')} style={{ border: 'none', background: 'none', color: '#1e40af', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {genderFilter !== 'all' && (
+                  <span style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Dept: {genderFilter}
+                    <button type="button" onClick={() => setGenderFilter('all')} style={{ border: 'none', background: 'none', color: '#9d174d', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {stockFilter !== 'all' && (
+                  <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Stock: {stockFilter.replace('_', ' ')}
+                    <button type="button" onClick={() => setStockFilter('all')} style={{ border: 'none', background: 'none', color: '#92400e', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {badgeFilter !== 'all' && (
+                  <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Badge: {badgeFilter.replace('_', ' ')}
+                    <button type="button" onClick={() => setBadgeFilter('all')} style={{ border: 'none', background: 'none', color: '#166534', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+              </div>
+
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  style={{
+                    fontSize: '12px',
+                    color: '#ef4444',
+                    background: '#fee2e2',
+                    border: '1px solid #fecaca',
+                    padding: '3px 10px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  ✕ Reset All Filters
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="admin-card">
@@ -699,6 +1089,7 @@ export default function AdminProductsPage() {
                     <th>Category</th>
                     <th>Price</th>
                     <th>Sale</th>
+                    <th>Stock</th>
                     <th>Variants</th>
                     <th>Badge</th>
                     <th>Status</th>
@@ -708,13 +1099,14 @@ export default function AdminProductsPage() {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
-                        No products found matching your search.
+                      <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
+                        No products found matching your current filter criteria.
                       </td>
                     </tr>
                   ) : (
                     filtered.map(p => {
                       const img = p.primary_image || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '';
+                      const totalStock = getProductStock(p);
                       return (
                         <tr key={p.id}>
                           <td>
@@ -739,6 +1131,24 @@ export default function AdminProductsPage() {
                           <td>{p.category_name || p.cat || '—'}</td>
                           <td><strong>₹{p.price}</strong></td>
                           <td>{p.sale_price > 0 ? `₹${p.sale_price}` : '—'}</td>
+                          <td>
+                            <span
+                              className="badge"
+                              style={{
+                                background: totalStock === 0 ? '#fee2e2' : totalStock <= 10 ? '#fef3c7' : '#dcfce7',
+                                color: totalStock === 0 ? '#b91c1c' : totalStock <= 10 ? '#b45309' : '#15803d',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              {totalStock === 0 ? '❌ 0 in stock' : totalStock <= 10 ? `⚠️ ${totalStock} left` : `✅ ${totalStock} units`}
+                            </span>
+                          </td>
                           <td>
                             {p.colors && p.colors.length > 0 ? (
                               <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
@@ -961,28 +1371,227 @@ export default function AdminProductsPage() {
             </span>
           </div>
 
+          {/* PURCHASE ORDER & COSTING MARGINS SECTION */}
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1.5px solid #cbd5e1',
+              borderRadius: '10px',
+              padding: '18px 20px',
+              marginBottom: '20px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>📦</span>
+                  <span>Purchase Order Costing & Margins</span>
+                </h4>
+                <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
+                  Assign vendor, wholesale purchase price, GST tax slab, and auto-calculate landing cost & net margins.
+                </p>
+              </div>
+              <Link
+                href="/vendors"
+                target="_blank"
+                style={{ fontSize: '11px', fontWeight: 700, color: '#065935', textDecoration: 'none' }}
+              >
+                + Manage Vendors ↗
+              </Link>
+            </div>
+
+            {/* Vendor Selector & GST Type Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  Assigned Vendor / Supplier
+                </label>
+                <select
+                  className="form-control"
+                  value={formData.vendor_id || ''}
+                  onChange={(e) => updateCostingFields({ vendor_id: e.target.value })}
+                  style={{ fontSize: '12.5px' }}
+                >
+                  <option value="">-- No Vendor Assigned --</option>
+                  {vendors.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} {v.company_name ? `(${v.company_name})` : ''} {v.city ? `- ${v.city}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  GST Tax Mode
+                </label>
+                <select
+                  className="form-control"
+                  value={formData.gst_type || 'without_gst'}
+                  onChange={(e) => updateCostingFields({ gst_type: e.target.value })}
+                  style={{ fontSize: '12.5px' }}
+                >
+                  <option value="without_gst">Without GST (Exclusive)</option>
+                  <option value="with_gst">With GST (Inclusive)</option>
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  GST Slab
+                </label>
+                <select
+                  className="form-control"
+                  value={formData.gst_rate !== undefined ? String(formData.gst_rate) : '18'}
+                  onChange={(e) => updateCostingFields({ gst_rate: e.target.value })}
+                  style={{ fontSize: '12.5px' }}
+                >
+                  <option value="0">0% (Nil / Exempt)</option>
+                  <option value="3">3% (Precious Metal/Gems)</option>
+                  <option value="5">5% (Apparel & Essentials)</option>
+                  <option value="12">12% (Leather Goods / Accessories)</option>
+                  <option value="18">18% (Standard GST)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Purchase Price, MRP, and Selling Price Input Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '14px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  Purchase Price (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 450.00"
+                  className="form-control"
+                  value={formData.purchase_price || ''}
+                  onChange={(e) => updateCostingFields({ purchase_price: e.target.value })}
+                  style={{ fontSize: '12.5px' }}
+                />
+                <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
+                  Wholesale base cost from vendor
+                </span>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  MRP (Maximum Retail Price) (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 1499.00"
+                  className="form-control"
+                  value={formData.mrp || ''}
+                  onChange={(e) => updateCostingFields({ mrp: e.target.value })}
+                  style={{ fontSize: '12.5px' }}
+                />
+                <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
+                  Printed tag MRP
+                </span>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  Calculated Landing Cost (₹)
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  className="form-control"
+                  value={formData.landing_cost ? `₹${formData.landing_cost}` : '—'}
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    background: '#f1f5f9',
+                    color: '#0f172a',
+                    cursor: 'default'
+                  }}
+                />
+                <span style={{ fontSize: '10.5px', color: '#0369a1', marginTop: '2px', display: 'block' }}>
+                  {formData.gst_type === 'without_gst' ? `Base + ${formData.gst_rate}% GST` : 'GST Included'}
+                </span>
+              </div>
+            </div>
+
+            {/* Live Reactive Margins Card */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '12px',
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '12px 16px'
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Purchase Margin % (MRP vs Buy)
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: Number(formData.purchase_margin) > 0 ? '#16a34a' : '#0f172a', marginTop: '2px' }}>
+                  {formData.purchase_margin ? `${formData.purchase_margin}%` : '0.0%'}
+                </div>
+                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
+                  ((MRP - Buy) / MRP)
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Landing Margin % (Net Profit)
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: Number(formData.landing_margin) > 0 ? '#065935' : (Number(formData.landing_margin) < 0 ? '#ef4444' : '#0f172a'), marginTop: '2px' }}>
+                  {formData.landing_margin ? `${formData.landing_margin}%` : '0.0%'}
+                </div>
+                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
+                  ((Sell - Landing) / Sell)
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Net Profit ₹ per Unit
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: '#0284c7', marginTop: '2px' }}>
+                  {formData.price && formData.landing_cost
+                    ? `₹${(Math.round(((parseFloat(formData.sale_price || formData.price) || 0) - (parseFloat(formData.landing_cost) || 0)) * 100) / 100).toFixed(2)}`
+                    : '₹0.00'}
+                </div>
+                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
+                  Selling Price - Landing Cost
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Pricing & Badge */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
             <div className="form-group">
-              <label className="form-label">Regular Price (₹) *</label>
+              <label className="form-label">Selling / Regular Price (₹) *</label>
               <input
                 type="number"
                 step="0.01"
                 required
                 className="form-control"
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                onChange={(e) => updateCostingFields({ price: e.target.value })}
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Sale Price (₹)</label>
+              <label className="form-label">Sale / Offer Price (₹)</label>
               <input
                 type="number"
                 step="0.01"
                 className="form-control"
                 value={formData.sale_price}
-                onChange={(e) => setFormData({ ...formData, sale_price: e.target.value })}
+                onChange={(e) => updateCostingFields({ sale_price: e.target.value })}
               />
             </div>
 

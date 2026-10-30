@@ -261,10 +261,36 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
                     <Link
                       href={item.url}
                       className={`nav-link ${isActive ? 'is-active' : ''}`}
+                      style={{
+                        display: 'inline-flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        whiteSpace: 'nowrap'
+                      }}
                     >
-                      <span>{item.label}</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>
                       {hasSub && (
-                        <svg className="nav-dropdown-chevron" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <svg
+                          className="nav-dropdown-chevron"
+                          viewBox="0 0 24 24"
+                          width="11"
+                          height="11"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          style={{
+                            display: 'inline-block',
+                            verticalAlign: 'middle',
+                            flexShrink: 0,
+                            marginLeft: '2px',
+                            marginTop: '1px'
+                          }}
+                        >
                           <polyline points="6 9 12 15 18 9" />
                         </svg>
                       )}

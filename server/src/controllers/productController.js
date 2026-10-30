@@ -22,11 +22,15 @@ async function getAllProducts(req, res, next) {
     } = req.query;
 
     let sql = `
-      SELECT p.*, c.name AS category_name, c.slug AS category_slug, c.parent_id,
-             parent.slug AS parent_category_slug, parent.name AS parent_category_name
+      SELECT p.*,
+             (SELECT barcode FROM product_barcodes WHERE product_id = p.id AND is_primary = 1 AND status = 'active' LIMIT 1) AS barcode,
+             c.name AS category_name, c.slug AS category_slug, c.parent_id,
+             parent.slug AS parent_category_slug, parent.name AS parent_category_name,
+             v.name AS vendor_name, v.company_name AS vendor_company_name
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN categories parent ON c.parent_id = parent.id
+      LEFT JOIN vendors v ON p.vendor_id = v.id
       WHERE p.is_active = TRUE
     `;
     const params = [];
@@ -119,7 +123,10 @@ async function getAllProducts(req, res, next) {
       prod.images_detailed = images;
 
       const variants = await query(
-        `SELECT id, color_name, color_hex, size_name, stock_quantity, sku, image_url FROM product_variants WHERE product_id = ?`,
+        `SELECT pv.id, pv.color_name, pv.color_hex, pv.size_name, pv.stock_quantity, pv.sku, pv.image_url,
+                (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
+         FROM product_variants pv
+         WHERE pv.product_id = ?`,
         [prod.id]
       );
       prod.variants = variants;
@@ -335,6 +342,14 @@ async function createProduct(req, res, next) {
       is_featured,
       is_new_arrival,
       is_best_selling,
+      vendor_id,
+      mrp,
+      purchase_price,
+      gst_type,
+      gst_rate,
+      landing_cost,
+      purchase_margin,
+      landing_margin,
       variants
     } = req.body;
 
@@ -380,9 +395,10 @@ async function createProduct(req, res, next) {
          id, slug, name, category_id, gender, price, sale_price, badge, tagline,
          description, features, materials, care_instructions, dimensions, dimension_w, dimension_h, dimension_l,
          shipping_info, seo_title, seo_description, seo_keywords,
-         is_featured, is_new_arrival, is_best_selling, is_active
+         is_featured, is_new_arrival, is_best_selling, is_active,
+         vendor_id, mrp, purchase_price, gst_type, gst_rate, landing_cost, purchase_margin, landing_margin
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         slug,
@@ -407,7 +423,15 @@ async function createProduct(req, res, next) {
         seo_keywords || null,
         isFeaturedVal,
         isNewArrivalVal,
-        isBestSellingVal
+        isBestSellingVal,
+        vendor_id ? parseInt(vendor_id, 10) : null,
+        mrp ? parseFloat(mrp) : null,
+        purchase_price ? parseFloat(purchase_price) : null,
+        gst_type || 'inclusive',
+        gst_rate ? parseFloat(gst_rate) : 18.00,
+        landing_cost ? parseFloat(landing_cost) : null,
+        purchase_margin ? parseFloat(purchase_margin) : null,
+        landing_margin ? parseFloat(landing_margin) : null
       ]
     );
 
@@ -470,6 +494,24 @@ async function createProduct(req, res, next) {
       }
     }
 
+    // Log creation in audit logs
+    try {
+      const { recordAuditLog } = require('./auditLogController');
+      const primaryImg = await query('SELECT image_url FROM product_images WHERE product_id = ? AND is_primary = TRUE LIMIT 1', [id]);
+      await recordAuditLog({
+        entity_type: 'product',
+        entity_id: id,
+        action: 'product_create',
+        summary: `Created product "${name}" (Price: ₹${price}, MRP: ₹${mrp || price})`,
+        product_id: id,
+        product_name: name,
+        product_image: primaryImg[0]?.image_url || null,
+        new_values: req.body
+      });
+    } catch (e) {
+      console.error('Audit log error on createProduct:', e);
+    }
+
     return sendSuccess(res, { id, slug }, 'Product created successfully', 201);
   } catch (error) {
     next(error);
@@ -480,6 +522,11 @@ async function createProduct(req, res, next) {
 async function updateProduct(req, res, next) {
   try {
     const { id } = req.params;
+
+    // Fetch existing product state before update for audit trail
+    const existingRows = await query('SELECT * FROM products WHERE id = ?', [id]);
+    const oldProd = existingRows[0] || null;
+
     const {
       name,
       slug: newSlug,
@@ -505,6 +552,14 @@ async function updateProduct(req, res, next) {
       is_new_arrival,
       is_best_selling,
       is_active,
+      vendor_id,
+      mrp,
+      purchase_price,
+      gst_type,
+      gst_rate,
+      landing_cost,
+      purchase_margin,
+      landing_margin,
       variants
     } = req.body;
 
@@ -554,7 +609,15 @@ async function updateProduct(req, res, next) {
          is_featured = COALESCE(?, is_featured),
          is_new_arrival = COALESCE(?, is_new_arrival),
          is_best_selling = COALESCE(?, is_best_selling),
-         is_active = COALESCE(?, is_active)
+         is_active = COALESCE(?, is_active),
+         vendor_id = IF(? IS NOT NULL, ?, vendor_id),
+         mrp = IF(? IS NOT NULL, ?, mrp),
+         purchase_price = IF(? IS NOT NULL, ?, purchase_price),
+         gst_type = IF(? IS NOT NULL, ?, gst_type),
+         gst_rate = IF(? IS NOT NULL, ?, gst_rate),
+         landing_cost = IF(? IS NOT NULL, ?, landing_cost),
+         purchase_margin = IF(? IS NOT NULL, ?, purchase_margin),
+         landing_margin = IF(? IS NOT NULL, ?, landing_margin)
        WHERE id = ?`,
       [
         name || null,
@@ -585,6 +648,22 @@ async function updateProduct(req, res, next) {
         isNewArrivalVal,
         isBestSellingVal,
         is_active !== undefined ? (is_active ? 1 : 0) : null,
+        vendor_id !== undefined ? (vendor_id ? parseInt(vendor_id, 10) : null) : null,
+        vendor_id !== undefined ? (vendor_id ? parseInt(vendor_id, 10) : null) : null,
+        mrp !== undefined ? (mrp ? parseFloat(mrp) : null) : null,
+        mrp !== undefined ? (mrp ? parseFloat(mrp) : null) : null,
+        purchase_price !== undefined ? (purchase_price ? parseFloat(purchase_price) : null) : null,
+        purchase_price !== undefined ? (purchase_price ? parseFloat(purchase_price) : null) : null,
+        gst_type !== undefined ? gst_type : null,
+        gst_type !== undefined ? gst_type : null,
+        gst_rate !== undefined ? parseFloat(gst_rate) : null,
+        gst_rate !== undefined ? parseFloat(gst_rate) : null,
+        landing_cost !== undefined ? (landing_cost ? parseFloat(landing_cost) : null) : null,
+        landing_cost !== undefined ? (landing_cost ? parseFloat(landing_cost) : null) : null,
+        purchase_margin !== undefined ? (purchase_margin ? parseFloat(purchase_margin) : null) : null,
+        purchase_margin !== undefined ? (purchase_margin ? parseFloat(purchase_margin) : null) : null,
+        landing_margin !== undefined ? (landing_margin ? parseFloat(landing_margin) : null) : null,
+        landing_margin !== undefined ? (landing_margin ? parseFloat(landing_margin) : null) : null,
         id
       ]
     );
@@ -665,6 +744,39 @@ async function updateProduct(req, res, next) {
           }
         }
       }
+    }
+
+    // Record audit log for update / price changes
+    try {
+      const { recordAuditLog } = require('./auditLogController');
+      const isPriceChanged = price && oldProd && parseFloat(price) !== parseFloat(oldProd.price);
+      const isStockChanged = req.body.stock !== undefined && oldProd && parseInt(req.body.stock, 10) !== parseInt(oldProd.stock, 10);
+      const primaryImg = await query('SELECT image_url FROM product_images WHERE product_id = ? AND is_primary = TRUE LIMIT 1', [id]);
+
+      let action = 'product_update';
+      let summary = `Updated product "${name || oldProd?.name || id}"`;
+
+      if (isPriceChanged) {
+        action = 'price_change';
+        summary = `Price changed from ₹${oldProd.price} to ₹${price} for "${name || oldProd.name}"`;
+      } else if (isStockChanged) {
+        action = 'stock_adjust';
+        summary = `Stock adjusted from ${oldProd.stock || 0} to ${req.body.stock} units for "${name || oldProd.name}"`;
+      }
+
+      await recordAuditLog({
+        entity_type: 'product',
+        entity_id: id,
+        action,
+        summary,
+        old_values: oldProd,
+        new_values: req.body,
+        product_id: id,
+        product_name: name || oldProd?.name,
+        product_image: primaryImg[0]?.image_url || null
+      });
+    } catch (e) {
+      console.error('Audit log error on updateProduct:', e);
     }
 
     return sendSuccess(res, { id }, 'Product updated successfully');
