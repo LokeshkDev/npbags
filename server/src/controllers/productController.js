@@ -345,6 +345,7 @@ async function createProduct(req, res, next) {
       vendor_id,
       mrp,
       purchase_price,
+      purchased_rate,
       gst_type,
       gst_rate,
       landing_cost,
@@ -396,9 +397,9 @@ async function createProduct(req, res, next) {
          description, features, materials, care_instructions, dimensions, dimension_w, dimension_h, dimension_l,
          shipping_info, seo_title, seo_description, seo_keywords,
          is_featured, is_new_arrival, is_best_selling, is_active,
-         vendor_id, mrp, purchase_price, gst_type, gst_rate, landing_cost, purchase_margin, landing_margin
+         vendor_id, mrp, purchase_price, purchased_rate, gst_type, gst_rate, landing_cost, purchase_margin, landing_margin
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         slug,
@@ -427,6 +428,7 @@ async function createProduct(req, res, next) {
         vendor_id ? parseInt(vendor_id, 10) : null,
         mrp ? parseFloat(mrp) : null,
         purchase_price ? parseFloat(purchase_price) : null,
+        purchased_rate !== undefined && purchased_rate !== null && String(purchased_rate).trim() !== '' ? String(purchased_rate).trim() : null,
         gst_type || 'inclusive',
         gst_rate ? parseFloat(gst_rate) : 18.00,
         landing_cost ? parseFloat(landing_cost) : null,
@@ -555,6 +557,7 @@ async function updateProduct(req, res, next) {
       vendor_id,
       mrp,
       purchase_price,
+      purchased_rate,
       gst_type,
       gst_rate,
       landing_cost,
@@ -613,6 +616,7 @@ async function updateProduct(req, res, next) {
          vendor_id = IF(? IS NOT NULL, ?, vendor_id),
          mrp = IF(? IS NOT NULL, ?, mrp),
          purchase_price = IF(? IS NOT NULL, ?, purchase_price),
+         purchased_rate = IF(? IS NOT NULL, ?, purchased_rate),
          gst_type = IF(? IS NOT NULL, ?, gst_type),
          gst_rate = IF(? IS NOT NULL, ?, gst_rate),
          landing_cost = IF(? IS NOT NULL, ?, landing_cost),
@@ -654,6 +658,8 @@ async function updateProduct(req, res, next) {
         mrp !== undefined ? (mrp ? parseFloat(mrp) : null) : null,
         purchase_price !== undefined ? (purchase_price ? parseFloat(purchase_price) : null) : null,
         purchase_price !== undefined ? (purchase_price ? parseFloat(purchase_price) : null) : null,
+        purchased_rate !== undefined ? 1 : null,
+        purchased_rate !== undefined ? (String(purchased_rate).trim() !== '' ? String(purchased_rate).trim() : null) : null,
         gst_type !== undefined ? gst_type : null,
         gst_type !== undefined ? gst_type : null,
         gst_rate !== undefined ? parseFloat(gst_rate) : null,

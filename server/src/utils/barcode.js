@@ -132,6 +132,44 @@ async function generateUniqueBarcodeNumber(pool) {
 }
 
 /**
+ * Returns the next sequential label number (1, 2, 3...) for printed barcodes.
+ */
+async function getNextBarcodeSequence(pool) {
+  const rows = await pool.query('SELECT COALESCE(MAX(barcode_sequence), 0) AS max_sequence FROM product_barcodes');
+  const max = Number((Array.isArray(rows) ? rows[0] : rows)?.max_sequence || 0);
+  return max + 1;
+}
+
+async function insertBarcodeWithSequence(pool, fields, userId) {
+  const {
+    productId,
+    variantId = null,
+    size = null,
+    color = null,
+    isPrimary = 0
+  } = fields;
+
+  let lastError = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const barcode = await generateUniqueBarcodeNumber(pool);
+    const sequence = await getNextBarcodeSequence(pool);
+    try {
+      const result = await pool.query(
+        `INSERT INTO product_barcodes (product_id, variant_id, size, color, barcode, barcode_sequence, is_primary, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [productId, variantId, size, color, barcode, sequence, isPrimary, userId || null]
+      );
+      return { barcode, barcode_sequence: sequence, id: result.insertId };
+    } catch (error) {
+      lastError = error;
+      if (error.code !== 'ER_DUP_ENTRY') throw error;
+    }
+  }
+
+  throw lastError || new Error('Unable to allocate a unique barcode sequence');
+}
+
+/**
  * Generates Primary Barcode and per-variant barcodes for a product
  */
 async function generateProductBarcodes(productId, variants = [], userId = null, pool) {
@@ -144,12 +182,8 @@ async function generateProductBarcodes(productId, variants = [], userId = null, 
   );
 
   if (Array.isArray(primaryExist) && primaryExist.length === 0) {
-    const primaryBarcode = await generateUniqueBarcodeNumber(pool);
-    await pool.query(
-      'INSERT INTO product_barcodes (product_id, barcode, is_primary, created_by) VALUES (?, ?, 1, ?)',
-      [productId, primaryBarcode, userId || null]
-    );
-    generated.push({ type: 'primary', barcode: primaryBarcode });
+    const primary = await insertBarcodeWithSequence(pool, { productId, isPrimary: 1 }, userId);
+    generated.push({ type: 'primary', barcode: primary.barcode, barcode_sequence: primary.barcode_sequence });
   }
 
   // 2. Check & generate Variant Barcodes
@@ -172,12 +206,19 @@ async function generateProductBarcodes(productId, variants = [], userId = null, 
     }
 
     if (Array.isArray(variantExist) && variantExist.length === 0) {
-      const variantBarcode = await generateUniqueBarcodeNumber(pool);
-      await pool.query(
-        'INSERT INTO product_barcodes (product_id, variant_id, size, color, barcode, is_primary, created_by) VALUES (?, ?, ?, ?, ?, 0, ?)',
-        [productId, variantId, size, color, variantBarcode, userId || null]
+      const variant = await insertBarcodeWithSequence(
+        pool,
+        { productId, variantId, size, color, isPrimary: 0 },
+        userId
       );
-      generated.push({ type: 'variant', variant_id: variantId, size, color, barcode: variantBarcode });
+      generated.push({
+        type: 'variant',
+        variant_id: variantId,
+        size,
+        color,
+        barcode: variant.barcode,
+        barcode_sequence: variant.barcode_sequence
+      });
     }
   }
 
@@ -188,5 +229,6 @@ module.exports = {
   encodeCode128,
   generateBarcodeSVG,
   generateUniqueBarcodeNumber,
+  getNextBarcodeSequence,
   generateProductBarcodes
 };

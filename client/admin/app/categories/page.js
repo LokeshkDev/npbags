@@ -540,7 +540,7 @@ export default function AdminCategoriesPage() {
                           <button
                             type="button"
                             className="admin-btn admin-btn-outline"
-                            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            style={{ padding: '5px 12px', fontSize: '12px', borderRadius: '6px' }}
                             onClick={() => openAddModal(mainCat.id)}
                             title="Add subcategory under this category"
                           >
@@ -550,7 +550,7 @@ export default function AdminCategoriesPage() {
                           <button
                             type="button"
                             className="admin-btn admin-btn-outline"
-                            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
+                            style={{ padding: '5px 12px', fontSize: '12px', borderRadius: '6px' }}
                             onClick={() => openEditModal(mainCat)}
                             title="Edit Category"
                           >
@@ -559,8 +559,8 @@ export default function AdminCategoriesPage() {
                           </button>
                           <button
                             type="button"
-                            className="admin-btn admin-btn-outline"
-                            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#dc2626', borderColor: '#fca5a5', background: '#fef2f2' }}
+                            className="admin-btn admin-btn-danger"
+                            style={{ padding: '5px 12px', fontSize: '12px', borderRadius: '6px' }}
                             onClick={() => handleDelete(mainCat.id, mainCat.name)}
                             title="Delete Category"
                           >
@@ -659,7 +659,7 @@ export default function AdminCategoriesPage() {
                                         <button
                                           type="button"
                                           className="admin-btn admin-btn-outline"
-                                          style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
+                                          style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '5px' }}
                                           onClick={() => openEditModal(sub)}
                                           title="Edit Subcategory"
                                         >
@@ -668,8 +668,8 @@ export default function AdminCategoriesPage() {
                                         </button>
                                         <button
                                           type="button"
-                                          className="admin-btn admin-btn-outline"
-                                          style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#dc2626', borderColor: '#fca5a5', background: '#fef2f2' }}
+                                          className="admin-btn admin-btn-danger"
+                                          style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '5px' }}
                                           onClick={() => handleDelete(sub.id, sub.name)}
                                           title="Delete Subcategory"
                                         >

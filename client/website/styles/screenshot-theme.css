@@ -366,6 +366,7 @@ button {
 .primary-nav__list {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap !important;
   gap: 30px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -386,11 +387,17 @@ button {
   position: relative;
   display: inline-flex !important;
   flex-direction: row !important;
+  flex-wrap: nowrap !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 5px !important;
+  gap: 4px !important;
   text-decoration: none;
   transition: color 0.15s ease;
+}
+
+.nav-link span {
+  white-space: nowrap !important;
+  display: inline !important;
 }
 
 .nav-link:hover {

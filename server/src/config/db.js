@@ -25,6 +25,33 @@ async function query(sql, params) {
   }
 }
 
+async function withTransaction(handler) {
+  const connection = await pool.getConnection();
+  const tx = {
+    raw: connection,
+    query: async (sql, params) => {
+      const [rows] = await connection.execute(sql, params || []);
+      return rows;
+    }
+  };
+
+  try {
+    await connection.beginTransaction();
+    const result = await handler(tx);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (rollbackError) {
+      console.error('[DB Rollback Error]', rollbackError.message);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function testConnection() {
   try {
     const connection = await pool.getConnection();
@@ -40,6 +67,7 @@ async function testConnection() {
 module.exports = {
   pool,
   query,
+  withTransaction,
   testConnection
 };
 

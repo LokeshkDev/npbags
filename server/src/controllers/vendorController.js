@@ -27,7 +27,23 @@ async function getAllVendors(req, res) {
       SELECT v.*, 
              COUNT(p.id) AS products_count,
              COALESCE(SUM(p.stock), 0) AS total_stock_units,
-             COALESCE(SUM(p.stock * COALESCE(p.purchase_price, p.price * 0.6)), 0) AS total_inventory_value
+             COALESCE(SUM(p.stock * COALESCE(p.purchase_price, p.price * 0.6)), 0) AS total_inventory_value,
+             COALESCE((
+               SELECT SUM(pb.grand_total) FROM purchase_bills pb
+               WHERE pb.vendor_id = v.id AND pb.status <> 'cancelled'
+             ), 0) AS total_purchase_value,
+             COALESCE((
+               SELECT SUM(pb.outstanding_amount) FROM purchase_bills pb
+               WHERE pb.vendor_id = v.id AND pb.status <> 'cancelled'
+             ), 0) AS total_outstanding,
+             (
+               SELECT COUNT(*) FROM purchase_bills pb
+               WHERE pb.vendor_id = v.id AND pb.status <> 'cancelled'
+             ) AS purchase_bills_count,
+             (
+               SELECT MAX(pb.purchase_date) FROM purchase_bills pb
+               WHERE pb.vendor_id = v.id AND pb.status <> 'cancelled'
+             ) AS last_purchase_date
       FROM vendors v
       LEFT JOIN products p ON p.vendor_id = v.id AND p.is_active = TRUE
       GROUP BY v.id
@@ -51,7 +67,7 @@ async function getVendorById(req, res) {
 
     const vendor = vendorRows[0];
     const products = await query(`
-      SELECT id, name, slug, price, sale_price, purchase_price, stock, mrp
+      SELECT id, name, slug, price, sale_price, purchase_price, purchased_rate, stock, mrp
       FROM products
       WHERE vendor_id = ? AND is_active = TRUE
       ORDER BY name ASC

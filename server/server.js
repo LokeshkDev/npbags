@@ -148,6 +148,12 @@ app.use(errorHandler);
 // Start server
 async function startServer() {
   await testConnection();
+  try {
+    const { ensureVendorBillingTables } = require('./src/scripts/migrate-vendor-purchase-billing');
+    await ensureVendorBillingTables();
+  } catch (migErr) {
+    console.warn('[DB Auto-Migration] Warning during startup table check:', migErr.message);
+  }
   app.listen(env.port, () => {
     console.log(`🚀 [NPGrand API] Server running on http://localhost:${env.port}`);
     console.log(`📁 Static uploads served at http://localhost:${env.port}/uploads`);

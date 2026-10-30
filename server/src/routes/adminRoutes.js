@@ -19,6 +19,8 @@ const vendorController = require('../controllers/vendorController');
 const salespersonController = require('../controllers/salespersonController');
 const auditLogController = require('../controllers/auditLogController');
 const agingController = require('../controllers/agingController');
+const purchaseBillController = require('../controllers/purchaseBillController');
+const heldBillController = require('../controllers/heldBillController');
 
 // All admin routes require authentication and admin role
 router.use(authenticate, requireAdmin);
@@ -108,10 +110,30 @@ router.post('/customers/:id/reset-password', customerController.resetCustomerPas
 
 // Vendors
 router.get('/vendors', vendorController.getAllVendors);
+router.get('/vendors/:id/purchase-history', purchaseBillController.getVendorPurchaseHistory);
 router.get('/vendors/:id', vendorController.getVendorById);
 router.post('/vendors', vendorController.createVendor);
 router.put('/vendors/:id', vendorController.updateVendor);
 router.delete('/vendors/:id', vendorController.deleteVendor);
+
+// Purchase Bills
+router.get('/purchase-bills/outstanding', purchaseBillController.getOutstandingPurchaseBills);
+router.get('/purchase-bills/next-number', purchaseBillController.getSuggestedBillNumber);
+router.get('/purchase-bills', purchaseBillController.getAllPurchaseBills);
+router.get('/purchase-bills/:id', purchaseBillController.getPurchaseBillById);
+router.post('/purchase-bills', purchaseBillController.createPurchaseBill);
+router.put('/purchase-bills/:id', purchaseBillController.updatePurchaseBill);
+router.post('/purchase-bills/:id/confirm', purchaseBillController.confirmPurchaseBill);
+router.post('/purchase-bills/:id/payments', purchaseBillController.addPurchaseBillPayment);
+router.delete('/purchase-bills/:id', purchaseBillController.deletePurchaseBill);
+
+// Held Bills (POS Billing Hold / Resume)
+router.get('/held-bills', heldBillController.getHeldBills);
+router.get('/held-bills/:id', heldBillController.getHeldBillById);
+router.post('/held-bills', heldBillController.holdBill);
+router.put('/held-bills/:id', heldBillController.updateHeldBill);
+router.post('/held-bills/:id/complete', heldBillController.completeHeldBill);
+router.delete('/held-bills/:id', heldBillController.cancelHeldBill);
 
 // Sales Persons / Staff & Commission Reports
 router.get('/salespersons/report', salespersonController.getSalespersonReport);

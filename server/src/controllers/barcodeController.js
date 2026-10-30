@@ -16,8 +16,10 @@ async function getProductBarcodes(req, res, next) {
     const { id: productId } = req.params;
 
     const barcodes = await query(
-      `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity
+      `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity,
+              p.name AS product_name, p.mrp, p.purchase_price, p.purchased_rate
        FROM product_barcodes pb
+       JOIN products p ON pb.product_id = p.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
        WHERE pb.product_id = ?
        ORDER BY pb.is_primary DESC, pb.id ASC`,
@@ -53,8 +55,10 @@ async function generateBarcodesForProduct(req, res, next) {
 
     // Fetch the full active list after generation
     const barcodes = await query(
-      `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity
+      `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity,
+              p.name AS product_name, p.mrp, p.purchase_price, p.purchased_rate
        FROM product_barcodes pb
+       JOIN products p ON pb.product_id = p.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
        WHERE pb.product_id = ? AND pb.status = 'active'
        ORDER BY pb.is_primary DESC, pb.id ASC`,
@@ -85,7 +89,8 @@ async function lookupBarcode(req, res, next) {
     // 1. Direct barcode match in product_barcodes
     const barcodeRows = await query(
       `SELECT pb.*, p.name AS product_name, p.slug, p.price, p.sale_price, p.hsn_code,
-              p.barcode_short_name, pv.id AS variant_id, pv.sku, pv.color_name, pv.color_hex,
+              p.barcode_short_name, p.mrp, p.purchase_price, p.purchased_rate,
+              pv.id AS variant_id, pv.sku, pv.color_name, pv.color_hex,
               pv.size_name, pv.stock_quantity, pv.image_url AS variant_image
        FROM product_barcodes pb
        JOIN products p ON pb.product_id = p.id
@@ -119,6 +124,10 @@ async function lookupBarcode(req, res, next) {
         product_name: row.product_name,
         slug: row.slug,
         barcode_short_name: row.barcode_short_name || row.product_name,
+        barcode_sequence: row.barcode_sequence || null,
+        mrp: row.mrp !== null && row.mrp !== undefined ? parseFloat(row.mrp) : null,
+        purchase_price: row.purchase_price !== null && row.purchase_price !== undefined ? parseFloat(row.purchase_price) : null,
+        purchased_rate: row.purchased_rate || (row.purchase_price !== null && row.purchase_price !== undefined ? String(parseFloat(row.purchase_price)) : null),
         price: effectivePrice,
         regular_price: parseFloat(row.price),
         sale_price: row.sale_price > 0 ? parseFloat(row.sale_price) : null,
@@ -138,7 +147,8 @@ async function lookupBarcode(req, res, next) {
 
     // 2. Fallback: Lookup by variant SKU
     const skuRows = await query(
-      `SELECT pv.*, p.name AS product_name, p.slug, p.price, p.sale_price, p.hsn_code, p.barcode_short_name
+      `SELECT pv.*, p.name AS product_name, p.slug, p.price, p.sale_price, p.hsn_code, p.barcode_short_name,
+              p.mrp, p.purchase_price, p.purchased_rate
        FROM product_variants pv
        JOIN products p ON pv.product_id = p.id
        WHERE pv.sku = ?
@@ -164,6 +174,10 @@ async function lookupBarcode(req, res, next) {
         product_name: row.product_name,
         slug: row.slug,
         barcode_short_name: row.barcode_short_name || row.product_name,
+        barcode_sequence: null,
+        mrp: row.mrp !== null && row.mrp !== undefined ? parseFloat(row.mrp) : null,
+        purchase_price: row.purchase_price !== null && row.purchase_price !== undefined ? parseFloat(row.purchase_price) : null,
+        purchased_rate: row.purchased_rate || (row.purchase_price !== null && row.purchase_price !== undefined ? String(parseFloat(row.purchase_price)) : null),
         price: effectivePrice,
         regular_price: parseFloat(row.price),
         hsn_code: row.hsn_code || '4202',
@@ -249,6 +263,10 @@ async function lookupBarcode(req, res, next) {
           product_name: p.name,
           slug: p.slug,
           barcode_short_name: p.barcode_short_name || p.name,
+          barcode_sequence: null,
+          mrp: p.mrp !== null && p.mrp !== undefined ? parseFloat(p.mrp) : null,
+          purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? parseFloat(p.purchase_price) : null,
+          purchased_rate: p.purchased_rate || (p.purchase_price !== null && p.purchase_price !== undefined ? String(parseFloat(p.purchase_price)) : null),
           price: effectivePrice,
           regular_price: parseFloat(p.price),
           hsn_code: p.hsn_code || '4202',
@@ -296,7 +314,8 @@ async function getAllBarcodesAdmin(req, res, next) {
     const { search, limit = 200, page = 1 } = req.query;
     let sql = `
       SELECT pb.*, p.name AS product_name, p.price, p.sale_price, p.hsn_code,
-             p.barcode_short_name, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity
+             p.barcode_short_name, p.mrp, p.purchase_price, p.purchased_rate,
+             pv.sku, pv.color_name, pv.size_name, pv.stock_quantity
       FROM product_barcodes pb
       JOIN products p ON pb.product_id = p.id
       LEFT JOIN product_variants pv ON pb.variant_id = pv.id

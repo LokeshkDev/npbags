@@ -13,7 +13,12 @@ import {
   getAdminSalespersons,
   createAdminSalesperson,
   updateAdminSalesperson,
-  deleteAdminSalesperson
+  deleteAdminSalesperson,
+  getHeldBills,
+  holdBill,
+  updateHeldBill,
+  completeHeldBill,
+  cancelHeldBill
 } from '../lib/api';
 
 export function POSBillingModal() {
@@ -50,6 +55,13 @@ export function POSBillingModal() {
   const [discountType, setDiscountType] = useState('flat'); // 'flat' | 'percent'
   const [discountInput, setDiscountInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Billing Hold / Resume
+  const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
+  const [heldBills, setHeldBills] = useState([]);
+  const [loadingHeldBills, setLoadingHeldBills] = useState(false);
+  const [holdingBill, setHoldingBill] = useState(false);
+  const [resumedHeldId, setResumedHeldId] = useState(null);
 
   // Sales Staff Attribution
   const [salespersons, setSalespersons] = useState([]);
@@ -127,11 +139,24 @@ export function POSBillingModal() {
       });
   };
 
+  const loadHeldBillsData = async () => {
+    setLoadingHeldBills(true);
+    try {
+      const data = await getHeldBills({ status: 'held' });
+      setHeldBills(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn('Could not load held bills:', err);
+    } finally {
+      setLoadingHeldBills(false);
+    }
+  };
+
   // Keyboard Autofocus: User instructed to FIRST focus keyboard on customer phone number
   useEffect(() => {
     if (isPOSOpen) {
       loadSalesStaff();
       loadCatalogProducts();
+      loadHeldBillsData();
       setTimeout(() => {
         if (customerPhoneInputRef.current) {
           customerPhoneInputRef.current.focus();
@@ -534,6 +559,97 @@ export function POSBillingModal() {
     }
   };
 
+  const buildHeldPayload = () => {
+    const chosenStaff = salespersons.find(s => String(s.id) === String(selectedSalespersonId));
+    return {
+      customer_name: customerName.trim() || 'Walk-in Customer',
+      customer_phone: customerPhone.trim(),
+      customer_email: customerEmail.trim(),
+      items: cart,
+      discount_type: discountType,
+      discount_value: cartFinancials.discountValue,
+      payment_method: paymentMethod,
+      sales_person_id: chosenStaff ? chosenStaff.id : null,
+      sales_person_name: chosenStaff ? chosenStaff.name : null
+    };
+  };
+
+  const resetActiveBill = () => {
+    setCart([]);
+    setDiscountInput('');
+    setDiscountType('flat');
+    setReceivedAmount('');
+    setCustomerName('Walk-in Customer');
+    setCustomerPhone('');
+    setCustomerEmail('');
+    setCustomerFoundBadge(null);
+    setResumedHeldId(null);
+  };
+
+  const handleHoldBill = async () => {
+    if (cart.length === 0) {
+      showToast('Cart is empty. Nothing to hold.', 'error');
+      return;
+    }
+    if (editingOrder) {
+      showToast('Finish or close the current edit before holding a new bill.', 'error');
+      return;
+    }
+    setHoldingBill(true);
+    try {
+      const payload = buildHeldPayload();
+      if (resumedHeldId) {
+        await updateHeldBill(resumedHeldId, payload);
+        showToast('Held bill updated.', 'success');
+      } else {
+        const held = await holdBill(payload);
+        showToast(`Bill held as ${held?.reference || 'HOLD'}`, 'success', 3500);
+      }
+      resetActiveBill();
+      await loadHeldBillsData();
+      customerPhoneInputRef.current?.focus();
+    } catch (err) {
+      alert(`Could not hold bill: ${err.message || 'Server error'}`);
+    } finally {
+      setHoldingBill(false);
+    }
+  };
+
+  const handleResumeHeldBill = (bill) => {
+    if (!bill) return;
+    if (cart.length > 0 && resumedHeldId !== bill.id) {
+      if (!window.confirm('Replace the current cart with this held bill?')) return;
+    }
+    setCustomerName(bill.customer_name || 'Walk-in Customer');
+    setCustomerPhone(bill.customer_phone || '');
+    setCustomerEmail(bill.customer_email || '');
+    setCustomerFoundBadge(null);
+    setPaymentMethod(bill.payment_method || 'Cash');
+    setDiscountType(bill.discount_type === 'percentage' || bill.discount_type === 'percent' ? 'percent' : 'flat');
+    setDiscountInput(bill.discount_value !== undefined && bill.discount_value !== null ? String(bill.discount_value) : (bill.discount_amount ? String(bill.discount_amount) : ''));
+    if (bill.sales_person_id) setSelectedSalespersonId(String(bill.sales_person_id));
+    setCart(Array.isArray(bill.items) ? bill.items : []);
+    setResumedHeldId(bill.id);
+    setReceivedAmount('');
+    setCompletedOrder(null);
+    setIsHeldModalOpen(false);
+    showToast(`Resumed held bill ${bill.reference || ''}`, 'success', 3000);
+    setTimeout(() => searchInputRef.current?.focus(), 150);
+  };
+
+  const handleCancelHeldBill = async (bill) => {
+    if (!bill) return;
+    if (!window.confirm(`Cancel held bill ${bill.reference || ''}? This cannot be undone.`)) return;
+    try {
+      await cancelHeldBill(bill.id);
+      if (resumedHeldId === bill.id) setResumedHeldId(null);
+      showToast('Held bill cancelled.', 'info');
+      await loadHeldBillsData();
+    } catch (err) {
+      alert(`Could not cancel held bill: ${err.message || 'Server error'}`);
+    }
+  };
+
   // Cart financial calculations (Flat vs % discount, GST 18% inclusive standard)
   const cartFinancials = useMemo(() => {
     const rawSubtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -641,9 +757,22 @@ export function POSBillingModal() {
         window.dispatchEvent(new CustomEvent('np_order_updated', { detail: orderObj }));
       }
 
+      if (resumedHeldId) {
+        try {
+          await completeHeldBill(resumedHeldId, {
+            order_id: orderObj?.id || orderObj?.order_id || null,
+            order_number: orderObj?.order_number || null
+          });
+        } catch (holdErr) {
+          console.warn('Could not mark held bill complete:', holdErr);
+        }
+        setResumedHeldId(null);
+        loadHeldBillsData();
+      }
+
       setCompletedOrder(orderObj);
       setCart([]);
-      setDiscountAmount(0);
+      setDiscountInput('');
       setReceivedAmount('');
       if (setEditingOrder) setEditingOrder(null);
 
@@ -681,6 +810,8 @@ export function POSBillingModal() {
       } else if (e.key === 'Escape') {
         if (isStaffModalOpen) {
           setIsStaffModalOpen(false);
+        } else if (isHeldModalOpen) {
+          setIsHeldModalOpen(false);
         } else if (isCustomModalOpen) {
           setIsCustomModalOpen(false);
         } else if (completedOrder) {
@@ -694,7 +825,7 @@ export function POSBillingModal() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, completedOrder, showSuggestions, closePOS, searchInput]);
+  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, completedOrder, showSuggestions, closePOS, searchInput]);
 
   // Thermal Receipt Printing (Standard ESC/POS HTML) - Pure Solid Black #000000 with 300 Bold Density
   const printThermalReceipt = (orderData, overrideSettings) => {
@@ -1187,6 +1318,50 @@ export function POSBillingModal() {
                   title="Add miscellaneous or custom unlisted product [Shortcut F7]"
                 >
                   + ADD CUSTOM ITEM [F7]
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleHoldBill}
+                  disabled={holdingBill || cart.length === 0}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    background: cart.length === 0 ? '#94a3b8' : '#b45309',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                    letterSpacing: '0.03em',
+                    whiteSpace: 'nowrap'
+                  }}
+                  title="Hold this bill and resume later"
+                >
+                  {holdingBill ? 'HOLDING...' : resumedHeldId ? 'UPDATE HOLD' : 'HOLD BILL'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHeldModalOpen(true);
+                    loadHeldBillsData();
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    background: '#ffffff',
+                    color: '#b45309',
+                    border: '2px solid #b45309',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    letterSpacing: '0.03em',
+                    whiteSpace: 'nowrap'
+                  }}
+                  title="View held bills"
+                >
+                  HELD BILLS ({heldBills.length})
                 </button>
               </form>
 
@@ -1913,6 +2088,138 @@ export function POSBillingModal() {
           </button>
         </div>
       </div>
+
+      {/* HELD BILLS MODAL */}
+      {isHeldModalOpen && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsHeldModalOpen(false);
+          }}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100001,
+            padding: '20px'
+          }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '12px',
+              width: '760px',
+              maxWidth: '100%',
+              maxHeight: '82vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.28)'
+            }}
+          >
+            <div style={{ padding: '16px 20px', background: '#0f172a', color: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '15px', fontWeight: 900, letterSpacing: '0.04em' }}>HELD BILLS</div>
+                <div style={{ fontSize: '11.5px', color: '#cbd5e1', marginTop: '2px' }}>
+                  Resume parked carts, or cancel bills that will not be completed.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsHeldModalOpen(false)}
+                style={{ background: 'transparent', border: '1px solid #64748b', color: '#e2e8f0', borderRadius: '6px', padding: '6px 12px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                CLOSE
+              </button>
+            </div>
+
+            <div style={{ padding: '14px 20px', overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
+              {loadingHeldBills ? (
+                <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontWeight: 700 }}>Loading held bills...</div>
+              ) : heldBills.length === 0 ? (
+                <div style={{ padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', marginBottom: '4px' }}>NO HELD BILLS</div>
+                  <div style={{ fontSize: '12.5px' }}>Use the HOLD BILL button while billing to park a cart here.</div>
+                </div>
+              ) : (
+                heldBills.map((bill) => {
+                  const billDate = bill.created_at ? new Date(bill.created_at) : null;
+                  const itemCount = Array.isArray(bill.items)
+                    ? bill.items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0)
+                    : 0;
+                  return (
+                    <div
+                      key={bill.id}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        padding: '12px 14px',
+                        marginBottom: '10px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>{bill.reference}</span>
+                          <span style={{ fontSize: '11px', fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 7px', borderRadius: '4px' }}>
+                            ₹{Number(bill.total_amount || 0).toLocaleString('en-IN')}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>{itemCount} item(s)</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#334155', fontWeight: 700, marginTop: '4px' }}>
+                          {bill.customer_name || 'Walk-in Customer'}
+                          {bill.customer_phone ? ` • ${bill.customer_phone}` : ''}
+                          {bill.sales_person_name ? ` • Staff: ${bill.sales_person_name}` : ''}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          {billDate ? billDate.toLocaleString('en-IN') : ''}
+                          {Array.isArray(bill.items) && bill.items.length > 0
+                            ? ` • ${bill.items.slice(0, 3).map(i => i.product_name || i.name || 'Item').join(', ')}${bill.items.length > 3 ? '…' : ''}`
+                            : ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleResumeHeldBill(bill)}
+                          style={{ padding: '8px 14px', borderRadius: '6px', background: '#065935', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          RESUME
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCancelHeldBill(bill)}
+                          style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', color: '#dc2626', border: '1px solid #fca5a5', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ padding: '10px 20px', borderTop: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11.5px', color: '#64748b' }}>{heldBills.length} held bill(s)</span>
+              <button
+                type="button"
+                onClick={loadHeldBillsData}
+                style={{ background: 'transparent', border: 'none', color: '#065935', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                REFRESH
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3. CUSTOM PRODUCT MODAL POPUP (Icon-Free) */}
       {isCustomModalOpen && (

@@ -445,6 +445,99 @@ export async function deleteAdminVendor(id) {
   });
 }
 
+export async function getAdminVendorPurchaseHistory(id) {
+  return adminFetch(`/admin/vendors/${id}/purchase-history`);
+}
+
+// Purchase Bills
+export async function getAdminPurchaseBills(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/purchase-bills${query ? `?${query}` : ''}`);
+}
+
+export async function getAdminOutstandingPurchaseBills(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/purchase-bills/outstanding${query ? `?${query}` : ''}`);
+}
+
+export async function getAdminPurchaseBillById(id) {
+  return adminFetch(`/admin/purchase-bills/${id}`);
+}
+
+export async function getNextPurchaseBillNumber() {
+  return adminFetch('/admin/purchase-bills/next-number');
+}
+
+export async function createAdminPurchaseBill(data) {
+  return adminFetch('/admin/purchase-bills', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminPurchaseBill(id, data) {
+  return adminFetch(`/admin/purchase-bills/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function confirmAdminPurchaseBill(id) {
+  return adminFetch(`/admin/purchase-bills/${id}/confirm`, {
+    method: 'POST'
+  });
+}
+
+export async function addAdminPurchaseBillPayment(id, data) {
+  return adminFetch(`/admin/purchase-bills/${id}/payments`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminPurchaseBill(id) {
+  return adminFetch(`/admin/purchase-bills/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+// POS Billing Hold / Resume
+export async function getHeldBills(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/held-bills${query ? `?${query}` : ''}`);
+}
+
+export async function getHeldBillById(id) {
+  return adminFetch(`/admin/held-bills/${id}`);
+}
+
+export async function holdBill(data) {
+  return adminFetch('/admin/held-bills', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateHeldBill(id, data) {
+  return adminFetch(`/admin/held-bills/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function completeHeldBill(id, data = {}) {
+  return adminFetch(`/admin/held-bills/${id}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function cancelHeldBill(id) {
+  return adminFetch(`/admin/held-bills/${id}`, {
+    method: 'DELETE'
+  });
+}
+
 // Sales Persons / Staff
 export async function getAdminSalespersons(params = {}) {
   const query = new URLSearchParams(params).toString();

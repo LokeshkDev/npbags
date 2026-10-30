@@ -5,6 +5,33 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { lookupBarcode, getAdminProducts, getProductBarcodes, generateProductBarcodes, getAdminAllBarcodes } from '../../lib/api';
 
+function formatLabelMoney(value, fallback = '') {
+  if (value === null || value === undefined || value === '') return fallback;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  return num.toLocaleString('en-IN');
+}
+
+function getLabelDetails(item) {
+  const mrpValue = item?.mrp !== null && item?.mrp !== undefined
+    ? item.mrp
+    : (item?.price !== null && item?.price !== undefined ? item.price : item?.sale_price);
+  const rateValue = item?.purchased_rate !== null && item?.purchased_rate !== undefined && item?.purchased_rate !== ''
+    ? item.purchased_rate
+    : item?.purchase_price;
+  const sequence = item?.barcode_sequence !== null && item?.barcode_sequence !== undefined
+    ? String(item.barcode_sequence).padStart(6, '0')
+    : '';
+
+  return {
+    mrp: formatLabelMoney(mrpValue, '—'),
+    rate: rateValue !== null && rateValue !== undefined && rateValue !== ''
+      ? (Number.isFinite(Number(rateValue)) ? `₹${formatLabelMoney(rateValue)}` : String(rateValue))
+      : '—',
+    sequence
+  };
+}
+
 export default function AdminBarcodesPage() {
   const [searchInput, setSearchInput] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
@@ -144,6 +171,7 @@ export default function AdminBarcodesPage() {
 
   // Open thermal sticker print dialog (Standard 33x24mm 3-up roll) - Full Solid Pure Black #000000
   const printStickers = (barcodeItem, copies = 3) => {
+    const label = getLabelDetails(barcodeItem);
     const printHtml = `
 <!DOCTYPE html>
 <html>
@@ -225,9 +253,18 @@ export default function AdminBarcodesPage() {
     letter-spacing: 0.5px;
     color: #000000 !important;
   }
-  .price-text {
-    font-size: 7.5pt;
+  .code-text .seq-text {
+    font-size: 5.8pt;
+    letter-spacing: 0;
+  }
+  .meta-row {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 6.2pt;
     font-weight: 900;
+    line-height: 1;
     color: #000000 !important;
   }
 </style>
@@ -239,8 +276,8 @@ export default function AdminBarcodesPage() {
         <div class="store-name">NP GRAND SHOPPING</div>
         <div class="product-name">${barcodeItem.product_name || barcodeItem.barcode_short_name || 'Handbag Collection'}</div>
         <div class="barcode-svg-container">${barcodeItem.svg || ''}</div>
-        <div class="code-text">${barcodeItem.barcode}</div>
-        <div class="price-text">MRP: ₹${Number(barcodeItem.price || barcodeItem.sale_price || 999).toLocaleString('en-IN')}</div>
+        <div class="code-text">${barcodeItem.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</div>
+        <div class="meta-row"><span>MRP: ₹${label.mrp}</span><span>RATE: ${label.rate}</span></div>
       </div>
     `).join('')}
   </div>
@@ -350,26 +387,36 @@ export default function AdminBarcodesPage() {
     letter-spacing: 0.5px;
     color: #000000 !important;
   }
-  .price-text {
-    font-size: 7.5pt;
+  .code-text .seq-text {
+    font-size: 5.8pt;
+    letter-spacing: 0;
+  }
+  .meta-row {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 6.2pt;
     font-weight: 900;
+    line-height: 1;
     color: #000000 !important;
   }
 </style>
 </head>
 <body>
   <div class="sticker-grid">
-    ${itemsToPrint.map(item =>
-      Array.from({ length: copiesPerItem }).map(() => `
+    ${itemsToPrint.map(item => {
+      const label = getLabelDetails(item);
+      return Array.from({ length: copiesPerItem }).map(() => `
         <div class="barcode-sticker">
           <div class="store-name">NP GRAND SHOPPING</div>
           <div class="product-name">${item.product_name || item.barcode_short_name || 'Handbag Collection'}</div>
           <div class="barcode-svg-container">${item.svg || ''}</div>
-          <div class="code-text">${item.barcode}</div>
-          <div class="price-text">MRP: ₹${Number(item.price || item.sale_price || 999).toLocaleString('en-IN')}</div>
+          <div class="code-text">${item.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</div>
+          <div class="meta-row"><span>MRP: ₹${label.mrp}</span><span>RATE: ${label.rate}</span></div>
         </div>
-      `).join('')
-    ).join('')}
+      `).join('');
+    }).join('')}
   </div>
 </body>
 </html>
@@ -879,14 +926,14 @@ export default function AdminBarcodesPage() {
                       <th style={{ padding: '12px 18px' }}>PRODUCT NAME</th>
                       <th style={{ padding: '12px 18px' }}>TYPE &amp; SPECS</th>
                       <th style={{ padding: '12px 18px' }}>HSN</th>
-                      <th style={{ padding: '12px 18px', textAlign: 'right' }}>PRICE</th>
+                      <th style={{ padding: '12px 18px', textAlign: 'right' }}>MRP / PURCHASED RATE</th>
                       <th style={{ padding: '12px 18px', textAlign: 'center' }}>LABEL PREVIEW</th>
                       <th style={{ padding: '12px 18px', textAlign: 'center' }}>PRINT ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allGeneratedBarcodes.map((b, idx) => {
-                      const displayPrice = b.sale_price > 0 ? b.sale_price : b.price;
+                      const label = getLabelDetails(b);
                       const isSelected = selectedBarcodeIds.has(b.id);
                       return (
                         <tr
@@ -908,6 +955,11 @@ export default function AdminBarcodesPage() {
                             <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '14px', color: '#065935', letterSpacing: '0.04em' }}>
                               {b.barcode}
                             </span>
+                            {label.sequence && (
+                              <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 800, marginTop: '2px' }}>
+                                SEQ #{label.sequence}
+                              </div>
+                            )}
                           </td>
                           <td style={{ padding: '12px 18px' }}>
                             <div style={{ fontWeight: 800, color: '#0f172a' }}>{b.product_name}</div>
@@ -930,8 +982,11 @@ export default function AdminBarcodesPage() {
                           <td style={{ padding: '12px 18px', color: '#64748b', fontSize: '12px' }}>
                             {b.hsn_code || '4202'}
                           </td>
-                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '13.5px' }}>
-                            ₹{Number(displayPrice).toLocaleString('en-IN')}
+                          <td style={{ padding: '12px 18px', textAlign: 'right', color: '#0f172a' }}>
+                            <div style={{ fontWeight: 900, fontSize: '13.5px' }}>₹{label.mrp}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, marginTop: '2px' }}>
+                              Rate: {label.rate}
+                            </div>
                           </td>
                           <td style={{ padding: '12px 18px', textAlign: 'center' }}>
                             <div

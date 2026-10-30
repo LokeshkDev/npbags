@@ -85,6 +85,7 @@ export default function AdminProductsPage() {
     is_best_selling: false,
     vendor_id: '',
     purchase_price: '',
+    purchased_rate: '',
     mrp: '',
     gst_type: 'without_gst',
     gst_rate: '18',
@@ -297,6 +298,7 @@ export default function AdminProductsPage() {
       is_best_selling: Boolean(p.is_best_selling),
       vendor_id: p.vendor_id ? String(p.vendor_id) : '',
       purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? String(p.purchase_price) : '',
+      purchased_rate: p.purchased_rate !== null && p.purchased_rate !== undefined ? String(p.purchased_rate) : '',
       mrp: p.mrp !== null && p.mrp !== undefined ? String(p.mrp) : (p.price ? String(p.price) : ''),
       gst_type: p.gst_type || 'without_gst',
       gst_rate: p.gst_rate !== null && p.gst_rate !== undefined ? String(p.gst_rate) : '18',
@@ -381,6 +383,7 @@ export default function AdminProductsPage() {
           seo_keywords: detailed.seo_keywords || prev.seo_keywords,
           vendor_id: detailed.vendor_id ? String(detailed.vendor_id) : prev.vendor_id,
           purchase_price: detailed.purchase_price !== null && detailed.purchase_price !== undefined ? String(detailed.purchase_price) : prev.purchase_price,
+          purchased_rate: detailed.purchased_rate !== null && detailed.purchased_rate !== undefined ? String(detailed.purchased_rate) : prev.purchased_rate,
           mrp: detailed.mrp !== null && detailed.mrp !== undefined ? String(detailed.mrp) : prev.mrp,
           gst_type: detailed.gst_type || prev.gst_type,
           gst_rate: detailed.gst_rate !== null && detailed.gst_rate !== undefined ? String(detailed.gst_rate) : prev.gst_rate,
@@ -1456,7 +1459,7 @@ export default function AdminProductsPage() {
             </div>
 
             {/* Purchase Price, MRP, and Selling Price Input Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '14px' }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
                   Purchase Price (₹)
@@ -1492,6 +1495,23 @@ export default function AdminProductsPage() {
                 />
                 <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
                   Printed tag MRP
+                </span>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                  Purchased Rate (Label)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 450 or 4.5%"
+                  className="form-control"
+                  value={formData.purchased_rate || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, purchased_rate: e.target.value }))}
+                  style={{ fontSize: '12.5px' }}
+                />
+                <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
+                  Alphanumeric rate printed on barcode label
                 </span>
               </div>
 
