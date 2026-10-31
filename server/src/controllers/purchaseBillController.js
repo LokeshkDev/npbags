@@ -23,6 +23,27 @@ function paymentStatusFor(grandTotal, paid) {
   return 'Partially Paid';
 }
 
+function normalizePurchaseRate(value) {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+async function recordPurchaseRateHistory(tx, productId, oldRate, newRate, userId = null) {
+  const previous = normalizePurchaseRate(oldRate);
+  const next = normalizePurchaseRate(newRate);
+  if (previous === next) return;
+  try {
+    await tx.query(
+      `INSERT INTO product_purchase_rate_history (product_id, old_rate, new_rate, changed_by)
+       VALUES (?, ?, ?, ?)`,
+      [productId, previous, next, userId || null]
+    );
+  } catch (error) {
+    console.error('Could not record purchase rate history:', error.message);
+  }
+}
+
 function httpError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -208,6 +229,7 @@ async function getAllPurchaseBills(req, res, next) {
     const {
       vendor_id,
       payment_status,
+      bill_number,
       from_date,
       to_date,
       search,
@@ -219,7 +241,7 @@ async function getAllPurchaseBills(req, res, next) {
     let where = ' WHERE 1=1';
     const params = [];
 
-    if (vendor_id) {
+    if (vendor_id && vendor_id !== 'all') {
       where += ' AND pb.vendor_id = ?';
       params.push(vendor_id);
     }
@@ -231,6 +253,10 @@ async function getAllPurchaseBills(req, res, next) {
       where += ' AND pb.status = ?';
       params.push(status);
     }
+    if (bill_number && bill_number.trim()) {
+      where += ' AND pb.bill_number LIKE ?';
+      params.push(`%${bill_number.trim()}%`);
+    }
     if (from_date) {
       where += ' AND pb.purchase_date >= ?';
       params.push(from_date);
@@ -240,9 +266,14 @@ async function getAllPurchaseBills(req, res, next) {
       params.push(to_date);
     }
     if (search && search.trim()) {
-      where += ' AND (pb.bill_number LIKE ? OR v.name LIKE ? OR pb.notes LIKE ?)';
+      where += ` AND (pb.bill_number LIKE ? OR v.name LIKE ? OR v.company_name LIKE ?
+                  OR v.phone LIKE ? OR pb.notes LIKE ?
+                  OR EXISTS (
+                    SELECT 1 FROM purchase_bill_items pbi
+                    WHERE pbi.purchase_bill_id = pb.id AND pbi.product_name LIKE ?
+                  ))`;
       const term = `%${search.trim()}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term, term, term);
     }
 
     const totalRows = await query(
@@ -317,9 +348,13 @@ async function getOutstandingPurchaseBills(req, res, next) {
       params.push(to_date);
     }
     if (search && search.trim()) {
-      where += ' AND (pb.bill_number LIKE ? OR v.name LIKE ?)';
+      where += ` AND (pb.bill_number LIKE ? OR v.name LIKE ? OR v.company_name LIKE ?
+                  OR EXISTS (
+                    SELECT 1 FROM purchase_bill_items pbi
+                    WHERE pbi.purchase_bill_id = pb.id AND pbi.product_name LIKE ?
+                  ))`;
       const term = `%${search.trim()}%`;
-      params.push(term, term);
+      params.push(term, term, term, term);
     }
 
     const bills = await query(
@@ -438,6 +473,8 @@ async function createPurchaseBill(req, res, next) {
         normalizedItems.push({ ...resolved, quantity, purchase_rate: purchaseRate, rate_value: rateValue, total_amount: totalAmount });
 
         if (purchaseRate || rateValue) {
+          const currentRateRows = await tx.query('SELECT purchased_rate FROM products WHERE id = ?', [resolved.product_id]);
+          const oldRate = currentRateRows[0]?.purchased_rate ?? null;
           await tx.query(
             `UPDATE products
              SET purchased_rate = COALESCE(?, purchased_rate),
@@ -446,6 +483,7 @@ async function createPurchaseBill(req, res, next) {
              WHERE id = ?`,
             [purchaseRate || null, rateValue, rateValue, vendor_id, resolved.product_id]
           );
+          await recordPurchaseRateHistory(tx, resolved.product_id, oldRate, purchaseRate || rateValue, userId);
         }
       }
 
@@ -579,6 +617,8 @@ async function updatePurchaseBill(req, res, next) {
         normalizedItems.push({ ...resolved, quantity, purchase_rate: purchaseRate, rate_value: rateValue, total_amount: totalAmount });
 
         if (purchaseRate || rateValue) {
+          const currentRateRows = await tx.query('SELECT purchased_rate FROM products WHERE id = ?', [resolved.product_id]);
+          const oldRate = currentRateRows[0]?.purchased_rate ?? null;
           await tx.query(
             `UPDATE products
              SET purchased_rate = COALESCE(?, purchased_rate),
@@ -586,6 +626,7 @@ async function updatePurchaseBill(req, res, next) {
              WHERE id = ?`,
             [purchaseRate || null, rateValue, rateValue, resolved.product_id]
           );
+          await recordPurchaseRateHistory(tx, resolved.product_id, oldRate, purchaseRate || rateValue, userId);
         }
       }
 

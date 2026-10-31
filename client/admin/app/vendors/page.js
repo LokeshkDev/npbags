@@ -110,7 +110,7 @@ export default function AdminVendorsPage() {
   const [bills, setBills] = useState([]);
   const [billSummary, setBillSummary] = useState({});
   const [loadingBills, setLoadingBills] = useState(false);
-  const [billFilters, setBillFilters] = useState({ search: '', payment_status: 'all', from_date: '', to_date: '', vendor_id: 'all' });
+  const [billFilters, setBillFilters] = useState({ bill_number: '', search: '', status: 'all', payment_status: 'all', from_date: '', to_date: '', vendor_id: 'all' });
 
   const [outstanding, setOutstanding] = useState({ bills: [], vendor_totals: [], summary: {} });
   const [loadingOutstanding, setLoadingOutstanding] = useState(false);
@@ -175,6 +175,12 @@ export default function AdminVendorsPage() {
     } finally {
       setLoadingBills(false);
     }
+  };
+
+  const resetBillFilters = () => {
+    const next = { bill_number: '', search: '', status: 'all', payment_status: 'all', from_date: '', to_date: '', vendor_id: 'all' };
+    setBillFilters(next);
+    loadPurchaseBills(next);
   };
 
   const loadOutstanding = async () => {
@@ -509,8 +515,14 @@ export default function AdminVendorsPage() {
     }
   };
 
+  const safeVendors = useMemo(() => Array.isArray(vendors) ? vendors : [], [vendors]);
+  const safeBills = useMemo(() => Array.isArray(bills) ? bills : [], [bills]);
+  const safeOutstandingBills = useMemo(() => Array.isArray(outstanding?.bills) ? outstanding.bills : [], [outstanding?.bills]);
+  const safeOutstandingVendors = useMemo(() => Array.isArray(outstanding?.vendor_totals) ? outstanding.vendor_totals : [], [outstanding?.vendor_totals]);
+  const safeOutstandingSummary = useMemo(() => outstanding?.summary || {}, [outstanding?.summary]);
+
   const filteredVendors = useMemo(() => {
-    return vendors.filter(v => {
+    return safeVendors.filter(v => {
       if (statusFilter === 'active' && !v.is_active) return false;
       if (statusFilter === 'inactive' && v.is_active) return false;
       if (!searchQuery.trim()) return true;
@@ -524,23 +536,24 @@ export default function AdminVendorsPage() {
         (v.city && v.city.toLowerCase().includes(q))
       );
     });
-  }, [vendors, searchQuery, statusFilter]);
+  }, [safeVendors, searchQuery, statusFilter]);
 
   const stats = useMemo(() => {
-    const totalOutstanding = vendors.reduce((sum, v) => sum + (Number(v.total_outstanding) || 0), 0);
-    const totalPurchase = vendors.reduce((sum, v) => sum + (Number(v.total_purchase_value) || 0), 0);
+    const totalOutstanding = safeVendors.reduce((sum, v) => sum + (Number(v.total_outstanding) || 0), 0);
+    const totalPurchase = safeVendors.reduce((sum, v) => sum + (Number(v.total_purchase_value) || 0), 0);
     return {
-      total: vendors.length,
-      active: vendors.filter(v => v.is_active).length,
-      totalProducts: vendors.reduce((sum, v) => sum + (Number(v.products_count) || 0), 0),
-      totalProductsLabel: vendors.reduce((sum, v) => sum + (Number(v.products_count) || 0), 0),
+      total: safeVendors.length,
+      active: safeVendors.filter(v => v.is_active).length,
+      totalProducts: safeVendors.reduce((sum, v) => sum + (Number(v.products_count) || 0), 0),
+      totalProductsLabel: safeVendors.reduce((sum, v) => sum + (Number(v.products_count) || 0), 0),
       totalOutstanding,
       totalPurchase
     };
-  }, [vendors]);
+  }, [safeVendors]);
 
   const renderBillTable = (list, opts = {}) => {
-    if (list.length === 0) {
+    const safeList = Array.isArray(list) ? list : [];
+    if (safeList.length === 0) {
       return <div style={{ padding: '28px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>{opts.empty || 'No purchase bills found.'}</div>;
     }
     return (
@@ -777,9 +790,9 @@ export default function AdminVendorsPage() {
 
           <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
             {[
-              { key: 'vendors', label: `Vendors (${vendors.length})` },
-              { key: 'purchase-bills', label: `All Purchase Bills (${bills.length})` },
-              { key: 'outstanding', label: `Outstanding Payables (${outstanding.bills.length})` }
+              { key: 'vendors', label: `Vendors (${safeVendors.length})` },
+              { key: 'purchase-bills', label: `All Purchase Bills (${safeBills.length})` },
+              { key: 'outstanding', label: `Outstanding Payables (${safeOutstandingBills.length})` }
             ].map(tab => (
               <button
                 key={tab.key}
@@ -820,9 +833,9 @@ export default function AdminVendorsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>Status:</label>
                   <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', background: '#fff', cursor: 'pointer' }}>
-                    <option value="all">All Vendors ({vendors.length})</option>
-                    <option value="active">Active Only ({vendors.filter(v => v.is_active).length})</option>
-                    <option value="inactive">Inactive ({vendors.filter(v => !v.is_active).length})</option>
+                    <option value="all">All Vendors ({safeVendors.length})</option>
+                    <option value="active">Active Only ({safeVendors.filter(v => v.is_active).length})</option>
+                    <option value="inactive">Inactive ({safeVendors.filter(v => !v.is_active).length})</option>
                   </select>
                 </div>
               </div>
@@ -863,15 +876,28 @@ export default function AdminVendorsPage() {
           {mainTab === 'purchase-bills' && (
             <>
               <div className="admin-card" style={{ padding: '14px 18px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'end' }}>
-                <div style={{ flex: '1 1 220px' }}>
+                <div style={{ flex: '0 1 190px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>BILL NO.</label>
+                  <input type="text" placeholder="e.g. PB-0001" value={billFilters.bill_number} onChange={(e) => setBillFilters(prev => ({ ...prev, bill_number: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); loadPurchaseBills(); } }} style={{ width: '100%', padding: '8px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '12.5px', fontFamily: 'monospace' }} />
+                </div>
+                <div style={{ flex: '1 1 200px' }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>SEARCH</label>
-                  <input type="text" placeholder="Bill number or vendor..." value={billFilters.search} onChange={(e) => setBillFilters(prev => ({ ...prev, search: e.target.value }))} style={{ width: '100%', padding: '8px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '12.5px' }} />
+                  <input type="text" placeholder="Vendor, product or notes..." value={billFilters.search} onChange={(e) => setBillFilters(prev => ({ ...prev, search: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); loadPurchaseBills(); } }} style={{ width: '100%', padding: '8px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '12.5px' }} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>VENDOR</label>
                   <select value={billFilters.vendor_id} onChange={(e) => setBillFilters(prev => ({ ...prev, vendor_id: e.target.value }))} style={{ padding: '8px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '12.5px', background: '#fff', minWidth: '170px' }}>
                     <option value="all">All Vendors</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>BILL STATUS</label>
+                  <select value={billFilters.status} onChange={(e) => setBillFilters(prev => ({ ...prev, status: e.target.value }))} style={{ padding: '8px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '12.5px', background: '#fff' }}>
+                    <option value="all">All</option>
+                    <option value="draft">Draft</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
                 <div>
@@ -892,6 +918,7 @@ export default function AdminVendorsPage() {
                   <input type="date" value={billFilters.to_date} onChange={(e) => setBillFilters(prev => ({ ...prev, to_date: e.target.value }))} style={{ padding: '8px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '12.5px' }} />
                 </div>
                 <button type="button" onClick={() => loadPurchaseBills()} style={{ padding: '8px 16px', borderRadius: '7px', border: 'none', background: '#065935', color: '#fff', fontWeight: 800, fontSize: '12.5px', cursor: 'pointer' }}>APPLY FILTERS</button>
+                <button type="button" onClick={resetBillFilters} style={{ padding: '8px 14px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 800, fontSize: '12.5px', cursor: 'pointer' }}>RESET</button>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '14px' }}>
@@ -910,19 +937,19 @@ export default function AdminVendorsPage() {
           {mainTab === 'outstanding' && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-                <StatCard label="Outstanding Bills" value={outstanding.summary.bill_count || 0} />
-                <StatCard label="Bill Value" value={`₹${money(outstanding.summary.total_bill_amount)}`} />
-                <StatCard label="Already Paid" value={`₹${money(outstanding.summary.total_paid)}`} color="#15803d" />
-                <StatCard label="Payable Now" value={`₹${money(outstanding.summary.total_outstanding)}`} color="#b91c1c" />
+                <StatCard label="Outstanding Bills" value={safeOutstandingSummary.bill_count || 0} />
+                <StatCard label="Bill Value" value={`₹${money(safeOutstandingSummary.total_bill_amount)}`} />
+                <StatCard label="Already Paid" value={`₹${money(safeOutstandingSummary.total_paid)}`} color="#15803d" />
+                <StatCard label="Payable Now" value={`₹${money(safeOutstandingSummary.total_outstanding)}`} color="#b91c1c" />
               </div>
 
               <div className="admin-card" style={{ padding: '14px 18px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '10px' }}>Outstanding by Vendor</div>
-                {outstanding.vendor_totals.length === 0 ? (
+                {safeOutstandingVendors.length === 0 ? (
                   <div style={{ color: '#64748b', fontSize: '12.5px' }}>No outstanding vendor payables. Nice and clear.</div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
-                    {outstanding.vendor_totals.map(v => (
+                    {safeOutstandingVendors.map(v => (
                       <button key={v.vendor_id} type="button" onClick={() => { setMainTab('vendors'); setExpandedVendorId(v.vendor_id); setExpandedVendorTab('outstanding'); if (!vendorHistory[v.vendor_id]) loadVendorHistory(v.vendor_id); }} style={{ textAlign: 'left', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', cursor: 'pointer' }}>
                         <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '12.5px' }}>{v.vendor_name}</div>
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{v.bill_count} unpaid bill(s)</div>
@@ -934,7 +961,7 @@ export default function AdminVendorsPage() {
               </div>
 
               <div className="admin-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                {loadingOutstanding ? <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>Loading outstanding payables...</div> : renderBillTable(outstanding.bills, { empty: 'No outstanding payables right now.' })}
+                {loadingOutstanding ? <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>Loading outstanding payables...</div> : renderBillTable(safeOutstandingBills, { empty: 'No outstanding payables right now.' })}
               </div>
             </>
           )}

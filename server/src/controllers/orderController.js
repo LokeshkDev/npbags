@@ -2,6 +2,24 @@ const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { deductInventoryForOrder, restoreInventoryForOrder } = require('../utils/inventory');
 const { calculateOrderTax } = require('../utils/gst');
+const { findOrCreateCustomer } = require('../utils/customerHelper');
+
+// Generate daily sequential POS bill numbers: NP-YYYYMMDD-0001, 0002, ...
+async function generateNextPosOrderNumber() {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const prefix = `NP-${dateStr}-`;
+
+  const rows = await query(
+    `SELECT COALESCE(MAX(CAST(SUBSTRING(order_number, ?) AS UNSIGNED)), 0) AS max_seq
+     FROM orders
+     WHERE order_number LIKE ? AND order_type = 'pos'`,
+    [prefix.length + 1, `${prefix}%`]
+  );
+
+  const nextSeq = Number(rows[0]?.max_seq || 0) + 1;
+  return `${prefix}${String(nextSeq).padStart(4, '0')}`;
+}
 
 async function createOrder(req, res, next) {
   try {
@@ -417,12 +435,22 @@ async function createPOSOrder(req, res, next) {
       shippingState: 'Tamil Nadu'
     });
 
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const order_number = `NP-POS-${dateStr}-${randomSuffix}`;
+    const order_number = await generateNextPosOrderNumber();
     const grandTotal = taxSummary.grandTotal;
     const received = Number(received_amount) > 0 ? Number(received_amount) : grandTotal;
     const balance = Math.max(0, received - grandTotal);
+
+    // Save or link newly added / recognized customer into users table so customer info is preserved
+    let customerUserId = null;
+    try {
+      customerUserId = await findOrCreateCustomer({
+        name: customer_name,
+        phone: customer_phone,
+        email: customer_email
+      });
+    } catch (custErr) {
+      console.warn('[POS] Could not auto-save customer info:', custErr.message);
+    }
 
     const orderResult = await query(
       `INSERT INTO orders (
@@ -435,7 +463,7 @@ async function createPOSOrder(req, res, next) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, 18.00, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         order_number,
-        req.user ? req.user.id : null,
+        customerUserId || (req.user ? req.user.id : null),
         customer_name.trim() || 'Walk-in Customer',
         customer_email.trim() || 'walkin@npgrandshopping.com',
         customer_phone.trim() || '',

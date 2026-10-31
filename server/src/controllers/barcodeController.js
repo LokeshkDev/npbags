@@ -283,6 +283,21 @@ async function lookupBarcode(req, res, next) {
   }
 }
 
+// Admin: Permanently delete a barcode
+async function deleteBarcode(req, res, next) {
+  try {
+    const { id } = req.params;
+    const existing = await query(`SELECT id FROM product_barcodes WHERE id = ?`, [id]);
+    if (existing.length === 0) {
+      return sendError(res, 'Barcode not found', 404);
+    }
+    await query(`DELETE FROM product_barcodes WHERE id = ?`, [id]);
+    return sendSuccess(res, { id }, 'Barcode deleted');
+  } catch (error) {
+    next(error);
+  }
+}
+
 // Admin: Deactivate a barcode
 async function deactivateBarcode(req, res, next) {
   try {
@@ -346,6 +361,7 @@ module.exports = {
   getProductBarcodes,
   generateBarcodesForProduct,
   lookupBarcode,
+  deleteBarcode,
   deactivateBarcode,
   getBarcodeSvg,
   getAllBarcodesAdmin

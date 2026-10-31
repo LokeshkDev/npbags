@@ -67,7 +67,7 @@ export async function getAdminDashboardAnalytics(params = {}) {
 
 // Products
 export async function getAdminProducts(params = {}) {
-  const query = new URLSearchParams(params).toString();
+  const query = new URLSearchParams({ status: 'all', ...params }).toString();
   return adminFetch(`/products${query ? `?${query}` : ''}`);
 }
 
@@ -372,6 +372,16 @@ export async function deactivateBarcode(id) {
   return adminFetch(`/admin/barcodes/${id}/deactivate`, {
     method: 'PUT'
   });
+}
+
+export async function deleteBarcode(id) {
+  return adminFetch(`/admin/barcodes/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getAdminProductPurchaseRateHistory(id) {
+  return adminFetch(`/admin/products/${id}/purchase-rate-history`);
 }
 
 // POS Billing Counter

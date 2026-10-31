@@ -30,6 +30,7 @@ router.get('/stats', settingsController.getAdminStats);
 router.get('/stats/analytics', settingsController.getDashboardAnalytics);
 
 // Products
+router.get('/products/:id/purchase-rate-history', productController.getProductPurchaseRateHistory);
 router.post('/products', upload.array('images', 8), productController.createProduct);
 router.put('/products/:id', upload.array('images', 8), productController.updateProduct);
 router.delete('/products/:id', productController.deleteProduct);
@@ -58,6 +59,7 @@ router.get('/products/:id/barcodes', barcodeController.getProductBarcodes);
 router.post('/products/:id/barcodes/generate', barcodeController.generateBarcodesForProduct);
 router.get('/barcodes/lookup', barcodeController.lookupBarcode);
 router.put('/barcodes/:id/deactivate', barcodeController.deactivateBarcode);
+router.delete('/barcodes/:id', barcodeController.deleteBarcode);
 
 // Inventory
 router.get('/inventory/transactions', inventoryController.getInventoryTransactions);

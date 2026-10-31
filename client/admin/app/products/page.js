@@ -22,7 +22,9 @@ import {
   getAdminCategories,
   getAdminVendors,
   getProductBarcodes,
-  generateProductBarcodes
+  generateProductBarcodes,
+  deleteBarcode,
+  getAdminProductPurchaseRateHistory
 } from '../../lib/api';
 
 export default function AdminProductsPage() {
@@ -44,12 +46,16 @@ export default function AdminProductsPage() {
   const [genderFilter, setGenderFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
   const [badgeFilter, setBadgeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
 
   // Barcode management in edit modal
   const [editingProductBarcodes, setEditingProductBarcodes] = useState([]);
   const [loadingProductBarcodes, setLoadingProductBarcodes] = useState(false);
   const [generatingProductBarcodes, setGeneratingProductBarcodes] = useState(false);
+  const [purchaseRateHistory, setPurchaseRateHistory] = useState([]);
+  const [loadingPurchaseRateHistory, setLoadingPurchaseRateHistory] = useState(false);
 
   // Barcode quick view details popup
   const [barcodePopupProduct, setBarcodePopupProduct] = useState(null);
@@ -83,6 +89,8 @@ export default function AdminProductsPage() {
     is_featured: true,
     is_new_arrival: false,
     is_best_selling: false,
+    is_active: true,
+    is_online: true,
     vendor_id: '',
     purchase_price: '',
     purchased_rate: '',
@@ -178,9 +186,10 @@ export default function AdminProductsPage() {
   };
 
   const loadData = () => {
-    getAdminProducts({ limit: 100 })
+    getAdminProducts({ limit: 1000, status: 'all' })
       .then(data => {
-        if (data && data.products) setProducts(data.products);
+        const list = data?.products || (Array.isArray(data) ? data : []);
+        setProducts(Array.isArray(list) ? list : []);
       })
       .catch(() => {});
 
@@ -192,9 +201,30 @@ export default function AdminProductsPage() {
 
     getAdminVendors()
       .then(data => {
-        if (Array.isArray(data)) setVendors(data);
+        const list = Array.isArray(data) ? data : (data?.vendors || []);
+        setVendors(Array.isArray(list) ? list : []);
       })
       .catch(() => {});
+  };
+
+  const handleToggleProductStatus = async (p, field) => {
+    const isActField = field === 'is_active';
+    const currentVal = isActField
+      ? (Number(p.is_active) === 1 || p.is_active === true)
+      : (Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined);
+    const nextVal = !currentVal;
+
+    // Optimistically update local state
+    setProducts(prev => prev.map(item => item.id === p.id ? { ...item, [field]: nextVal ? 1 : 0 } : item));
+
+    try {
+      const data = new FormData();
+      data.set(field, nextVal ? '1' : '0');
+      await updateAdminProduct(p.id, data);
+    } catch (err) {
+      alert(`Failed to update ${field === 'is_active' ? 'Active' : 'Online'} status: ${err.message || 'Server error'}`);
+      loadData();
+    }
   };
 
   useEffect(() => {
@@ -231,6 +261,8 @@ export default function AdminProductsPage() {
       is_featured: true,
       is_new_arrival: false,
       is_best_selling: false,
+      is_active: true,
+      is_online: true,
       vendor_id: '',
       purchase_price: '',
       mrp: '',
@@ -296,6 +328,8 @@ export default function AdminProductsPage() {
       is_featured: Boolean(p.is_featured),
       is_new_arrival: Boolean(p.is_new_arrival),
       is_best_selling: Boolean(p.is_best_selling),
+      is_active: p.is_active !== undefined && p.is_active !== null ? Boolean(Number(p.is_active)) : true,
+      is_online: p.is_online !== undefined && p.is_online !== null ? Boolean(Number(p.is_online)) : true,
       vendor_id: p.vendor_id ? String(p.vendor_id) : '',
       purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? String(p.purchase_price) : '',
       purchased_rate: p.purchased_rate !== null && p.purchased_rate !== undefined ? String(p.purchased_rate) : '',
@@ -405,6 +439,30 @@ export default function AdminProductsPage() {
       })
       .catch(() => setEditingProductBarcodes([]))
       .finally(() => setLoadingProductBarcodes(false));
+
+    // Load purchase rate change history
+    setPurchaseRateHistory([]);
+    setLoadingPurchaseRateHistory(true);
+    getAdminProductPurchaseRateHistory(p.id)
+      .then(res => {
+        if (Array.isArray(res)) setPurchaseRateHistory(res);
+      })
+      .catch(() => setPurchaseRateHistory([]))
+      .finally(() => setLoadingPurchaseRateHistory(false));
+  };
+
+  const handleDeleteProductBarcode = async (barcodeItem) => {
+    if (!barcodeItem?.id) return;
+    if (!window.confirm(`Delete barcode ${barcodeItem.barcode}? This cannot be undone.`)) return;
+    try {
+      await deleteBarcode(barcodeItem.id);
+      setEditingProductBarcodes(prev => prev.filter(b => b.id !== barcodeItem.id));
+      if (barcodePopupProduct && barcodePopupProduct.id === editingProduct?.id) {
+        setPopupBarcodes(prev => prev.filter(b => b.id !== barcodeItem.id));
+      }
+    } catch (err) {
+      alert(err.message || 'Error deleting barcode');
+    }
   };
 
   // Generate barcodes for product being edited
@@ -445,7 +503,10 @@ export default function AdminProductsPage() {
   // Print thermal barcode sticker
   const printProductThermalSticker = (barcodeItem, copies = 3) => {
     const priceVal = barcodeItem.price || barcodeItem.sale_price || editingProduct?.sale_price || editingProduct?.price || barcodePopupProduct?.price || 999;
-    const nameVal = barcodeItem.product_name || barcodeItem.barcode_short_name || editingProduct?.name || barcodePopupProduct?.name || 'Handbag Collection';
+    const rateVal = barcodeItem.purchased_rate || editingProduct?.purchased_rate || barcodePopupProduct?.purchased_rate || '';
+    const rateDisplay = rateVal === '' || rateVal === null || rateVal === undefined
+      ? '—'
+      : (Number.isFinite(Number(rateVal)) ? `₹${Number(rateVal).toLocaleString('en-IN')}` : String(rateVal));
 
     const printHtml = `
 <!DOCTYPE html>
@@ -469,23 +530,24 @@ export default function AdminProductsPage() {
     display: flex; flex-direction: column; justify-content: space-between;
     align-items: center; text-align: center; page-break-inside: avoid;
   }
-  .store-name { font-size: 7.5pt; font-weight: 900; text-transform: uppercase; letter-spacing: 0.2px; }
-  .product-name { font-size: 6pt; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30mm; }
-  .barcode-svg-container { width: 28mm; height: 10mm; display: flex; align-items: center; justify-content: center; }
+  .store-name { font-size: 7.5pt; font-weight: 900; letter-spacing: 0.2px; }
+  .barcode-svg-container { width: 28mm; height: 9mm; display: flex; align-items: center; justify-content: center; }
   .barcode-svg-container svg { width: 100%; height: 100%; fill: #000000 !important; stroke: #000000 !important; }
-  .code-text { font-size: 7.5pt; font-weight: 900; font-family: monospace; letter-spacing: 0.5px; }
-  .price-text { font-size: 7.5pt; font-weight: 900; }
+  .info-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; width: 100%; padding: 0 0.5mm; line-height: 1; }
+  .code-text { font-size: 5.5pt; font-weight: 700; font-family: monospace; letter-spacing: 0.2px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rate-text { font-size: 5.5pt; font-weight: 700; line-height: 1; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrp-text { font-size: 11pt; font-weight: 900; line-height: 1; letter-spacing: -0.2px; white-space: nowrap; }
+  .mrp-text .mrp-label { font-size: 6.5pt; font-weight: 900; letter-spacing: 0; }
 </style>
 </head>
 <body>
   <div class="sticker-row">
     ${Array.from({ length: copies }).map(() => `
       <div class="barcode-sticker">
-        <div class="store-name">NP GRAND SHOPPING</div>
-        <div class="product-name">${nameVal}</div>
+        <div class="store-name">NP Grand</div>
         <div class="barcode-svg-container">${barcodeItem.svg || ''}</div>
-        <div class="code-text">${barcodeItem.barcode}</div>
-        <div class="price-text">MRP: ₹${Number(priceVal).toLocaleString('en-IN')}</div>
+        <div class="info-row"><span class="code-text">${barcodeItem.barcode}</span><span class="rate-text">${rateDisplay}</span></div>
+        <div class="mrp-text"><span class="mrp-label">MRP </span>₹${Number(priceVal).toLocaleString('en-IN')}</div>
       </div>
     `).join('')}
   </div>
@@ -705,6 +767,8 @@ export default function AdminProductsPage() {
     data.set('is_new_arrival', formData.is_new_arrival ? '1' : '0');
     data.set('is_best_selling', formData.is_best_selling ? '1' : '0');
     data.set('is_featured', formData.is_featured ? '1' : '0');
+    data.set('is_active', formData.is_active ? '1' : '0');
+    data.set('is_online', formData.is_online ? '1' : '0');
 
     data.append('variants', JSON.stringify(variants));
 
@@ -772,6 +836,10 @@ export default function AdminProductsPage() {
     return s > 0 && s <= 10;
   }).length;
   const countOutOfStock = products.filter(p => getProductStock(p) === 0).length;
+  const countActive = products.filter(p => Number(p.is_active) === 1 || p.is_active === true).length;
+  const countInactive = products.filter(p => Number(p.is_active) === 0 || p.is_active === false).length;
+  const countOnline = products.filter(p => Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined).length;
+  const countInStoreOnly = products.filter(p => Number(p.is_online) === 0 || p.is_online === false).length;
 
   const hasActiveFilters = Boolean(
     search.trim() ||
@@ -779,6 +847,8 @@ export default function AdminProductsPage() {
     genderFilter !== 'all' ||
     stockFilter !== 'all' ||
     badgeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    channelFilter !== 'all' ||
     sortBy !== 'newest'
   );
 
@@ -788,10 +858,12 @@ export default function AdminProductsPage() {
     setGenderFilter('all');
     setStockFilter('all');
     setBadgeFilter('all');
+    setStatusFilter('all');
+    setChannelFilter('all');
     setSortBy('newest');
   };
 
-  const filtered = products.filter(p => {
+  const filtered = (Array.isArray(products) ? products : []).filter(p => {
     // 1. Search text
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -834,6 +906,16 @@ export default function AdminProductsPage() {
     if (badgeFilter === 'new_arrival' && !p.is_new_arrival) return false;
     if (badgeFilter === 'best_selling' && !p.is_best_selling) return false;
     if (badgeFilter === 'sale' && !(p.sale_price > 0 && p.sale_price < p.price)) return false;
+
+    // 6. Active / Inactive Status Filter
+    const isActive = Number(p.is_active) === 1 || p.is_active === true;
+    if (statusFilter === 'active' && !isActive) return false;
+    if (statusFilter === 'inactive' && isActive) return false;
+
+    // 7. Channel / Visibility Filter
+    const isOnline = Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined;
+    if (channelFilter === 'online' && !isOnline) return false;
+    if (channelFilter === 'offline' && isOnline) return false;
 
     return true;
   }).sort((a, b) => {
@@ -1011,6 +1093,34 @@ export default function AdminProductsPage() {
                 </select>
               </div>
 
+              {/* Status Filter (Active / Inactive) */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="all">Status: All ({products.length})</option>
+                  <option value="active">● Active ({countActive})</option>
+                  <option value="inactive">○ Inactive ({countInactive})</option>
+                </select>
+              </div>
+
+              {/* Sales Channel Filter */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={channelFilter}
+                  onChange={(e) => setChannelFilter(e.target.value)}
+                >
+                  <option value="all">Channel: All Channels</option>
+                  <option value="online">🌐 Online Store ({countOnline})</option>
+                  <option value="offline">🔒 In-Store Only ({countInStoreOnly})</option>
+                </select>
+              </div>
+
               {/* Sort By */}
               <div>
                 <select
@@ -1055,6 +1165,18 @@ export default function AdminProductsPage() {
                   <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     Badge: {badgeFilter.replace('_', ' ')}
                     <button type="button" onClick={() => setBadgeFilter('all')} style={{ border: 'none', background: 'none', color: '#166534', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {statusFilter !== 'all' && (
+                  <span style={{ background: statusFilter === 'active' ? '#dcfce7' : '#fee2e2', color: statusFilter === 'active' ? '#15803d' : '#b91c1c', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Status: {statusFilter === 'active' ? '● Active' : '○ Inactive'}
+                    <button type="button" onClick={() => setStatusFilter('all')} style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {channelFilter !== 'all' && (
+                  <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Channel: {channelFilter === 'online' ? '🌐 Online' : '🔒 In-Store'}
+                    <button type="button" onClick={() => setChannelFilter('all')} style={{ border: 'none', background: 'none', color: '#1d4ed8', cursor: 'pointer', padding: 0 }}>✕</button>
                   </span>
                 )}
               </div>
@@ -1194,7 +1316,49 @@ export default function AdminProductsPage() {
                             </div>
                           </td>
                           <td>
-                            <span className="badge badge-success">Active</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleProductStatus(p, 'is_active')}
+                                title="Click to toggle Active / Inactive"
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  border: 'none',
+                                  background: (Number(p.is_active) === 1 || p.is_active === true) ? '#dcfce7' : '#fee2e2',
+                                  color: (Number(p.is_active) === 1 || p.is_active === true) ? '#15803d' : '#b91c1c',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (Number(p.is_active) === 1 || p.is_active === true) ? '#16a34a' : '#dc2626' }} />
+                                {(Number(p.is_active) === 1 || p.is_active === true) ? 'Active' : 'Inactive'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleProductStatus(p, 'is_online')}
+                                title="Click to toggle Online Storefront visibility"
+                                style={{
+                                  padding: '2px 7px',
+                                  borderRadius: '10px',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  border: 'none',
+                                  background: (Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined) ? '#eff6ff' : '#f1f5f9',
+                                  color: (Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined) ? '#1d4ed8' : '#64748b',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}
+                              >
+                                {(Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined) ? '🌐 Online' : '🔒 In-Store'}
+                              </button>
+                            </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
@@ -1500,18 +1664,18 @@ export default function AdminProductsPage() {
 
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  Purchased Rate (Label)
+                  Purchase Rate (Barcode Label)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. 450 or 4.5%"
+                  placeholder="e.g. 450 or A-450"
                   className="form-control"
                   value={formData.purchased_rate || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, purchased_rate: e.target.value }))}
                   style={{ fontSize: '12.5px' }}
                 />
                 <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
-                  Alphanumeric rate printed on barcode label
+                  Characters + numbers printed on barcode label
                 </span>
               </div>
 
@@ -1537,6 +1701,36 @@ export default function AdminProductsPage() {
                 </span>
               </div>
             </div>
+
+            {/* Previous purchase rates (kept when the rate changes) */}
+            {editingProduct && (
+              <div style={{ marginBottom: '14px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                  Previous Purchase Rates
+                </div>
+                {loadingPurchaseRateHistory ? (
+                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>Loading rate history...</div>
+                ) : purchaseRateHistory.length === 0 ? (
+                  <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>No previous purchase rates recorded yet.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {purchaseRateHistory.slice(0, 12).map(entry => (
+                      <span
+                        key={entry.id}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', color: '#334155' }}
+                      >
+                        <strong style={{ color: '#b45309' }}>{entry.old_rate || '—'}</strong>
+                        <span style={{ color: '#94a3b8' }}>→</span>
+                        <strong style={{ color: '#065935' }}>{entry.new_rate || '—'}</strong>
+                        <span style={{ color: '#94a3b8', fontSize: '10px' }}>
+                          {entry.changed_at ? new Date(entry.changed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Live Reactive Margins Card */}
             <div
@@ -1759,6 +1953,45 @@ export default function AdminProductsPage() {
                 <div>
                   <strong style={{ fontSize: '13px', display: 'block', color: 'var(--ink)' }}>Featured Collection</strong>
                   <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Curated catalog showcase</span>
+                </div>
+              </label>
+</div>
+</div>
+
+          {/* Active Status & Online Status */}
+          <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', marginBottom: '18px', border: '1px solid #e2e8f0' }}>
+            <div style={{ marginBottom: '10px' }}>
+              <label className="form-label" style={{ fontWeight: 600, color: 'var(--ink)', margin: 0 }}>
+                Product Status
+              </label>
+              <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                Control product visibility and sales channel availability.
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: '#fff', padding: '10px 14px', borderRadius: '6px', border: formData.is_active ? '1.5px solid #10b981' : '1px solid #e5e7eb', transition: 'border-color 0.2s' }}>
+                <input
+                  type="checkbox"
+                  style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+                  checked={Boolean(formData.is_active)}
+                  onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                />
+                <div>
+                  <strong style={{ fontSize: '13px', display: 'block', color: 'var(--ink)' }}>Active</strong>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Product visible in storefront</span>
+                </div>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: '#fff', padding: '10px 14px', borderRadius: '6px', border: formData.is_online ? '1.5px solid #3b82f6' : '1px solid #e5e7eb', transition: 'border-color 0.2s' }}>
+                <input
+                  type="checkbox"
+                  style={{ width: '18px', height: '18px', accentColor: '#3b82f6', cursor: 'pointer' }}
+                  checked={Boolean(formData.is_online)}
+                  onChange={(e) => setFormData({ ...formData, is_online: e.target.checked })}
+                />
+                <div>
+                  <strong style={{ fontSize: '13px', display: 'block', color: 'var(--ink)' }}>Show Online</strong>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Product available on online store</span>
                 </div>
               </label>
             </div>
@@ -2338,6 +2571,23 @@ export default function AdminProductsPage() {
                           title="Print 1 sticker"
                         >
                           Print 1x
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProductBarcode(b)}
+                          style={{
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            color: '#dc2626',
+                            borderRadius: '5px',
+                            padding: '6px 10px',
+                            fontSize: '11.5px',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                          title="Delete this barcode"
+                        >
+                          Delete
                         </button>
                       </div>
                     </div>

@@ -154,7 +154,8 @@ export default function AdminSalespersonsPage() {
   };
 
   // Filter staff by search text
-  const filteredStaff = report.staff.filter(s => {
+  const safeStaffList = Array.isArray(report?.staff) ? report.staff : [];
+  const filteredStaff = safeStaffList.filter(s => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (

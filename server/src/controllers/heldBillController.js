@@ -1,5 +1,6 @@
 const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { findOrCreateCustomer } = require('../utils/customerHelper');
 
 function toMoney(value) {
   const num = Number(value);
@@ -41,13 +42,29 @@ function calculateTotals(items, discountType, discountValue) {
 }
 
 async function generateReference() {
-  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const existingActive = await query("SELECT reference FROM held_bills WHERE status = 'held'");
+  const activeSlots = new Set();
+  (existingActive || []).forEach(row => {
+    const match = (row.reference || '').match(/HOLD-#?(\d+)/i);
+    if (match) activeSlots.add(parseInt(match[1], 10));
+  });
+
+  // Assign lowest available slot 1..15
+  let slotNum = 1;
+  for (let s = 1; s <= 15; s++) {
+    if (!activeSlots.has(s)) {
+      slotNum = s;
+      break;
+    }
+  }
+
+  const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const candidate = `HOLD-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const candidate = `HOLD-#${slotNum}-${datePart}-${Math.floor(100 + Math.random() * 900)}`;
     const existing = await query('SELECT id FROM held_bills WHERE reference = ? LIMIT 1', [candidate]);
     if (existing.length === 0) return candidate;
   }
-  return `HOLD-${Date.now()}`;
+  return `HOLD-#${slotNum}-${Date.now()}`;
 }
 
 // GET /api/admin/held-bills
@@ -119,8 +136,25 @@ async function holdBill(req, res, next) {
       return sendError(res, 'Cannot hold an empty cart.', 400);
     }
 
+    // Check maximum 15 active held bills limit
+    const activeRows = await query("SELECT COUNT(*) AS count FROM held_bills WHERE status = 'held'");
+    if (activeRows[0] && Number(activeRows[0].count) >= 15) {
+      return sendError(res, 'Maximum limit of 15 held bills reached. Please resume or cancel an existing held bill before holding another.', 400);
+    }
+
     const totals = calculateTotals(items, discount_type, discount_value);
     const reference = await generateReference();
+
+    // Auto-save newly added customer into users table so customer info is recorded
+    try {
+      await findOrCreateCustomer({
+        name: customer_name,
+        phone: customer_phone,
+        email: customer_email
+      });
+    } catch (custErr) {
+      console.warn('[HoldBill] Could not auto-save customer info:', custErr.message);
+    }
 
     const result = await query(
       `INSERT INTO held_bills (
@@ -189,6 +223,17 @@ async function updateHeldBill(req, res, next) {
     }
 
     const totals = calculateTotals(normalizedItems, discount_type, discount_value);
+
+    // Auto-save customer into users table on update as well
+    try {
+      await findOrCreateCustomer({
+        name: customer_name,
+        phone: customer_phone,
+        email: customer_email
+      });
+    } catch (custErr) {
+      console.warn('[HoldBill] Could not auto-save customer info:', custErr.message);
+    }
 
     await query(
       `UPDATE held_bills SET

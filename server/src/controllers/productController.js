@@ -3,6 +3,27 @@ const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { processUploadedFile, deleteUploadedFile } = require('../middleware/upload');
 
+function normalizePurchaseRate(value) {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+async function recordPurchaseRateHistory(productId, oldRate, newRate, userId = null) {
+  const previous = normalizePurchaseRate(oldRate);
+  const next = normalizePurchaseRate(newRate);
+  if (previous === next) return;
+  try {
+    await query(
+      `INSERT INTO product_purchase_rate_history (product_id, old_rate, new_rate, changed_by)
+       VALUES (?, ?, ?, ?)`,
+      [productId, previous, next, userId || null]
+    );
+  } catch (error) {
+    console.error('Could not record purchase rate history:', error.message);
+  }
+}
+
 async function getAllProducts(req, res, next) {
   try {
     const {
@@ -18,7 +39,12 @@ async function getAllProducts(req, res, next) {
       limit = 24,
       is_featured,
       is_new_arrival,
-      is_best_selling
+      is_best_selling,
+      status,
+      is_active,
+      channel,
+      is_online,
+      include_inactive
     } = req.query;
 
     let sql = `
@@ -31,9 +57,31 @@ async function getAllProducts(req, res, next) {
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN categories parent ON c.parent_id = parent.id
       LEFT JOIN vendors v ON p.vendor_id = v.id
-      WHERE p.is_active = TRUE
+      WHERE 1=1
     `;
     const params = [];
+
+    // Status filter: Active vs Inactive (Admin can view all or filter, Storefront views active)
+    if (status === 'inactive' || is_active === '0' || is_active === 'false') {
+      sql += ` AND p.is_active = FALSE`;
+    } else if (status === 'all' || include_inactive === '1' || include_inactive === 'true' || is_active === 'all') {
+      // Include all (active and inactive) for admin
+    } else {
+      // Default: active products only
+      sql += ` AND p.is_active = TRUE`;
+    }
+
+    // Channel filter: Online Storefront vs In-Store / Offline Only
+    if (channel === 'offline' || is_online === '0' || is_online === 'false') {
+      sql += ` AND p.is_online = FALSE`;
+    } else if (channel === 'online' || is_online === '1' || is_online === 'true') {
+      sql += ` AND (p.is_online = TRUE OR p.is_online IS NULL)`;
+    } else if (status === 'all' || include_inactive === '1' || include_inactive === 'true' || is_active === 'all') {
+      // Admin viewing all channels
+    } else {
+      // Default public storefront: only products enabled for online sale
+      sql += ` AND (p.is_online = TRUE OR p.is_online IS NULL)`;
+    }
 
     if (category && category !== 'all') {
       sql += ` AND (
@@ -172,9 +220,9 @@ async function getAllProducts(req, res, next) {
       }
     }
 
-    // Get total count
-    const countSql = `SELECT COUNT(*) AS total FROM products WHERE is_active = TRUE`;
-    const countResult = await query(countSql);
+    // Get total count matching active filters
+    const countSql = `SELECT COUNT(*) AS total FROM (${sql}) AS sub`;
+    const countResult = await query(countSql, params);
     const total = countResult[0] ? countResult[0].total : products.length;
 
     return sendSuccess(res, {
@@ -342,6 +390,8 @@ async function createProduct(req, res, next) {
       is_featured,
       is_new_arrival,
       is_best_selling,
+      is_active,
+      is_online,
       vendor_id,
       mrp,
       purchase_price,
@@ -390,16 +440,18 @@ async function createProduct(req, res, next) {
     const isNewArrivalVal = (is_new_arrival === true || is_new_arrival === 'true' || is_new_arrival === '1' || is_new_arrival === 1) ? 1 : 0;
     const isBestSellingVal = (is_best_selling === true || is_best_selling === 'true' || is_best_selling === '1' || is_best_selling === 1) ? 1 : 0;
     const isFeaturedVal = (is_featured === true || is_featured === 'true' || is_featured === '1' || is_featured === 1) ? 1 : 0;
+    const isActiveVal = (is_active === false || is_active === 'false' || is_active === '0' || is_active === 0) ? 0 : 1;
+    const isOnlineVal = (is_online === false || is_online === 'false' || is_online === '0' || is_online === 0) ? 0 : 1;
 
     await query(
       `INSERT INTO products (
          id, slug, name, category_id, gender, price, sale_price, badge, tagline,
          description, features, materials, care_instructions, dimensions, dimension_w, dimension_h, dimension_l,
          shipping_info, seo_title, seo_description, seo_keywords,
-         is_featured, is_new_arrival, is_best_selling, is_active,
+         is_featured, is_new_arrival, is_best_selling, is_active, is_online,
          vendor_id, mrp, purchase_price, purchased_rate, gst_type, gst_rate, landing_cost, purchase_margin, landing_margin
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         slug,
@@ -425,6 +477,8 @@ async function createProduct(req, res, next) {
         isFeaturedVal,
         isNewArrivalVal,
         isBestSellingVal,
+        isActiveVal,
+        isOnlineVal,
         vendor_id ? parseInt(vendor_id, 10) : null,
         mrp ? parseFloat(mrp) : null,
         purchase_price ? parseFloat(purchase_price) : null,
@@ -436,6 +490,10 @@ async function createProduct(req, res, next) {
         landing_margin ? parseFloat(landing_margin) : null
       ]
     );
+
+    if (normalizePurchaseRate(purchased_rate) !== null) {
+      await recordPurchaseRateHistory(id, null, purchased_rate, req.user?.id || null);
+    }
 
     // Save uploaded images if any (streaming to R2 if configured, storing public URL in DB)
     if (req.files && req.files.length > 0) {
@@ -554,6 +612,7 @@ async function updateProduct(req, res, next) {
       is_new_arrival,
       is_best_selling,
       is_active,
+      is_online,
       vendor_id,
       mrp,
       purchase_price,
@@ -588,6 +647,8 @@ async function updateProduct(req, res, next) {
     const isNewArrivalVal = is_new_arrival !== undefined ? ((is_new_arrival === true || is_new_arrival === 'true' || is_new_arrival === '1' || is_new_arrival === 1) ? 1 : 0) : null;
     const isBestSellingVal = is_best_selling !== undefined ? ((is_best_selling === true || is_best_selling === 'true' || is_best_selling === '1' || is_best_selling === 1) ? 1 : 0) : null;
     const isFeaturedVal = is_featured !== undefined ? ((is_featured === true || is_featured === 'true' || is_featured === '1' || is_featured === 1) ? 1 : 0) : null;
+    const isActiveVal = is_active !== undefined ? ((is_active === true || is_active === 'true' || is_active === '1' || is_active === 1) ? 1 : 0) : null;
+    const isOnlineVal = is_online !== undefined ? ((is_online === true || is_online === 'true' || is_online === '1' || is_online === 1) ? 1 : 0) : null;
 
     await query(
       `UPDATE products SET
@@ -612,7 +673,8 @@ async function updateProduct(req, res, next) {
          is_featured = COALESCE(?, is_featured),
          is_new_arrival = COALESCE(?, is_new_arrival),
          is_best_selling = COALESCE(?, is_best_selling),
-         is_active = COALESCE(?, is_active),
+         is_active = IF(? IS NOT NULL, ?, is_active),
+         is_online = IF(? IS NOT NULL, ?, is_online),
          vendor_id = IF(? IS NOT NULL, ?, vendor_id),
          mrp = IF(? IS NOT NULL, ?, mrp),
          purchase_price = IF(? IS NOT NULL, ?, purchase_price),
@@ -651,7 +713,10 @@ async function updateProduct(req, res, next) {
         isFeaturedVal,
         isNewArrivalVal,
         isBestSellingVal,
-        is_active !== undefined ? (is_active ? 1 : 0) : null,
+        isActiveVal !== null ? isActiveVal : null,
+        isActiveVal !== null ? isActiveVal : null,
+        isOnlineVal !== null ? isOnlineVal : null,
+        isOnlineVal !== null ? isOnlineVal : null,
         vendor_id !== undefined ? (vendor_id ? parseInt(vendor_id, 10) : null) : null,
         vendor_id !== undefined ? (vendor_id ? parseInt(vendor_id, 10) : null) : null,
         mrp !== undefined ? (mrp ? parseFloat(mrp) : null) : null,
@@ -673,6 +738,15 @@ async function updateProduct(req, res, next) {
         id
       ]
     );
+
+    if (purchased_rate !== undefined) {
+      await recordPurchaseRateHistory(
+        id,
+        oldProd ? oldProd.purchased_rate : null,
+        purchased_rate,
+        req.user?.id || null
+      );
+    }
 
     if (gender !== undefined) {
       await query(`UPDATE products SET gender = ? WHERE id = ?`, [gender || 'all', id]);
@@ -810,9 +884,9 @@ async function duplicateProduct(req, res, next) {
       `INSERT INTO products (
          id, slug, name, category_id, price, sale_price, badge, tagline,
          description, features, materials, dimensions, dimension_w, dimension_h, dimension_l,
-         shipping_info, is_featured, is_active
+         shipping_info, is_featured, is_active, is_online
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)`,
       [
         newId,
         newSlug,
@@ -830,7 +904,8 @@ async function duplicateProduct(req, res, next) {
         orig.dimension_h,
         orig.dimension_l,
         orig.shipping_info,
-        orig.is_featured
+        orig.is_featured,
+        orig.is_online !== undefined && orig.is_online !== null ? (orig.is_online ? 1 : 0) : 1
       ]
     );
 
@@ -982,9 +1057,28 @@ async function deleteProduct(req, res, next) {
   }
 }
 
+// Admin: Purchase rate change history for a product
+async function getProductPurchaseRateHistory(req, res, next) {
+  try {
+    const { id } = req.params;
+    const history = await query(
+      `SELECT id, product_id, old_rate, new_rate, changed_by, changed_at
+       FROM product_purchase_rate_history
+       WHERE product_id = ?
+       ORDER BY changed_at DESC, id DESC
+       LIMIT 100`,
+      [id]
+    );
+    return sendSuccess(res, history);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getAllProducts,
   getProductBySlugOrId,
+  getProductPurchaseRateHistory,
   createProduct,
   updateProduct,
   deleteProduct,

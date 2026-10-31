@@ -78,6 +78,10 @@ export default function AdminBarcodesPage() {
       .then(res => {
         if (Array.isArray(res)) {
           setAllGeneratedBarcodes(res);
+        } else if (res && Array.isArray(res.barcodes)) {
+          setAllGeneratedBarcodes(res.barcodes);
+        } else {
+          setAllGeneratedBarcodes([]);
         }
       })
       .catch(() => {})
@@ -220,22 +224,12 @@ export default function AdminBarcodesPage() {
   .store-name {
     font-size: 7.5pt;
     font-weight: 900;
-    text-transform: uppercase;
     letter-spacing: 0.2px;
-    color: #000000 !important;
-  }
-  .product-name {
-    font-size: 6pt;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 30mm;
     color: #000000 !important;
   }
   .barcode-svg-container {
     width: 28mm;
-    height: 10mm;
+    height: 9mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -246,26 +240,53 @@ export default function AdminBarcodesPage() {
     fill: #000000 !important;
     stroke: #000000 !important;
   }
-  .code-text {
-    font-size: 7.5pt;
-    font-weight: 900;
-    font-family: monospace;
-    letter-spacing: 0.5px;
-    color: #000000 !important;
-  }
-  .code-text .seq-text {
-    font-size: 5.8pt;
-    letter-spacing: 0;
-  }
-  .meta-row {
+  .info-row {
     width: 100%;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 6.2pt;
-    font-weight: 900;
+    gap: 1mm;
+    padding: 0 0.5mm;
     line-height: 1;
     color: #000000 !important;
+  }
+  .code-text {
+    font-size: 5.5pt;
+    font-weight: 700;
+    font-family: monospace;
+    letter-spacing: 0.2px;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #000000 !important;
+  }
+  .code-text .seq-text {
+    font-size: 4.5pt;
+    letter-spacing: 0;
+  }
+  .rate-text {
+    font-size: 5.5pt;
+    font-weight: 700;
+    line-height: 1;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #000000 !important;
+  }
+  .mrp-text {
+    font-size: 11pt;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+    color: #000000 !important;
+  }
+  .mrp-text .mrp-label {
+    font-size: 6.5pt;
+    font-weight: 900;
+    letter-spacing: 0;
   }
 </style>
 </head>
@@ -273,11 +294,10 @@ export default function AdminBarcodesPage() {
   <div class="sticker-row">
     ${Array.from({ length: copies }).map(() => `
       <div class="barcode-sticker">
-        <div class="store-name">NP GRAND SHOPPING</div>
-        <div class="product-name">${barcodeItem.product_name || barcodeItem.barcode_short_name || 'Handbag Collection'}</div>
+        <div class="store-name">NP Grand</div>
         <div class="barcode-svg-container">${barcodeItem.svg || ''}</div>
-        <div class="code-text">${barcodeItem.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</div>
-        <div class="meta-row"><span>MRP: ₹${label.mrp}</span><span>RATE: ${label.rate}</span></div>
+        <div class="info-row"><span class="code-text">${barcodeItem.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</span><span class="rate-text">${label.rate}</span></div>
+        <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
       </div>
     `).join('')}
   </div>
@@ -354,22 +374,12 @@ export default function AdminBarcodesPage() {
   .store-name {
     font-size: 7.5pt;
     font-weight: 900;
-    text-transform: uppercase;
     letter-spacing: 0.2px;
-    color: #000000 !important;
-  }
-  .product-name {
-    font-size: 6pt;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 30mm;
     color: #000000 !important;
   }
   .barcode-svg-container {
     width: 28mm;
-    height: 10mm;
+    height: 9mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -380,26 +390,53 @@ export default function AdminBarcodesPage() {
     fill: #000000 !important;
     stroke: #000000 !important;
   }
-  .code-text {
-    font-size: 7.5pt;
-    font-weight: 900;
-    font-family: monospace;
-    letter-spacing: 0.5px;
-    color: #000000 !important;
-  }
-  .code-text .seq-text {
-    font-size: 5.8pt;
-    letter-spacing: 0;
-  }
-  .meta-row {
+  .info-row {
     width: 100%;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 6.2pt;
-    font-weight: 900;
+    gap: 1mm;
+    padding: 0 0.5mm;
     line-height: 1;
     color: #000000 !important;
+  }
+  .code-text {
+    font-size: 5.5pt;
+    font-weight: 700;
+    font-family: monospace;
+    letter-spacing: 0.2px;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #000000 !important;
+  }
+  .code-text .seq-text {
+    font-size: 4.5pt;
+    letter-spacing: 0;
+  }
+  .rate-text {
+    font-size: 5.5pt;
+    font-weight: 700;
+    line-height: 1;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #000000 !important;
+  }
+  .mrp-text {
+    font-size: 11pt;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+    color: #000000 !important;
+  }
+  .mrp-text .mrp-label {
+    font-size: 6.5pt;
+    font-weight: 900;
+    letter-spacing: 0;
   }
 </style>
 </head>
@@ -409,11 +446,10 @@ export default function AdminBarcodesPage() {
       const label = getLabelDetails(item);
       return Array.from({ length: copiesPerItem }).map(() => `
         <div class="barcode-sticker">
-          <div class="store-name">NP GRAND SHOPPING</div>
-          <div class="product-name">${item.product_name || item.barcode_short_name || 'Handbag Collection'}</div>
+          <div class="store-name">NP Grand</div>
           <div class="barcode-svg-container">${item.svg || ''}</div>
-          <div class="code-text">${item.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</div>
-          <div class="meta-row"><span>MRP: ₹${label.mrp}</span><span>RATE: ${label.rate}</span></div>
+          <div class="info-row"><span class="code-text">${item.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</span><span class="rate-text">${label.rate}</span></div>
+          <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
         </div>
       `).join('');
     }).join('')}
