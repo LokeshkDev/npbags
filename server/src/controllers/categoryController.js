@@ -124,6 +124,30 @@ async function updateCategory(req, res, next) {
       if (parentIdVal === parseInt(id, 10)) {
         return sendError(res, 'A category cannot be its own parent.', 400);
       }
+
+      // Prevent circular hierarchy: parent cannot be one of this category's descendants
+      if (parentIdVal !== null) {
+        const allCats = await query(`SELECT id, parent_id FROM categories`);
+        const childrenMap = new Map();
+        allCats.forEach(c => {
+          const key = c.parent_id ? String(c.parent_id) : 'root';
+          if (!childrenMap.has(key)) childrenMap.set(key, []);
+          childrenMap.get(key).push(Number(c.id));
+        });
+
+        const descendants = new Set();
+        const stack = [...(childrenMap.get(String(id)) || [])];
+        while (stack.length > 0) {
+          const childId = stack.pop();
+          if (descendants.has(childId)) continue;
+          descendants.add(childId);
+          stack.push(...(childrenMap.get(String(childId)) || []));
+        }
+
+        if (descendants.has(parentIdVal)) {
+          return sendError(res, 'Cannot move a category under one of its own sub-items (circular hierarchy).', 400);
+        }
+      }
     }
 
     // Build dynamic UPDATE query so only provided fields are touched and NO undefined bind params exist

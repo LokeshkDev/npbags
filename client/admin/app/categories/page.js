@@ -127,8 +127,60 @@ export default function AdminCategoriesPage() {
   const [categorySearch, setCategorySearch] = useState('');
 
   // Top level categories
-  const topLevelCategories = categories.filter(c => !c.parent_id && (!editingCategory || c.id !== editingCategory.id));
   const mainCategories = categories.filter(c => !c.parent_id);
+
+  // Build a parent -> children map so the hierarchy can be traversed to any depth
+  const childrenByParent = (() => {
+    const map = new Map();
+    categories.forEach(c => {
+      const key = c.parent_id ? String(c.parent_id) : 'root';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(c);
+    });
+    map.forEach(list => list.sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)));
+    return map;
+  })();
+
+  const getChildren = (parentId) =>
+    childrenByParent.get(parentId === null || parentId === undefined || parentId === '' ? 'root' : String(parentId)) || [];
+
+  // Flatten all descendants of a category with their depth level (supports unlimited nesting)
+  const flattenDescendants = (parentId, depth = 0) => {
+    const out = [];
+    getChildren(parentId).forEach(child => {
+      out.push({ cat: child, depth });
+      out.push(...flattenDescendants(child.id, depth + 1));
+    });
+    return out;
+  };
+
+  const collectDescendantIds = (rootId) => {
+    const ids = new Set();
+    const walk = (pid) => {
+      getChildren(pid).forEach(child => {
+        if (ids.has(child.id)) return;
+        ids.add(child.id);
+        walk(child.id);
+      });
+    };
+    walk(rootId);
+    return ids;
+  };
+
+  // Parent options for the modal — any category can be a parent, but exclude itself and its descendants
+  const parentOptions = (() => {
+    const options = [];
+    const excluded = editingCategory ? collectDescendantIds(editingCategory.id) : new Set();
+    const walk = (parentId, depth) => {
+      getChildren(parentId).forEach(cat => {
+        if (editingCategory && (cat.id === editingCategory.id || excluded.has(cat.id))) return;
+        options.push({ cat, depth });
+        walk(cat.id, depth + 1);
+      });
+    };
+    walk(null, 0);
+    return options;
+  })();
 
   // Initialize all main categories expanded on first load
   useEffect(() => {
@@ -201,36 +253,36 @@ export default function AdminCategoriesPage() {
 
   // Filtered categories according to gender filter, level filter, search query, and sorting
   const filteredMainCategories = mainCategories.filter(main => {
-    const subcats = categories.filter(c => c.parent_id === main.id);
+    const descendants = flattenDescendants(main.id).map(d => d.cat);
 
     // 1. Department / Gender filter
     if (genderFilter !== 'all') {
       if (genderFilter === 'unisex') {
         const isMainUnisex = (main.gender || 'all').toLowerCase() === 'all' || (main.gender || '').toLowerCase() === 'unisex';
-        const isSubUnisex = subcats.some(s => (s.gender || 'all').toLowerCase() === 'all' || (s.gender || '').toLowerCase() === 'unisex');
+        const isSubUnisex = descendants.some(s => (s.gender || 'all').toLowerCase() === 'all' || (s.gender || '').toLowerCase() === 'unisex');
         if (!isMainUnisex && !isSubUnisex) return false;
       } else {
         const matchesMainGender = (main.gender || 'all').toLowerCase() === genderFilter;
-        const matchesSubGender = subcats.some(s => (s.gender || 'all').toLowerCase() === genderFilter);
+        const matchesSubGender = descendants.some(s => (s.gender || 'all').toLowerCase() === genderFilter);
         if (!matchesMainGender && !matchesSubGender) return false;
       }
     }
 
     // 2. Hierarchy Level Filter
-    if (levelFilter === 'with_sub' && subcats.length === 0) return false;
-    if (levelFilter === 'no_sub' && subcats.length > 0) return false;
+    if (levelFilter === 'with_sub' && descendants.length === 0) return false;
+    if (levelFilter === 'no_sub' && descendants.length > 0) return false;
 
     // 3. Search text query
     if (!categorySearch.trim()) return true;
     const q = categorySearch.toLowerCase();
     const matchesMain = main.name.toLowerCase().includes(q) || (main.slug && main.slug.toLowerCase().includes(q));
-    const matchesSub = subcats.some(s => s.name.toLowerCase().includes(q) || (s.slug && s.slug.toLowerCase().includes(q)));
+    const matchesSub = descendants.some(s => s.name.toLowerCase().includes(q) || (s.slug && s.slug.toLowerCase().includes(q)));
     return matchesMain || matchesSub;
   }).sort((a, b) => {
     if (categorySort === 'name_asc') return (a.name || '').localeCompare(b.name || '');
     if (categorySort === 'sub_count') {
-      const subsA = categories.filter(c => c.parent_id === a.id).length;
-      const subsB = categories.filter(c => c.parent_id === b.id).length;
+      const subsA = flattenDescendants(a.id).length;
+      const subsB = flattenDescendants(b.id).length;
       return subsB - subsA;
     }
     // Default display order
@@ -445,9 +497,7 @@ export default function AdminCategoriesPage() {
               </div>
             ) : (
               filteredMainCategories.map(mainCat => {
-                const subcategories = categories
-                  .filter(c => c.parent_id === mainCat.id)
-                  .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+                const descendants = flattenDescendants(mainCat.id);
                 const isExpanded = expandedIds.has(mainCat.id);
 
                 return (
@@ -518,11 +568,11 @@ export default function AdminCategoriesPage() {
                             fontWeight: 600,
                             padding: '3px 8px',
                             borderRadius: '12px',
-                            background: subcategories.length > 0 ? '#e0f2fe' : '#f1f5f9',
-                            color: subcategories.length > 0 ? '#0369a1' : '#64748b'
+                            background: descendants.length > 0 ? '#e0f2fe' : '#f1f5f9',
+                            color: descendants.length > 0 ? '#0369a1' : '#64748b'
                           }}
                         >
-                          {subcategories.length} {subcategories.length === 1 ? 'Subcategory' : 'Subcategories'}
+                          {descendants.length} {descendants.length === 1 ? 'Sub-item' : 'Sub-items'}
                         </span>
 
                         {/* Products count */}
@@ -574,7 +624,7 @@ export default function AdminCategoriesPage() {
                     {/* Subcategories Panel */}
                     {isExpanded && (
                       <div style={{ background: '#f8fafc', padding: '16px 20px', borderTop: '1px solid #e2e8f0' }}>
-                        {subcategories.length === 0 ? (
+                        {descendants.length === 0 ? (
                           <div
                             style={{
                               padding: '24px',
@@ -585,7 +635,7 @@ export default function AdminCategoriesPage() {
                             }}
                           >
                             <p style={{ margin: '0 0 10px', fontSize: '13px', color: 'var(--muted)' }}>
-                              No subcategories created under <strong>{mainCat.name}</strong> yet.
+                              No sub-items created under <strong>{mainCat.name}</strong> yet.
                             </p>
                             <button
                               type="button"
@@ -613,7 +663,7 @@ export default function AdminCategoriesPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {subcategories.map(sub => (
+                                {descendants.map(({ cat: sub, depth }) => (
                                   <tr key={sub.id}>
                                     <td style={{ width: '48px' }}>
                                       <div style={{ width: '36px', height: '36px', borderRadius: '4px', overflow: 'hidden', background: '#f8fafc' }}>
@@ -627,10 +677,15 @@ export default function AdminCategoriesPage() {
                                       </div>
                                     </td>
                                     <td>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: `${depth * 20}px` }}>
                                         <span style={{ color: '#0284c7', fontWeight: 700, fontSize: '14px' }}>↳</span>
                                         <div>
                                           <strong style={{ fontSize: '13px', color: 'var(--ink)' }}>{sub.name}</strong>
+                                          {depth > 0 && (
+                                            <span style={{ fontSize: '10px', fontWeight: 600, color: '#94a3b8', marginLeft: '6px' }}>
+                                              L{depth + 2}
+                                            </span>
+                                          )}
                                           {sub.description && (
                                             <div style={{ fontSize: '11px', color: 'var(--muted)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                               {sub.description}
@@ -656,6 +711,16 @@ export default function AdminCategoriesPage() {
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
                                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                        <button
+                                          type="button"
+                                          className="admin-btn admin-btn-outline"
+                                          style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '5px' }}
+                                          onClick={() => openAddModal(sub.id)}
+                                          title="Add a sub-item inside this subcategory"
+                                        >
+                                          <Icon name="plus" size={12} />
+                                          <span>Add Sub</span>
+                                        </button>
                                         <button
                                           type="button"
                                           className="admin-btn admin-btn-outline"
@@ -716,14 +781,15 @@ export default function AdminCategoriesPage() {
                   }}
                 >
                   <option value="">-- None (Top-Level Main Category) --</option>
-                  {topLevelCategories.map(parent => (
+                  {parentOptions.map(({ cat: parent, depth }) => (
                     <option key={parent.id} value={parent.id}>
-                      Subcategory of: {parent.name} ({parent.gender || 'all'})
+                      {depth > 0 ? `${'— '.repeat(depth)}Sub-item of: ` : 'Subcategory of: '}
+                      {parent.name} ({parent.gender || 'all'})
                     </option>
                   ))}
                 </select>
                 <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
-                  Choose &quot;None&quot; for a primary category (e.g. Handbags, Accessories), or select a parent category to create a subcategory (e.g. Tote Bags under Handbags).
+                  Choose &quot;None&quot; for a primary category, or select any category/sub-item as the parent to nest deeper (e.g. Handbags → Tote Bags → Canvas Totes).
                 </span>
               </div>
 

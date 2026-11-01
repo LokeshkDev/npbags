@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCart } from '../../lib/cart-context';
@@ -111,6 +111,129 @@ const defaultNavItems = [
   }
 ];
 
+// Always render header menu labels in Title Case, regardless of how they were typed in admin
+function formatMenuLabel(label) {
+  if (!label) return '';
+  return String(label)
+    .toLowerCase()
+    .replace(/(^|[\s\-/&])([a-z])/g, (match, separator, character) => separator + character.toUpperCase());
+}
+
+function normalizeNavItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => ({
+    ...item,
+    label: formatMenuLabel(item.label),
+    sub_items: Array.isArray(item.sub_items) ? normalizeNavItems(item.sub_items) : undefined
+  }));
+}
+
+// Desktop: multi-level dropdown (main menu -> sub menu -> sub-sub menu ...)
+function DesktopNavSubMenu({ items }) {
+  return (
+    <ul className="nav-dropdown-list">
+      {items.map((sub, idx) => {
+        const children = Array.isArray(sub.sub_items)
+          ? sub.sub_items.filter(child => child && child.label)
+          : [];
+        const hasChildren = children.length > 0;
+
+        return (
+          <li
+            key={idx}
+            className={`nav-dropdown-item${hasChildren ? ' nav-dropdown-item--parent' : ''}`}
+            role="none"
+          >
+            <Link href={sub.url || '#'} className="nav-dropdown-link" role="menuitem">
+              <span>{sub.label}</span>
+              <span className="nav-dropdown-arrow" aria-hidden="true">
+                {hasChildren ? '\u203A' : '\u2192'}
+              </span>
+            </Link>
+            {hasChildren && (
+              <div className="nav-dropdown-submenu" role="menu">
+                <DesktopNavSubMenu items={children} />
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// Mobile: nested accordion for unlimited sub-menu levels
+function MobileNavSubMenu({ items, onNavigate, level = 0 }) {
+  const [openIndex, setOpenIndex] = useState(null);
+
+  return (
+    <ul
+      style={{
+        listStyle: 'none',
+        padding: level === 0 ? '6px 12px 10px 24px' : '4px 0 4px 16px',
+        margin: level === 0 ? '4px 0 8px' : '2px 0',
+        background: level === 0 ? '#f8fafc' : 'transparent',
+        borderRadius: '8px',
+        borderLeft: level === 0
+          ? '3px solid var(--np-green, #065935)'
+          : '2px solid #e2e8f0'
+      }}
+    >
+      {items.map((sub, idx) => {
+        const children = Array.isArray(sub.sub_items)
+          ? sub.sub_items.filter(child => child && child.label)
+          : [];
+        const hasChildren = children.length > 0;
+        const isOpen = openIndex === idx;
+
+        return (
+          <li key={idx} style={{ padding: '6px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Link
+                href={sub.url || '#'}
+                onClick={onNavigate}
+                style={{
+                  flexGrow: 1,
+                  fontSize: '13px',
+                  color: '#4b5563',
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <span>{sub.label}</span>
+              </Link>
+              {hasChildren ? (
+                <button
+                  type="button"
+                  aria-label={`Toggle ${sub.label} submenu`}
+                  onClick={() => setOpenIndex(isOpen ? null : idx)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                    color: '#6b7280',
+                    fontSize: '11px'
+                  }}
+                >
+                  {isOpen ? '▲' : '▼'}
+                </button>
+              ) : (
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>&rarr;</span>
+              )}
+            </div>
+            {hasChildren && isOpen && (
+              <MobileNavSubMenu items={children} onNavigate={onNavigate} level={level + 1} />
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function SiteHeader({ categories: initialCategories = [], navigationData = null }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -150,9 +273,10 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
   };
 
   // Dynamic CMS navigation items from database (only related data, no static forced Home link)
-  const primaryNavItems = (navigationData?.items && Array.isArray(navigationData.items) && navigationData.items.length > 0)
+  const rawNavItems = (navigationData?.items && Array.isArray(navigationData.items) && navigationData.items.length > 0)
     ? navigationData.items
     : defaultNavItems;
+  const primaryNavItems = useMemo(() => normalizeNavItems(rawNavItems), [rawNavItems]);
 
   const brandLogoUrl = navigationData?.logo_url || '/assets/brand-logo.png';
   const searchPlaceholder = navigationData?.search_placeholder || 'Search for bags, jewellery, shoes, water bottles...';
@@ -296,19 +420,10 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
                       )}
                     </Link>
 
-                    {/* Submenu Dropdown Popover */}
+                    {/* Submenu Dropdown Popover (supports nested sub-items) */}
                     {hasSub && (
                       <div className="nav-dropdown-menu" role="menu">
-                        <ul className="nav-dropdown-list">
-                          {item.sub_items.map((sub, sIdx) => (
-                            <li key={sIdx} role="none">
-                              <Link href={sub.url} className="nav-dropdown-link" role="menuitem">
-                                <span>{sub.label}</span>
-                                <span className="nav-dropdown-arrow" aria-hidden="true">&rarr;</span>
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
+                        <DesktopNavSubMenu items={item.sub_items} />
                       </div>
                     )}
                   </li>
@@ -387,22 +502,12 @@ export function SiteHeader({ categories: initialCategories = [], navigationData 
                     )}
                   </div>
 
-                  {/* Mobile Submenu Accordion */}
+                  {/* Mobile Submenu Accordion (supports nested sub-items) */}
                   {hasSub && isExpanded && (
-                    <ul style={{ listStyle: 'none', padding: '6px 12px 10px 24px', margin: '4px 0 8px', background: '#f8fafc', borderRadius: '8px', borderLeft: '3px solid var(--np-green, #065935)' }}>
-                      {item.sub_items.map((sub, sIdx) => (
-                        <li key={sIdx} style={{ padding: '7px 0' }}>
-                          <Link
-                            href={sub.url}
-                            onClick={() => setMobileDrawerOpen(false)}
-                            style={{ fontSize: '13px', color: '#4b5563', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                          >
-                            <span>{sub.label}</span>
-                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>&rarr;</span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
+                    <MobileNavSubMenu
+                      items={item.sub_items}
+                      onNavigate={() => setMobileDrawerOpen(false)}
+                    />
                   )}
                 </li>
               );

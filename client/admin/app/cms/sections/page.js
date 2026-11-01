@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from '../../../components/Sidebar';
 import { Topbar } from '../../../components/Topbar';
 import { Icon } from '../../../components/Icons';
-import { getAdminCMSSections, updateAdminCMSSection, uploadCMSMedia, reorderAdminCMSSections } from '../../../lib/api';
+import { getAdminCMSSections, updateAdminCMSSection, uploadCMSMedia, reorderAdminCMSSections, getAdminCategories } from '../../../lib/api';
 
 // Reusable Image Upload & Dimension Component
 function CMSImageUploader({ label, value, onChange, recommendedDimension }) {
@@ -258,6 +258,62 @@ const defaultHeaderNavItems = [
   }
 ];
 
+// ---------------------------------------------------------------------------
+// Category -> Header Menu helpers
+// ---------------------------------------------------------------------------
+function buildCategoryLink(cat) {
+  const gender = (cat.gender || 'all').toLowerCase();
+  const base = gender === 'women' ? '/womens' : gender === 'men' ? '/mens' : gender === 'kids' ? '/kids' : '/shop';
+  return `${base}?category=${cat.slug}`;
+}
+
+// Department icon shown next to categories in the menu picker dropdowns
+function categoryGenderIcon(cat) {
+  const gender = (cat.gender || 'all').toLowerCase();
+  if (gender === 'women') return '👩';
+  if (gender === 'men') return '👤';
+  if (gender === 'kids') return '🧒';
+  return '🌐';
+}
+
+function groupCategoriesByParent(categories) {
+  const map = new Map();
+  categories.forEach((cat) => {
+    const key = cat.parent_id ? String(cat.parent_id) : 'root';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(cat);
+  });
+  map.forEach((list) => list.sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)));
+  return map;
+}
+
+// Convert the category hierarchy into header nav items with nested sub_items
+function buildMenuItemsFromCategories(categories) {
+  const byParent = groupCategoriesByParent(categories);
+  const build = (parentKey) =>
+    (byParent.get(parentKey) || []).map((cat) => {
+      const node = { label: cat.name, url: buildCategoryLink(cat), category_id: cat.id };
+      const children = build(String(cat.id));
+      if (children.length > 0) node.sub_items = children;
+      return node;
+    });
+  return build('root');
+}
+
+// Flat list of categories with depth for <select> pickers
+function flattenCategoryOptions(categories) {
+  const byParent = groupCategoriesByParent(categories);
+  const options = [];
+  const walk = (parentKey, depth) => {
+    (byParent.get(parentKey) || []).forEach((cat) => {
+      options.push({ cat, depth });
+      walk(String(cat.id), depth + 1);
+    });
+  };
+  walk('root', 0);
+  return options;
+}
+
 export default function AdminCMSSectionsPage() {
   const [sections, setSections] = useState({});
   const [sectionOrder, setSectionOrder] = useState(defaultBodyOrder);
@@ -266,7 +322,8 @@ export default function AdminCMSSectionsPage() {
   const [saving, setSaving] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
-  const [expandedSubmenuIndex, setExpandedSubmenuIndex] = useState(null);
+  const [expandedMenuPaths, setExpandedMenuPaths] = useState(new Set());
+  const [adminCategories, setAdminCategories] = useState([]);
 
   // Handle ?tab= query parameter on mount
   useEffect(() => {
@@ -277,6 +334,15 @@ export default function AdminCMSSectionsPage() {
         setActiveTab(tabParam);
       }
     }
+  }, []);
+
+  // Fetch categories so the header menu can be built directly from them
+  useEffect(() => {
+    getAdminCategories()
+      .then((data) => {
+        if (Array.isArray(data)) setAdminCategories(data);
+      })
+      .catch(() => {});
   }, []);
 
   // Fetch sections from MySQL via admin API
@@ -1602,66 +1668,333 @@ export default function AdminCMSSectionsPage() {
                 ? navContent.items
                 : defaultHeaderNavItems;
 
-              const handleUpdateNavItem = (index, field, val) => {
-                const nextItems = navItems.map((item, i) => i === index ? { ...item, [field]: val } : item);
+              const categoryOptions = flattenCategoryOptions(adminCategories);
+
+              const saveNavItems = (nextItems) =>
                 updateContent('main_navigation', { ...navContent, items: nextItems });
+
+              const cloneNavItems = () => JSON.parse(JSON.stringify(navItems));
+
+              const getNodeAt = (items, path) => {
+                let list = items;
+                let node = null;
+                for (let i = 0; i < path.length; i += 1) {
+                  node = list[path[i]];
+                  if (!node) return null;
+                  list = Array.isArray(node.sub_items) ? node.sub_items : [];
+                }
+                return node;
               };
 
-              const handleMoveNavItem = (index, direction) => {
-                const targetIndex = index + direction;
-                if (targetIndex < 0 || targetIndex >= navItems.length) return;
-                const nextItems = [...navItems];
-                const [moved] = nextItems.splice(index, 1);
-                nextItems.splice(targetIndex, 0, moved);
-                updateContent('main_navigation', { ...navContent, items: nextItems });
+              const updateNodeAt = (path, field, val) => {
+                const next = cloneNavItems();
+                const node = getNodeAt(next, path);
+                if (!node) return;
+                node[field] = val;
+                saveNavItems(next);
               };
 
-              const handleAddNavItem = () => {
-                const nextItems = [...navItems, { label: 'New Link', url: '/shop' }];
-                updateContent('main_navigation', { ...navContent, items: nextItems });
+              const addNodeAt = (parentPath, child) => {
+                const next = cloneNavItems();
+                if (parentPath.length === 0) {
+                  next.push(child);
+                } else {
+                  const parent = getNodeAt(next, parentPath);
+                  if (!parent) return;
+                  parent.sub_items = Array.isArray(parent.sub_items)
+                    ? [...parent.sub_items, child]
+                    : [child];
+                }
+                saveNavItems(next);
               };
 
-              const handleDeleteNavItem = (index) => {
-                if (navItems.length <= 1) {
+              const deleteNodeAt = (path) => {
+                if (path.length === 1 && navItems.length <= 1) {
                   alert('Navigation menu must have at least one link.');
                   return;
                 }
-                const nextItems = navItems.filter((_, i) => i !== index);
-                updateContent('main_navigation', { ...navContent, items: nextItems });
+                const next = cloneNavItems();
+                let list = next;
+                for (let i = 0; i < path.length - 1; i += 1) {
+                  const parent = list[path[i]];
+                  if (!parent) return;
+                  list = Array.isArray(parent.sub_items) ? parent.sub_items : [];
+                }
+                list.splice(path[path.length - 1], 1);
+                saveNavItems(next);
               };
 
-              const handleAddSubItem = (navIdx) => {
-                const currentNav = navItems[navIdx];
-                const currentSub = Array.isArray(currentNav.sub_items) ? currentNav.sub_items : [];
-                const nextSub = [...currentSub, { label: 'New Sub-link', url: currentNav.url || '/shop' }];
-                const nextItems = navItems.map((item, i) => i === navIdx ? { ...item, sub_items: nextSub } : item);
-                updateContent('main_navigation', { ...navContent, items: nextItems });
+              const moveNodeAt = (path, direction) => {
+                const next = cloneNavItems();
+                let list = next;
+                for (let i = 0; i < path.length - 1; i += 1) {
+                  const parent = list[path[i]];
+                  if (!parent) return;
+                  list = Array.isArray(parent.sub_items) ? parent.sub_items : [];
+                }
+                const index = path[path.length - 1];
+                const targetIndex = index + direction;
+                if (targetIndex < 0 || targetIndex >= list.length) return;
+                const [moved] = list.splice(index, 1);
+                list.splice(targetIndex, 0, moved);
+                saveNavItems(next);
               };
 
-              const handleUpdateSubItem = (navIdx, subIdx, field, val) => {
-                const currentNav = navItems[navIdx];
-                const currentSub = Array.isArray(currentNav.sub_items) ? [...currentNav.sub_items] : [];
-                currentSub[subIdx] = { ...currentSub[subIdx], [field]: val };
-                const nextItems = navItems.map((item, i) => i === navIdx ? { ...item, sub_items: currentSub } : item);
-                updateContent('main_navigation', { ...navContent, items: nextItems });
+              const handleMoveNavItem = (path, direction) => moveNodeAt(path, direction);
+              const handleUpdateNavItem = (path, field, val) => updateNodeAt(path, field, val);
+              const handleAddNavItem = () => addNodeAt([], { label: 'New Link', url: '/shop' });
+              const handleDeleteNavItem = (path) => deleteNodeAt(path);
+              const handleAddSubItem = (parentPath) => {
+                const parent = getNodeAt(navItems, parentPath);
+                addNodeAt(parentPath, { label: 'New Sub-link', url: parent?.url || '/shop' });
+                setExpandedMenuPaths((prev) => new Set(prev).add(parentPath.join('.')));
               };
 
-              const handleDeleteSubItem = (navIdx, subIdx) => {
-                const currentNav = navItems[navIdx];
-                const currentSub = Array.isArray(currentNav.sub_items) ? currentNav.sub_items.filter((_, s) => s !== subIdx) : [];
-                const nextItems = navItems.map((item, i) => i === navIdx ? { ...item, sub_items: currentSub } : item);
-                updateContent('main_navigation', { ...navContent, items: nextItems });
+              const handleAddFromCategory = (parentPath, catId) => {
+                if (!catId) return;
+                const cat = adminCategories.find((c) => String(c.id) === String(catId));
+                if (!cat) return;
+                addNodeAt(parentPath, {
+                  label: cat.name,
+                  url: buildCategoryLink(cat),
+                  category_id: cat.id
+                });
+                setExpandedMenuPaths((prev) => new Set(prev).add(parentPath.join('.')));
               };
 
-              const toggleSubmenuExpand = (idx) => {
-                setExpandedSubmenuIndex(prev => prev === idx ? null : idx);
+              const handleGenerateFromCategories = () => {
+                if (adminCategories.length === 0) {
+                  alert('No categories found. Create categories first in the Categories page.');
+                  return;
+                }
+                if (!confirm('Replace the current header menu with your category hierarchy (main menu > sub menu > sub-sub menu)?')) {
+                  return;
+                }
+                const nextItems = buildMenuItemsFromCategories(adminCategories);
+                if (nextItems.length === 0) {
+                  alert('No top-level categories found.');
+                  return;
+                }
+                saveNavItems(nextItems);
+                setExpandedMenuPaths(new Set());
+              };
+
+              const toggleSubmenuExpand = (pathKey) => {
+                setExpandedMenuPaths((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(pathKey)) next.delete(pathKey);
+                  else next.add(pathKey);
+                  return next;
+                });
               };
 
               const handleResetToDefault = () => {
                 if (confirm('Reset header navigation menu to recommended default links?')) {
-                  updateContent('main_navigation', { ...navContent, items: defaultHeaderNavItems });
+                  saveNavItems(defaultHeaderNavItems);
+                  setExpandedMenuPaths(new Set());
                 }
               };
+
+              // Recursive editor for sub menu -> sub-sub menu -> ...
+              const renderSubMenuNodes = (items, parentPath, level) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {items.map((sub, sIdx) => {
+                    const path = [...parentPath, sIdx];
+                    const pathKey = path.join('.');
+                    const children = Array.isArray(sub.sub_items) ? sub.sub_items : [];
+                    const isOpen = expandedMenuPaths.has(pathKey);
+
+                    return (
+                      <div
+                        key={pathKey}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          background: level === 0 ? '#f8fafc' : '#ffffff'
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800, minWidth: '32px' }}>
+                            {path.map((n) => n + 1).join('.')}
+                          </span>
+
+                          {/* Sub-item up/down ordering */}
+                          <div style={{ display: 'flex', gap: '3px' }}>
+                            <button
+                              type="button"
+                              disabled={sIdx === 0}
+                              onClick={() => handleMoveNavItem(path, -1)}
+                              style={{
+                                background: sIdx === 0 ? '#f1f5f9' : '#e2e8f0',
+                                border: 'none',
+                                borderRadius: '4px',
+                                padding: '4px 7px',
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                cursor: sIdx === 0 ? 'not-allowed' : 'pointer',
+                                color: sIdx === 0 ? '#94a3b8' : '#0f172a'
+                              }}
+                              title="Move sub-item up"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              disabled={sIdx === items.length - 1}
+                              onClick={() => handleMoveNavItem(path, 1)}
+                              style={{
+                                background: sIdx === items.length - 1 ? '#f1f5f9' : '#e2e8f0',
+                                border: 'none',
+                                borderRadius: '4px',
+                                padding: '4px 7px',
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                cursor: sIdx === items.length - 1 ? 'not-allowed' : 'pointer',
+                                color: sIdx === items.length - 1 ? '#94a3b8' : '#0f172a'
+                              }}
+                              title="Move sub-item down"
+                            >
+                              ▼
+                            </button>
+                          </div>
+
+                          <div style={{ flex: '1 1 160px' }}>
+                            <input
+                              type="text"
+                              value={sub.label || ''}
+                              placeholder={level === 0 ? 'Sub-menu Title (e.g. Handbags)' : 'Sub-sub menu Title'}
+                              onChange={(e) => handleUpdateNavItem(path, 'label', e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '6px 10px',
+                                borderRadius: '5px',
+                                border: '1px solid #cbd5e1',
+                                fontSize: '12.5px',
+                                fontWeight: 600,
+                                color: '#0f172a',
+                                background: '#ffffff'
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ flex: '2 1 220px' }}>
+                            <input
+                              type="text"
+                              value={sub.url || ''}
+                              placeholder="Route / URL (e.g. /shop?category=handbags)"
+                              onChange={(e) => handleUpdateNavItem(path, 'url', e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '6px 10px',
+                                borderRadius: '5px',
+                                border: '1px solid #cbd5e1',
+                                fontSize: '12.5px',
+                                fontFamily: 'monospace',
+                                color: '#0f172a',
+                                background: '#ffffff'
+                              }}
+                            />
+                          </div>
+
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) handleAddFromCategory(path, e.target.value);
+                              e.target.value = '';
+                            }}
+                            title="Add a category as a nested sub-item"
+                            style={{
+                              maxWidth: '190px',
+                              padding: '6px 8px',
+                              borderRadius: '5px',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              color: '#065935',
+                              background: '#ffffff',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <option value="">＋ Category…</option>
+                            {categoryOptions.map(({ cat, depth }) => (
+                              <option key={cat.id} value={cat.id}>
+                                {depth > 0 ? `${'— '.repeat(depth)}` : ''}{categoryGenderIcon(cat)} {cat.name}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => handleAddSubItem(path)}
+                            style={{
+                              background: '#eaf4ee',
+                              border: '1px solid #cce5d5',
+                              color: '#065935',
+                              borderRadius: '5px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              padding: '5px 9px'
+                            }}
+                            title="Add a nested sub-item inside this item"
+                          >
+                            + Sub
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleSubmenuExpand(pathKey)}
+                            style={{
+                              background: isOpen ? '#065935' : '#ffffff',
+                              border: '1px solid #065935',
+                              color: isOpen ? '#ffffff' : '#065935',
+                              borderRadius: '5px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              padding: '5px 9px'
+                            }}
+                            title="Show/hide nested sub-items"
+                          >
+                            {isOpen ? '▲' : '▼'} {children.length}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNavItem(path)}
+                            style={{
+                              background: '#fee2e2',
+                              border: 'none',
+                              color: '#b91c1c',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              padding: '5px 9px'
+                            }}
+                            title="Remove this sub-item"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        {isOpen && (
+                          <div style={{ marginTop: '8px', paddingLeft: '16px', borderLeft: '2px dashed #cbd5e1' }}>
+                            {children.length > 0 ? (
+                              renderSubMenuNodes(children, path, level + 1)
+                            ) : (
+                              <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                                No sub-items yet. Use &ldquo;+ Sub&rdquo; or pick a category.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
 
               return (
                 <div>
@@ -1723,11 +2056,54 @@ export default function AdminCMSSectionsPage() {
                           <span>🔗</span> Header Navigation Ribbon Menu ({navItems.length} Links)
                         </h4>
                         <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
-                          Edit titles, change link routes, reorder positions (▲/▼), and add new items shown on the header ribbon.
+                          Main menu → sub menu → sub-sub menu. Add links directly from your categories, edit routes, and reorder items.
                         </p>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) handleAddFromCategory([], e.target.value);
+                            e.target.value = '';
+                          }}
+                          title="Add a category as a main menu link"
+                          style={{
+                            padding: '7px 10px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
+                            fontWeight: 600,
+                            color: '#065935',
+                            background: '#ffffff',
+                            cursor: 'pointer',
+                            maxWidth: '240px'
+                          }}
+                        >
+                          <option value="">＋ Add Category Link…</option>
+                          {categoryOptions.map(({ cat, depth }) => (
+                            <option key={cat.id} value={cat.id}>
+                              {depth > 0 ? `${'— '.repeat(depth)}` : ''}{categoryGenderIcon(cat)} {cat.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleGenerateFromCategories}
+                          style={{
+                            background: '#eaf4ee',
+                            border: '1px solid #cce5d5',
+                            borderRadius: '8px',
+                            padding: '7px 14px',
+                            fontSize: '12.5px',
+                            fontWeight: 700,
+                            color: '#065935',
+                            cursor: 'pointer'
+                          }}
+                          title="Build the entire header menu from your category hierarchy"
+                        >
+                          ⚡ Generate From Categories
+                        </button>
                         <button
                           type="button"
                           onClick={handleResetToDefault}
@@ -1796,7 +2172,7 @@ export default function AdminCMSSectionsPage() {
                       {navItems.map((item, idx) => {
                         const isFirst = idx === 0;
                         const isLast = idx === navItems.length - 1;
-                        const isExpanded = expandedSubmenuIndex === idx;
+                        const isExpanded = expandedMenuPaths.has(String(idx));
                         const subCount = Array.isArray(item.sub_items) ? item.sub_items.length : 0;
 
                         return (
@@ -1830,7 +2206,7 @@ export default function AdminCMSSectionsPage() {
                                 <button
                                   type="button"
                                   disabled={isFirst}
-                                  onClick={() => handleMoveNavItem(idx, -1)}
+                                  onClick={() => handleMoveNavItem([idx], -1)}
                                   style={{
                                     background: isFirst ? '#f1f5f9' : '#e2e8f0',
                                     border: 'none',
@@ -1848,7 +2224,7 @@ export default function AdminCMSSectionsPage() {
                                 <button
                                   type="button"
                                   disabled={isLast}
-                                  onClick={() => handleMoveNavItem(idx, 1)}
+                                  onClick={() => handleMoveNavItem([idx], 1)}
                                   style={{
                                     background: isLast ? '#f1f5f9' : '#e2e8f0',
                                     border: 'none',
@@ -1874,7 +2250,7 @@ export default function AdminCMSSectionsPage() {
                                   type="text"
                                   value={item.label || ''}
                                   placeholder="e.g. Women, Handbags"
-                                  onChange={(e) => handleUpdateNavItem(idx, 'label', e.target.value)}
+                                  onChange={(e) => handleUpdateNavItem([idx], 'label', e.target.value)}
                                   style={{
                                     width: '100%',
                                     padding: '6px 10px',
@@ -1897,7 +2273,7 @@ export default function AdminCMSSectionsPage() {
                                   type="text"
                                   value={item.url || ''}
                                   placeholder="e.g. /womens, /mens, /kids, /shop?category=..."
-                                  onChange={(e) => handleUpdateNavItem(idx, 'url', e.target.value)}
+                                  onChange={(e) => handleUpdateNavItem([idx], 'url', e.target.value)}
                                   style={{
                                     width: '100%',
                                     padding: '6px 10px',
@@ -1915,7 +2291,7 @@ export default function AdminCMSSectionsPage() {
                               <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateNavItem(idx, 'url', '/womens')}
+                                  onClick={() => handleUpdateNavItem([idx], 'url', '/womens')}
                                   style={{ fontSize: '10px', background: '#fce7f3', color: '#9d174d', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
                                   title="Set URL to /womens"
                                 >
@@ -1923,7 +2299,7 @@ export default function AdminCMSSectionsPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateNavItem(idx, 'url', '/mens')}
+                                  onClick={() => handleUpdateNavItem([idx], 'url', '/mens')}
                                   style={{ fontSize: '10px', background: '#e0f2fe', color: '#0369a1', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
                                   title="Set URL to /mens"
                                 >
@@ -1931,7 +2307,7 @@ export default function AdminCMSSectionsPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateNavItem(idx, 'url', '/kids')}
+                                  onClick={() => handleUpdateNavItem([idx], 'url', '/kids')}
                                   style={{ fontSize: '10px', background: '#fef3c7', color: '#b45309', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
                                   title="Set URL to /kids"
                                 >
@@ -1942,7 +2318,7 @@ export default function AdminCMSSectionsPage() {
                               {/* Submenu Expand Toggle Button */}
                               <button
                                 type="button"
-                                onClick={() => toggleSubmenuExpand(idx)}
+                                onClick={() => toggleSubmenuExpand(String(idx))}
                                 style={{
                                   background: isExpanded ? '#065935' : '#ffffff',
                                   color: isExpanded ? '#ffffff' : '#065935',
@@ -1977,7 +2353,7 @@ export default function AdminCMSSectionsPage() {
                               {/* Delete Button */}
                               <button
                                 type="button"
-                                onClick={() => handleDeleteNavItem(idx)}
+                                onClick={() => handleDeleteNavItem([idx])}
                                 style={{
                                   background: '#fee2e2',
                                   border: '1px solid #fecaca',
@@ -2016,109 +2392,61 @@ export default function AdminCMSSectionsPage() {
                                     </span>
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddSubItem(idx)}
-                                    style={{
-                                      background: '#065935',
-                                      color: '#ffffff',
-                                      border: 'none',
-                                      borderRadius: '6px',
-                                      padding: '5px 12px',
-                                      fontSize: '12px',
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px'
-                                    }}
-                                  >
-                                    <span>+ Add Sub-item</span>
-                                  </button>
+                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <select
+                                      value=""
+                                      onChange={(e) => {
+                                        if (e.target.value) handleAddFromCategory([idx], e.target.value);
+                                        e.target.value = '';
+                                      }}
+                                      title="Add a category as a sub-menu link"
+                                      style={{
+                                        maxWidth: '200px',
+                                        padding: '5px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        color: '#065935',
+                                        background: '#ffffff',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <option value="">＋ From Categories…</option>
+                                      {categoryOptions.map(({ cat, depth }) => (
+                                        <option key={cat.id} value={cat.id}>
+                                          {depth > 0 ? `${'— '.repeat(depth)}` : ''}{categoryGenderIcon(cat)} {cat.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddSubItem([idx])}
+                                      style={{
+                                        background: '#065935',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        padding: '5px 12px',
+                                        fontSize: '12px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                      }}
+                                    >
+                                      <span>+ Add Sub-item</span>
+                                    </button>
+                                  </div>
                                 </div>
 
                                 {(!item.sub_items || item.sub_items.length === 0) ? (
                                   <div style={{ color: '#94a3b8', fontSize: '12.5px', fontStyle: 'italic', padding: '10px 0' }}>
-                                    No sub-menu items configured yet. Click <strong>&ldquo;+ Add Sub-item&rdquo;</strong> to add category links that will appear in the dropdown popover.
+                                    No sub-menu items configured yet. Click <strong>&ldquo;+ Add Sub-item&rdquo;</strong> or pick a category to create the dropdown. Each sub-item can also contain its own nested sub-items.
                                   </div>
                                 ) : (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {item.sub_items.map((sub, sIdx) => (
-                                      <div
-                                        key={sIdx}
-                                        style={{
-                                          display: 'flex',
-                                          gap: '10px',
-                                          alignItems: 'center',
-                                          background: '#f8fafc',
-                                          padding: '8px 12px',
-                                          borderRadius: '6px',
-                                          border: '1px solid #e2e8f0',
-                                          flexWrap: 'wrap'
-                                        }}
-                                      >
-                                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800, width: '28px' }}>
-                                          {idx + 1}.{sIdx + 1}
-                                        </span>
-
-                                        <div style={{ flex: '1 1 180px' }}>
-                                          <input
-                                            type="text"
-                                            value={sub.label || ''}
-                                            placeholder="Sub-menu Title (e.g. Handbags, Tote Bags)"
-                                            onChange={(e) => handleUpdateSubItem(idx, sIdx, 'label', e.target.value)}
-                                            style={{
-                                              width: '100%',
-                                              padding: '6px 10px',
-                                              borderRadius: '5px',
-                                              border: '1px solid #cbd5e1',
-                                              fontSize: '12.5px',
-                                              fontWeight: 600,
-                                              color: '#0f172a',
-                                              background: '#ffffff'
-                                            }}
-                                          />
-                                        </div>
-
-                                        <div style={{ flex: '2 1 240px' }}>
-                                          <input
-                                            type="text"
-                                            value={sub.url || ''}
-                                            placeholder="Route / URL (e.g. /shop?category=handbags)"
-                                            onChange={(e) => handleUpdateSubItem(idx, sIdx, 'url', e.target.value)}
-                                            style={{
-                                              width: '100%',
-                                              padding: '6px 10px',
-                                              borderRadius: '5px',
-                                              border: '1px solid #cbd5e1',
-                                              fontSize: '12.5px',
-                                              fontFamily: 'monospace',
-                                              color: '#0f172a',
-                                              background: '#ffffff'
-                                            }}
-                                          />
-                                        </div>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteSubItem(idx, sIdx)}
-                                          style={{
-                                            background: '#fee2e2',
-                                            border: 'none',
-                                            color: '#b91c1c',
-                                            borderRadius: '4px',
-                                            fontSize: '12px',
-                                            fontWeight: 800,
-                                            cursor: 'pointer',
-                                            padding: '4px 8px'
-                                          }}
-                                          title="Remove this sub-item"
-                                        >
-                                          ✕ Remove
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  renderSubMenuNodes(item.sub_items, [idx], 0)
                                 )}
                               </div>
                             )}

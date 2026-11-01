@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 
 const POSModalContext = createContext({
   isPOSOpen: false,
@@ -32,16 +32,7 @@ export function POSModalProvider({ children }) {
     });
   }, []);
 
-  // Keyboard shortcut: ESC to close POS popup
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isPOSOpen) {
-        closePOS();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, closePOS]);
+  // ESC handling lives in POSBillingModal so inner popups close first.
 
   return (
     <POSModalContext.Provider value={{ isPOSOpen, editingOrder, openPOS, closePOS, togglePOS, setEditingOrder }}>

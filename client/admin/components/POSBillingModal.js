@@ -22,6 +22,7 @@ import {
 } from '../lib/api';
 
 const RECEIPT_STORE_NAME = 'NP Grand Shopping';
+const POS_DRAFT_KEY = 'npgrand_pos_active_bill_draft';
 
 function findProductMatches(allProducts, query, limit = 15) {
   if (!query || !query.trim()) {
@@ -84,6 +85,12 @@ export function POSBillingModal() {
   const [rowInput, setRowInput] = useState('');
   const [showRowSuggestions, setShowRowSuggestions] = useState(false);
   const [rowHighlightedIndex, setRowHighlightedIndex] = useState(-1);
+
+  // F2 Quick Product Search popup
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [searchModalQuery, setSearchModalQuery] = useState('');
+  const [searchModalHighlighted, setSearchModalHighlighted] = useState(0);
+  const searchModalInputRef = useRef(null);
 
   // Custom Product modal state
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
@@ -164,6 +171,7 @@ export function POSBillingModal() {
   const customerPhoneInputRef = useRef(null);
   const rowInputRef = useRef(null);
   const rowContainerRef = useRef(null);
+  const draftRecoveryRef = useRef(false);
 
   // Load sales staff members
   const loadSalesStaff = () => {
@@ -205,12 +213,59 @@ export function POSBillingModal() {
     }
   };
 
+  // Recover a bill left behind by a refresh/crash and park it in Held Bills
+  const recoverDraftBill = async () => {
+    if (draftRecoveryRef.current || typeof window === 'undefined') return;
+    draftRecoveryRef.current = true;
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(POS_DRAFT_KEY);
+    } catch (err) {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const draft = JSON.parse(raw);
+      if (!Array.isArray(draft.items) || draft.items.length === 0) {
+        window.localStorage.removeItem(POS_DRAFT_KEY);
+        return;
+      }
+      const draftPayload = {
+        customer_name: draft.customer_name || 'Walk-in Customer',
+        customer_phone: draft.customer_phone || '',
+        customer_email: draft.customer_email || '',
+        items: draft.items,
+        discount_type: draft.discount_type || 'flat',
+        discount_value: draft.discount_value || 0,
+        payment_method: draft.payment_method || 'Cash',
+        sales_person_id: draft.sales_person_id || null,
+        sales_person_name: draft.sales_person_name || null
+      };
+      const resumedId = draft.resumed_held_id || null;
+      if (resumedId) {
+        try {
+          await updateHeldBill(resumedId, draftPayload);
+        } catch (updateErr) {
+          await holdBill(draftPayload);
+        }
+      } else {
+        await holdBill(draftPayload);
+      }
+      window.localStorage.removeItem(POS_DRAFT_KEY);
+      showToast('Unsaved bill recovered and moved to Held Bills.', 'info', 4000);
+      await loadHeldBillsData();
+    } catch (err) {
+      console.warn('Could not recover unsaved POS bill:', err);
+    }
+  };
+
   // Keyboard Autofocus: User instructed to FIRST focus keyboard on customer phone number
   useEffect(() => {
     if (isPOSOpen) {
       loadSalesStaff();
       loadCatalogProducts();
       loadHeldBillsData();
+      recoverDraftBill();
       setTimeout(() => {
         if (customerPhoneInputRef.current) {
           customerPhoneInputRef.current.focus();
@@ -296,6 +351,12 @@ export function POSBillingModal() {
 
   // Inline table-row product search suggestions
   const rowMatches = useMemo(() => findProductMatches(allProducts, rowInput, 8), [allProducts, rowInput]);
+
+  // F2 popup product search results
+  const searchModalMatches = useMemo(
+    () => findProductMatches(allProducts, searchModalQuery, 30),
+    [allProducts, searchModalQuery]
+  );
 
   // Click outside suggestions dropdown listener
   useEffect(() => {
@@ -615,6 +676,48 @@ export function POSBillingModal() {
     }
   };
 
+  // F2 quick product search popup
+  const openSearchModal = () => {
+    setSearchModalQuery('');
+    setSearchModalHighlighted(0);
+    setIsSearchModalOpen(true);
+    setShowRowSuggestions(false);
+    setShowSuggestions(false);
+    setTimeout(() => searchModalInputRef.current?.focus(), 40);
+  };
+
+  const closeSearchModal = () => {
+    setIsSearchModalOpen(false);
+    setSearchModalQuery('');
+    setSearchModalHighlighted(0);
+    setTimeout(() => rowInputRef.current?.focus(), 0);
+  };
+
+  const handlePickSearchModalItem = (match) => {
+    if (!match || !match.product) return;
+    const prod = match.product;
+    const variant = match.matchedVariant;
+    const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
+    const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
+
+    handleAddItemToCart({
+      product_id: prod.id,
+      product_name: prod.name,
+      barcode: barcode,
+      barcode_short_name: prod.barcode_short_name || prod.name,
+      price: Number(price) || 0,
+      regular_price: Number(prod.price) || Number(price) || 0,
+      hsn_code: prod.hsn_code || '4202',
+      image: variant?.image_url || prod.image,
+      variant: variant || null,
+      quantity: 1
+    });
+
+    setSearchModalQuery('');
+    setSearchModalHighlighted(0);
+    setTimeout(() => searchModalInputRef.current?.focus(), 0);
+  };
+
   // Direct inline edits of a billing row (selling price)
   const updateItemField = (index, field, value) => {
     setCart(prev => {
@@ -669,6 +772,11 @@ export function POSBillingModal() {
   };
 
   const resetActiveBill = () => {
+    try {
+      window.localStorage.removeItem(POS_DRAFT_KEY);
+    } catch (err) {
+      // ignore storage failures
+    }
     setCart([]);
     setDiscountInput('');
     setDiscountType('flat');
@@ -684,13 +792,44 @@ export function POSBillingModal() {
     setShowSuggestions(false);
     setShowRowSuggestions(false);
     setRowHighlightedIndex(-1);
+    if (typeof setEditingOrder === 'function') setEditingOrder(null);
   };
 
-  const handleNewBill = () => {
+  // Keep a local safety copy while a bill is unfinished (survives refresh/crash)
+  useEffect(() => {
+    if (!isPOSOpen || cart.length === 0 || editingOrder) return;
+    try {
+      window.localStorage.setItem(
+        POS_DRAFT_KEY,
+        JSON.stringify({
+          ...buildHeldPayload(),
+          resumed_held_id: resumedHeldId || null,
+          saved_at: Date.now()
+        })
+      );
+    } catch (err) {
+      // ignore storage failures (private mode / quota)
+    }
+  }, [
+    isPOSOpen,
+    cart,
+    customerName,
+    customerPhone,
+    customerEmail,
+    discountType,
+    discountInput,
+    paymentMethod,
+    selectedSalespersonId,
+    salespersons,
+    editingOrder,
+    resumedHeldId
+  ]);
+
+  const handleNewBill = async () => {
+    // Never lose an unfinished bill: automatically park it in Held Bills first
     if (cart.length > 0) {
-      if (!window.confirm('Start a new blank bill? Current items in the cart will be cleared.\n\nTip: Click "HOLD & NEW BILL" first if you wish to park this customer\'s bill.')) {
-        return;
-      }
+      await handleHoldBill();
+      return;
     }
     resetActiveBill();
     showToast('Started fresh new bill session.', 'info', 2500);
@@ -700,15 +839,11 @@ export function POSBillingModal() {
   const handleHoldBill = async () => {
     if (cart.length === 0) {
       showToast('Cart is empty. Nothing to hold.', 'error');
-      return;
-    }
-    if (editingOrder) {
-      showToast('Finish or close the current edit before holding a new bill.', 'error');
-      return;
+      return false;
     }
     if (heldBills.length >= 15 && !resumedHeldId) {
       showToast('Maximum 15 bills can be held at once. Please resume or complete an existing held bill.', 'error', 4500);
-      return;
+      return false;
     }
 
     // 1. Snapshot current bill session data before clearing
@@ -762,6 +897,24 @@ export function POSBillingModal() {
     } finally {
       setHoldingBill(false);
     }
+    return true;
+  };
+
+  // Closing the register must never discard an unfinished bill
+  const handleClosePOS = async () => {
+    if (cart.length > 0 && !editingOrder) {
+      const held = await handleHoldBill();
+      if (!held) {
+        const discard = window.confirm('This bill could not be held. Close the register and discard the current bill?');
+        if (!discard) return;
+        try {
+          window.localStorage.removeItem(POS_DRAFT_KEY);
+        } catch (err) {
+          // ignore storage failures
+        }
+      }
+    }
+    closePOS();
   };
 
   const handleResumeHeldBill = (bill) => {
@@ -792,14 +945,14 @@ export function POSBillingModal() {
 
   const handleCancelHeldBill = async (bill) => {
     if (!bill) return;
-    if (!window.confirm(`Cancel held bill ${bill.reference || ''}? This will remove it from held bills.`)) return;
+    if (!window.confirm(`Remove held bill ${bill.reference || ''}? It will stay removed from Held Bills.`)) return;
     try {
       await cancelHeldBill(bill.id);
       if (resumedHeldId === bill.id) {
         setResumedHeldId(null);
         setResumedHeldRef(null);
       }
-      showToast('Held bill cancelled.', 'info');
+      showToast('Held bill removed.', 'info');
       await loadHeldBillsData();
     } catch (err) {
       alert(`Could not cancel held bill: ${err.message || 'Server error'}`);
@@ -931,6 +1084,11 @@ export function POSBillingModal() {
       setCart([]);
       setDiscountInput('');
       setReceivedAmount('');
+      try {
+        window.localStorage.removeItem(POS_DRAFT_KEY);
+      } catch (draftErr) {
+        // ignore storage failures
+      }
       if (setEditingOrder) setEditingOrder(null);
 
       // If auto-print is enabled in fixed thermal settings, trigger print directly
@@ -950,10 +1108,20 @@ export function POSBillingModal() {
   useEffect(() => {
     if (!isPOSOpen) return;
     const handleKeyDown = (e) => {
+      if (isSearchModalOpen) {
+        if (e.key === 'Escape' || e.key === 'F2') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeSearchModal();
+        }
+        return;
+      }
+
       if (e.key === 'F2') {
         e.preventDefault();
-        rowInputRef.current?.focus();
-        rowInputRef.current?.select();
+        if (!isHeldModalOpen && !isCustomModalOpen && !isStaffModalOpen && !completedOrder) {
+          openSearchModal();
+        }
       } else if (e.key === 'F4') {
         e.preventDefault();
         if (cart.length > 0) handleCheckout();
@@ -998,12 +1166,12 @@ export function POSBillingModal() {
           setShowRowSuggestions(false);
           return;
         }
-        closePOS();
+        handleClosePOS();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, completedOrder, showRowSuggestions, closePOS]);
+  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS]);
 
   // Thermal Receipt Printing (Standard ESC/POS HTML) - Pure Solid Black #000000 with 300 Bold Density
   const printThermalReceipt = (orderData, overrideSettings) => {
@@ -1319,7 +1487,7 @@ export function POSBillingModal() {
         {/* Header Right: Shortcuts & Close Button (No Icons) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <span>[F2] Focus Scan</span>
+            <span>[F2] Search</span>
             <span>[F4] Pay</span>
             <span>[F6] Held Bills</span>
             <span>[F7] Custom Item</span>
@@ -1332,7 +1500,7 @@ export function POSBillingModal() {
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              closePOS();
+              handleClosePOS();
             }}
             style={{
               background: '#ef4444',
@@ -1352,21 +1520,42 @@ export function POSBillingModal() {
         </div>
       </header>
 
-      {/* Status Banner Notification (No Icons) */}
+      {/* Floating Alert Popover (Right Corner) */}
       {statusMessage && (
         <div
           style={{
-            padding: '8px 24px',
+            position: 'fixed',
+            top: 20,
+            right: 20,
             background: statusMessage.type === 'error' ? '#991b1b' : statusMessage.type === 'success' ? '#065935' : '#1e293b',
             color: '#ffffff',
             fontSize: '13px',
             fontWeight: 700,
-            textAlign: 'center',
-            letterSpacing: '0.02em',
-            flexShrink: 0
+            padding: '12px 20px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: 100000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
           }}
         >
-          {statusMessage.text}
+          <span>{statusMessage.text}</span>
+          <button
+            type="button"
+            onClick={() => setStatusMessage(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ffffff',
+              fontSize: '14px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+            title="Close"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -1780,7 +1969,7 @@ export function POSBillingModal() {
                           e.stopPropagation();
                           handleCancelHeldBill(bill);
                         }}
-                        title={`Cancel ${bill.reference}`}
+                        title={`Remove ${bill.reference}`}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -2454,7 +2643,7 @@ export function POSBillingModal() {
                   </span>
                 </div>
                 <div style={{ fontSize: '11.5px', color: '#cbd5e1', marginTop: '3px' }}>
-                  Parked carts are held here. Resume any bill into the register to complete checkout, or cancel unpaid bills.
+                  Unfinished bills are parked here automatically. Resume any bill to complete checkout, or remove it when no longer needed.
                 </div>
               </div>
               <button
@@ -2546,7 +2735,7 @@ export function POSBillingModal() {
                           onClick={() => handleCancelHeldBill(bill)}
                           style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', color: '#dc2626', border: '1px solid #fca5a5', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
                         >
-                          CANCEL
+                          REMOVE
                         </button>
                       </div>
                     </div>
@@ -2566,6 +2755,148 @@ export function POSBillingModal() {
               >
                 REFRESH
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* F2 QUICK PRODUCT SEARCH POPUP */}
+      {isSearchModalOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100001,
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeSearchModal();
+          }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '720px',
+              maxHeight: '82%',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.3)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#0f172a' }}>
+              <div style={{ fontSize: '15px', fontWeight: 900, color: '#ffffff', letterSpacing: '0.04em' }}>
+                QUICK PRODUCT SEARCH [F2]
+              </div>
+              <button
+                type="button"
+                onClick={closeSearchModal}
+                style={{ background: 'none', border: '1px solid #64748b', borderRadius: '5px', color: '#e2e8f0', fontWeight: 800, cursor: 'pointer', fontSize: '11px', padding: '5px 10px' }}
+              >
+                CLOSE [ESC]
+              </button>
+            </div>
+
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <input
+                ref={searchModalInputRef}
+                type="text"
+                value={searchModalQuery}
+                onChange={(e) => {
+                  setSearchModalQuery(e.target.value);
+                  setSearchModalHighlighted(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSearchModalHighlighted(prev => Math.min(prev + 1, Math.max(searchModalMatches.length - 1, 0)));
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSearchModalHighlighted(prev => Math.max(prev - 1, 0));
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const pick = searchModalMatches[searchModalHighlighted];
+                    if (pick) handlePickSearchModalItem(pick);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeSearchModal();
+                  }
+                }}
+                placeholder="Type product name, SKU or scan barcode..."
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '7px',
+                  border: '1.5px solid #065935',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: '#0f172a',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
+              {searchModalMatches.length === 0 ? (
+                <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
+                  No products found. Try another name, SKU or barcode.
+                </div>
+              ) : (
+                searchModalMatches.map((match, sIdx) => {
+                  const p = match.product;
+                  const v = match.matchedVariant;
+                  const displayPrice = v && v.price ? v.price : (p.sale_price > 0 ? p.sale_price : p.price);
+                  const bc = v?.barcode || p.barcode || `NP-${p.id}`;
+                  return (
+                    <div
+                      key={`f2-${p.id}-${v?.id || 'main'}-${sIdx}`}
+                      onClick={() => handlePickSearchModalItem(match)}
+                      onMouseEnter={() => setSearchModalHighlighted(sIdx)}
+                      style={{
+                        padding: '10px 20px',
+                        borderBottom: '1px solid #f1f5f9',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '14px',
+                        background: sIdx === searchModalHighlighted ? '#ecfdf5' : '#ffffff'
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
+                          {p.name} {v ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span>
+                          {' · '}Stock {v?.stock_quantity ?? p.stock_quantity ?? 0}
+                          {p.category_name ? ` · ${p.category_name}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: 900, fontSize: '14px', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                        ₹{Number(displayPrice || 0).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ padding: '10px 20px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>
+                ↑ ↓ Navigate · Enter Add · Esc Close
+              </span>
+              <span style={{ fontSize: '11.5px', color: '#065935', fontWeight: 800 }}>
+                {searchModalMatches.length} result(s)
+              </span>
             </div>
           </div>
         </div>
