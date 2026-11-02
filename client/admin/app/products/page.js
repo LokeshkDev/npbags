@@ -96,7 +96,7 @@ export default function AdminProductsPage() {
     purchase_price: '',
     purchased_rate: '',
     mrp: '',
-    gst_type: 'without_gst',
+    gst_type: 'exclusive',
     gst_rate: '18',
     landing_cost: '',
     purchase_margin: '',
@@ -152,36 +152,49 @@ export default function AdminProductsPage() {
     };
   };
 
-  // Helper to dynamically calculate costing, margins, and landing costs
+  // Helper to dynamically calculate costing, margins, and landing costs (Purchase Margin includes GST %)
+  const computeProductCosting = ({ purchase_price, mrp, price, sale_price, gst_type, gst_rate }) => {
+    const pPrice = parseFloat(purchase_price) || 0;
+    const mrpVal = parseFloat(mrp) || 0;
+    const sellPrice = parseFloat(sale_price || price) || 0;
+    const rate = parseFloat(gst_rate) || 0;
+
+    // Landing Cost: If exclusive, landing cost = purchase price * (1 + rate / 100); if inclusive, landing cost = purchase price
+    let landing = pPrice;
+    if (gst_type === 'exclusive' && rate > 0 && pPrice > 0) {
+      landing = Math.round(pPrice * (1 + rate / 100) * 100) / 100;
+    }
+
+    // Purchase Margin % INCLUDING GST %:
+    // When buying, the actual purchase cost paid to vendor includes the GST % (landing cost).
+    // Purchase Margin % = ((MRP - Purchase Cost with GST) / MRP) * 100
+    const purchaseCostWithGst = landing;
+    const targetMrp = mrpVal > 0 ? mrpVal : sellPrice;
+    let pMargin = 0;
+    if (targetMrp > 0 && purchaseCostWithGst > 0) {
+      pMargin = Math.round(((targetMrp - purchaseCostWithGst) / targetMrp) * 100 * 10) / 10;
+    }
+
+    // Landing Margin % (Net Profit %) = ((Selling Price - Landing Cost) / Selling Price) * 100
+    let lMargin = 0;
+    if (sellPrice > 0 && landing > 0) {
+      lMargin = Math.round(((sellPrice - landing) / sellPrice) * 100 * 10) / 10;
+    }
+
+    return {
+      landing_cost: landing > 0 ? String(landing) : '',
+      purchase_margin: pMargin !== 0 ? String(pMargin) : '',
+      landing_margin: lMargin !== 0 ? String(lMargin) : ''
+    };
+  };
+
   const updateCostingFields = (changedFields) => {
     setFormData(prev => {
       const next = { ...prev, ...changedFields };
-      const pPrice = parseFloat(next.purchase_price) || 0;
-      const mrpVal = parseFloat(next.mrp) || 0;
-      const sellPrice = parseFloat(next.sale_price || next.price) || 0;
-      const rate = parseFloat(next.gst_rate) || 0;
-
-      // Landing Cost: If without GST, landing cost = purchase price * (1 + rate / 100); if with GST, landing cost = purchase price
-      let landing = pPrice;
-      if (next.gst_type === 'without_gst') {
-        landing = Math.round(pPrice * (1 + rate / 100) * 100) / 100;
-      }
-
-      // Purchase Margin % = ((MRP - Purchase Price) / MRP) * 100
-      let pMargin = 0;
-      if (mrpVal > 0 && pPrice > 0) {
-        pMargin = Math.round(((mrpVal - pPrice) / mrpVal) * 100 * 10) / 10;
-      }
-
-      // Landing Margin % (Net Profit %) = ((Selling Price - Landing Cost) / Selling Price) * 100
-      let lMargin = 0;
-      if (sellPrice > 0 && landing > 0) {
-        lMargin = Math.round(((sellPrice - landing) / sellPrice) * 100 * 10) / 10;
-      }
-
-      next.landing_cost = landing > 0 ? String(landing) : '';
-      next.purchase_margin = pMargin !== 0 ? String(pMargin) : '';
-      next.landing_margin = lMargin !== 0 ? String(lMargin) : '';
+      const costing = computeProductCosting(next);
+      next.landing_cost = costing.landing_cost;
+      next.purchase_margin = costing.purchase_margin;
+      next.landing_margin = costing.landing_margin;
       return next;
     });
   };
@@ -290,7 +303,7 @@ export default function AdminProductsPage() {
       vendor_id: '',
       purchase_price: '',
       mrp: '',
-      gst_type: 'without_gst',
+      gst_type: 'exclusive',
       gst_rate: '18',
       landing_cost: '',
       purchase_margin: '',
@@ -329,6 +342,15 @@ export default function AdminProductsPage() {
     const defaultSeoDesc = p.seo_description || (p.description ? p.description.slice(0, 155) : (p.name ? `Buy ${p.name} online at NP Grand Shopping.` : ''));
     const defaultSeoKw = p.seo_keywords || (p.name ? p.name.toLowerCase().split(/\s+/).filter(w => w.length > 2).join(', ') : '');
 
+    const initialCosting = computeProductCosting({
+      purchase_price: p.purchase_price,
+      mrp: p.mrp || p.price,
+      price: p.price,
+      sale_price: p.sale_price,
+      gst_type: p.gst_type || 'exclusive',
+      gst_rate: p.gst_rate !== null && p.gst_rate !== undefined ? p.gst_rate : '18'
+    });
+
     setFormData({
       name: p.name || '',
       slug: p.slug || p.id || '',
@@ -358,11 +380,11 @@ export default function AdminProductsPage() {
       purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? String(p.purchase_price) : '',
       purchased_rate: p.purchased_rate !== null && p.purchased_rate !== undefined ? String(p.purchased_rate) : '',
       mrp: p.mrp !== null && p.mrp !== undefined ? String(p.mrp) : (p.price ? String(p.price) : ''),
-      gst_type: p.gst_type || 'without_gst',
+      gst_type: p.gst_type || 'exclusive',
       gst_rate: p.gst_rate !== null && p.gst_rate !== undefined ? String(p.gst_rate) : '18',
-      landing_cost: p.landing_cost !== null && p.landing_cost !== undefined ? String(p.landing_cost) : '',
-      purchase_margin: p.purchase_margin !== null && p.purchase_margin !== undefined ? String(p.purchase_margin) : '',
-      landing_margin: p.landing_margin !== null && p.landing_margin !== undefined ? String(p.landing_margin) : ''
+      landing_cost: initialCosting.landing_cost || (p.landing_cost !== null && p.landing_cost !== undefined ? String(p.landing_cost) : ''),
+      purchase_margin: initialCosting.purchase_margin || (p.purchase_margin !== null && p.purchase_margin !== undefined ? String(p.purchase_margin) : ''),
+      landing_margin: initialCosting.landing_margin || (p.landing_margin !== null && p.landing_margin !== undefined ? String(p.landing_margin) : '')
     });
 
     // Populate variants
@@ -431,24 +453,28 @@ export default function AdminProductsPage() {
             image_url: v.image_url || ''
           })));
         }
-        setFormData(prev => ({
-          ...prev,
-          materials: detailed.materials !== undefined ? (detailed.materials || '') : prev.materials,
-          care_instructions: detailed.care_instructions !== undefined ? (detailed.care_instructions || '') : prev.care_instructions,
-          shipping_info: detailed.shipping_info !== undefined ? (detailed.shipping_info || '') : prev.shipping_info,
-          seo_title: detailed.seo_title || prev.seo_title,
-          seo_description: detailed.seo_description || prev.seo_description,
-          seo_keywords: detailed.seo_keywords || prev.seo_keywords,
-          vendor_id: detailed.vendor_id ? String(detailed.vendor_id) : prev.vendor_id,
-          purchase_price: detailed.purchase_price !== null && detailed.purchase_price !== undefined ? String(detailed.purchase_price) : prev.purchase_price,
-          purchased_rate: detailed.purchased_rate !== null && detailed.purchased_rate !== undefined ? String(detailed.purchased_rate) : prev.purchased_rate,
-          mrp: detailed.mrp !== null && detailed.mrp !== undefined ? String(detailed.mrp) : prev.mrp,
-          gst_type: detailed.gst_type || prev.gst_type,
-          gst_rate: detailed.gst_rate !== null && detailed.gst_rate !== undefined ? String(detailed.gst_rate) : prev.gst_rate,
-          landing_cost: detailed.landing_cost !== null && detailed.landing_cost !== undefined ? String(detailed.landing_cost) : prev.landing_cost,
-          purchase_margin: detailed.purchase_margin !== null && detailed.purchase_margin !== undefined ? String(detailed.purchase_margin) : prev.purchase_margin,
-          landing_margin: detailed.landing_margin !== null && detailed.landing_margin !== undefined ? String(detailed.landing_margin) : prev.landing_margin
-        }));
+        setFormData(prev => {
+          const updated = {
+            ...prev,
+            materials: detailed.materials !== undefined ? (detailed.materials || '') : prev.materials,
+            care_instructions: detailed.care_instructions !== undefined ? (detailed.care_instructions || '') : prev.care_instructions,
+            shipping_info: detailed.shipping_info !== undefined ? (detailed.shipping_info || '') : prev.shipping_info,
+            seo_title: detailed.seo_title || prev.seo_title,
+            seo_description: detailed.seo_description || prev.seo_description,
+            seo_keywords: detailed.seo_keywords || prev.seo_keywords,
+            vendor_id: detailed.vendor_id ? String(detailed.vendor_id) : prev.vendor_id,
+            purchase_price: detailed.purchase_price !== null && detailed.purchase_price !== undefined ? String(detailed.purchase_price) : prev.purchase_price,
+            purchased_rate: detailed.purchased_rate !== null && detailed.purchased_rate !== undefined ? String(detailed.purchased_rate) : prev.purchased_rate,
+            mrp: detailed.mrp !== null && detailed.mrp !== undefined ? String(detailed.mrp) : prev.mrp,
+            gst_type: detailed.gst_type || prev.gst_type,
+            gst_rate: detailed.gst_rate !== null && detailed.gst_rate !== undefined ? String(detailed.gst_rate) : prev.gst_rate
+          };
+          const costing = computeProductCosting(updated);
+          updated.landing_cost = costing.landing_cost || (detailed.landing_cost !== null && detailed.landing_cost !== undefined ? String(detailed.landing_cost) : prev.landing_cost);
+          updated.purchase_margin = costing.purchase_margin || (detailed.purchase_margin !== null && detailed.purchase_margin !== undefined ? String(detailed.purchase_margin) : prev.purchase_margin);
+          updated.landing_margin = costing.landing_margin || (detailed.landing_margin !== null && detailed.landing_margin !== undefined ? String(detailed.landing_margin) : prev.landing_margin);
+          return updated;
+        });
       }
     } catch (err) {
       console.warn('Could not refresh product details:', err);
@@ -1669,12 +1695,12 @@ export default function AdminProductsPage() {
                 </label>
                 <select
                   className="form-control"
-                  value={formData.gst_type || 'without_gst'}
+                  value={formData.gst_type || 'exclusive'}
                   onChange={(e) => updateCostingFields({ gst_type: e.target.value })}
-                  style={{ fontSize: '12.5px' }}
+                  style={{ fontSize: '13px' }}
                 >
-                  <option value="without_gst">Without GST (Exclusive)</option>
-                  <option value="with_gst">With GST (Inclusive)</option>
+                  <option value="exclusive">Without GST (Exclusive)</option>
+                  <option value="inclusive">With GST (Inclusive)</option>
                 </select>
               </div>
 
@@ -1772,7 +1798,7 @@ export default function AdminProductsPage() {
                   }}
                 />
                 <span style={{ fontSize: '10.5px', color: '#0369a1', marginTop: '2px', display: 'block' }}>
-                  {formData.gst_type === 'without_gst' ? `Base + ${formData.gst_rate}% GST` : 'GST Included'}
+                  {formData.gst_type === 'exclusive' ? `Base + ${formData.gst_rate}% GST` : 'GST Included'}
                 </span>
               </div>
             </div>
@@ -1821,13 +1847,13 @@ export default function AdminProductsPage() {
             >
               <div>
                 <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  Purchase Margin % (MRP vs Buy)
+                  Purchase Margin % (Incl. GST)
                 </div>
                 <div style={{ fontSize: '16px', fontWeight: 800, color: Number(formData.purchase_margin) > 0 ? '#16a34a' : '#0f172a', marginTop: '2px' }}>
                   {formData.purchase_margin ? `${formData.purchase_margin}%` : '0.0%'}
                 </div>
                 <div style={{ fontSize: '10.5px', color: '#64748b' }}>
-                  ((MRP - Buy) / MRP)
+                  ((MRP - Cost Incl. GST) / MRP)
                 </div>
               </div>
 

@@ -9,6 +9,44 @@ function normalizePurchaseRate(value) {
   return trimmed === '' ? null : trimmed;
 }
 
+function normalizeGstType(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['without_gst', 'exclusive', 'excl', 'without'].includes(normalized)) return 'exclusive';
+  return 'inclusive';
+}
+
+function calculateProductCosting({ purchasePrice, mrp, price, salePrice, gstType, gstRate, landingCost, purchaseMargin, landingMargin }) {
+  const pPrice = purchasePrice !== undefined && purchasePrice !== null && purchasePrice !== '' ? parseFloat(purchasePrice) : 0;
+  const targetMrp = mrp !== undefined && mrp !== null && mrp !== '' ? parseFloat(mrp) : (parseFloat(salePrice || price) || 0);
+  const sellPrice = parseFloat(salePrice || price) || 0;
+  const rate = gstRate !== undefined && gstRate !== null && gstRate !== '' ? parseFloat(gstRate) : 18.0;
+  const type = normalizeGstType(gstType);
+
+  let landing = landingCost !== undefined && landingCost !== null && landingCost !== '' ? parseFloat(landingCost) : null;
+  if ((landing === null || isNaN(landing)) && pPrice > 0) {
+    landing = (type === 'exclusive' && rate > 0)
+      ? Math.round(pPrice * (1 + rate / 100) * 100) / 100
+      : pPrice;
+  }
+
+  let pMargin = purchaseMargin !== undefined && purchaseMargin !== null && purchaseMargin !== '' ? parseFloat(purchaseMargin) : null;
+  if ((pMargin === null || isNaN(pMargin)) && targetMrp > 0 && landing !== null && landing > 0) {
+    // Purchase Margin % INCLUDING GST %: ((MRP - Cost with GST) / MRP) * 100
+    pMargin = Math.round(((targetMrp - landing) / targetMrp) * 100 * 10) / 10;
+  }
+
+  let lMargin = landingMargin !== undefined && landingMargin !== null && landingMargin !== '' ? parseFloat(landingMargin) : null;
+  if ((lMargin === null || isNaN(lMargin)) && sellPrice > 0 && landing !== null && landing > 0) {
+    lMargin = Math.round(((sellPrice - landing) / sellPrice) * 100 * 10) / 10;
+  }
+
+  return {
+    landingCost: landing !== null && !isNaN(landing) ? landing : null,
+    purchaseMargin: pMargin !== null && !isNaN(pMargin) ? pMargin : null,
+    landingMargin: lMargin !== null && !isNaN(lMargin) ? lMargin : null
+  };
+}
+
 async function recordPurchaseRateHistory(productId, oldRate, newRate, userId = null) {
   const previous = normalizePurchaseRate(oldRate);
   const next = normalizePurchaseRate(newRate);
@@ -443,6 +481,18 @@ async function createProduct(req, res, next) {
     const isActiveVal = (is_active === false || is_active === 'false' || is_active === '0' || is_active === 0) ? 0 : 1;
     const isOnlineVal = (is_online === false || is_online === 'false' || is_online === '0' || is_online === 0) ? 0 : 1;
 
+    const costing = calculateProductCosting({
+      purchasePrice: purchase_price,
+      mrp,
+      price,
+      salePrice: sale_price,
+      gstType: gst_type,
+      gstRate: gst_rate,
+      landingCost: landing_cost,
+      purchaseMargin: purchase_margin,
+      landingMargin: landing_margin
+    });
+
     await query(
       `INSERT INTO products (
          id, slug, name, category_id, gender, price, sale_price, badge, tagline,
@@ -483,11 +533,11 @@ async function createProduct(req, res, next) {
         mrp ? parseFloat(mrp) : null,
         purchase_price ? parseFloat(purchase_price) : null,
         purchased_rate !== undefined && purchased_rate !== null && String(purchased_rate).trim() !== '' ? String(purchased_rate).trim() : null,
-        gst_type || 'inclusive',
+        normalizeGstType(gst_type),
         gst_rate ? parseFloat(gst_rate) : 18.00,
-        landing_cost ? parseFloat(landing_cost) : null,
-        purchase_margin ? parseFloat(purchase_margin) : null,
-        landing_margin ? parseFloat(landing_margin) : null
+        costing.landingCost,
+        costing.purchaseMargin,
+        costing.landingMargin
       ]
     );
 
@@ -650,6 +700,31 @@ async function updateProduct(req, res, next) {
     const isActiveVal = is_active !== undefined ? ((is_active === true || is_active === 'true' || is_active === '1' || is_active === 1) ? 1 : 0) : null;
     const isOnlineVal = is_online !== undefined ? ((is_online === true || is_online === 'true' || is_online === '1' || is_online === 1) ? 1 : 0) : null;
 
+    const gstTypeVal = gst_type !== undefined ? normalizeGstType(gst_type) : null;
+
+    const resolvedPurchasePrice = purchase_price !== undefined ? purchase_price : (oldProd ? oldProd.purchase_price : null);
+    const resolvedMrp = mrp !== undefined ? mrp : (oldProd ? oldProd.mrp : null);
+    const resolvedPrice = price !== undefined ? price : (oldProd ? oldProd.price : null);
+    const resolvedSalePrice = sale_price !== undefined ? sale_price : (oldProd ? oldProd.sale_price : null);
+    const resolvedGstType = gst_type !== undefined ? gst_type : (oldProd ? oldProd.gst_type : 'exclusive');
+    const resolvedGstRate = gst_rate !== undefined ? gst_rate : (oldProd ? oldProd.gst_rate : 18);
+
+    const costing = calculateProductCosting({
+      purchasePrice: resolvedPurchasePrice,
+      mrp: resolvedMrp,
+      price: resolvedPrice,
+      salePrice: resolvedSalePrice,
+      gstType: resolvedGstType,
+      gstRate: resolvedGstRate,
+      landingCost: landing_cost,
+      purchaseMargin: purchase_margin,
+      landingMargin: landing_margin
+    });
+
+    const shouldUpdateCosting = purchase_price !== undefined || mrp !== undefined || price !== undefined ||
+      sale_price !== undefined || gst_type !== undefined || gst_rate !== undefined ||
+      landing_cost !== undefined || purchase_margin !== undefined || landing_margin !== undefined;
+
     await query(
       `UPDATE products SET
          name = COALESCE(?, name),
@@ -725,16 +800,16 @@ async function updateProduct(req, res, next) {
         purchase_price !== undefined ? (purchase_price ? parseFloat(purchase_price) : null) : null,
         purchased_rate !== undefined ? 1 : null,
         purchased_rate !== undefined ? (String(purchased_rate).trim() !== '' ? String(purchased_rate).trim() : null) : null,
-        gst_type !== undefined ? gst_type : null,
-        gst_type !== undefined ? gst_type : null,
+        gstTypeVal,
+        gstTypeVal,
         gst_rate !== undefined ? parseFloat(gst_rate) : null,
         gst_rate !== undefined ? parseFloat(gst_rate) : null,
-        landing_cost !== undefined ? (landing_cost ? parseFloat(landing_cost) : null) : null,
-        landing_cost !== undefined ? (landing_cost ? parseFloat(landing_cost) : null) : null,
-        purchase_margin !== undefined ? (purchase_margin ? parseFloat(purchase_margin) : null) : null,
-        purchase_margin !== undefined ? (purchase_margin ? parseFloat(purchase_margin) : null) : null,
-        landing_margin !== undefined ? (landing_margin ? parseFloat(landing_margin) : null) : null,
-        landing_margin !== undefined ? (landing_margin ? parseFloat(landing_margin) : null) : null,
+        shouldUpdateCosting ? 1 : null,
+        costing.landingCost,
+        shouldUpdateCosting ? 1 : null,
+        costing.purchaseMargin,
+        shouldUpdateCosting ? 1 : null,
+        costing.landingMargin,
         id
       ]
     );
