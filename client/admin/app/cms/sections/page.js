@@ -280,6 +280,7 @@ function categoryGenderIcon(cat) {
   if (gender === 'boys') return '👦';
   if (gender === 'girls') return '👧';
   if (gender === 'kids') return '🧒';
+  if (gender === 'none') return '🚫';
   return '🌐';
 }
 

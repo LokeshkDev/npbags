@@ -150,7 +150,7 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
                   : '#475569'
               }}
             >
-              {category.gender || 'All'}
+              {category.gender === 'none' || !category.gender ? 'No Department' : category.gender}
             </span>
           </div>
           <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px', display: 'block' }}>
@@ -887,7 +887,7 @@ export default function AdminBannersPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '22px' }}>
                 {/* Gender Tabs */}
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  {['all', 'women', 'men', 'boys', 'girls', 'kids'].map(g => (
+                  {['all', 'women', 'men', 'boys', 'girls', 'kids', 'none'].map(g => (
                     <button
                       key={g}
                       type="button"
@@ -904,7 +904,7 @@ export default function AdminBannersPage() {
                         textTransform: 'capitalize'
                       }}
                     >
-                      {g === 'all' ? 'All Categories' : g}
+                      {g === 'all' ? 'All Categories' : g === 'none' ? 'No Department' : g}
                     </button>
                   ))}
                 </div>
@@ -1016,6 +1016,7 @@ export default function AdminBannersPage() {
                         <option value="girls">👧 Girls</option>
                         <option value="kids">🧒 Kids</option>
                         <option value="all">🌐 All / Unisex</option>
+                        <option value="none">🚫 No Department</option>
                       </select>
                     </div>
 

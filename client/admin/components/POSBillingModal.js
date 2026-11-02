@@ -127,11 +127,13 @@ export function POSBillingModal() {
   const [selectedSalespersonId, setSelectedSalespersonId] = useState('');
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffCode, setNewStaffCode] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffCommission, setNewStaffCommission] = useState('');
   const [savingStaff, setSavingStaff] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState(null);
   const [editStaffName, setEditStaffName] = useState('');
+  const [editStaffCode, setEditStaffCode] = useState('');
   const [editStaffPhone, setEditStaffPhone] = useState('');
   const [editStaffCommission, setEditStaffCommission] = useState('');
 
@@ -476,11 +478,13 @@ export function POSBillingModal() {
       setSavingStaff(true);
       const res = await createAdminSalesperson({
         name: newStaffName.trim(),
+        code: newStaffCode.trim() || undefined,
         phone: newStaffPhone.trim() || null,
         commission_rate: newStaffCommission ? parseFloat(newStaffCommission) : 0
       });
       showToast(`Sales staff "${newStaffName.trim()}" added successfully!`, 'success');
       setNewStaffName('');
+      setNewStaffCode('');
       setNewStaffPhone('');
       setNewStaffCommission('');
       loadSalesStaff();
@@ -499,6 +503,7 @@ export function POSBillingModal() {
   const startEditStaff = (staff) => {
     setEditingStaffId(staff.id);
     setEditStaffName(staff.name || '');
+    setEditStaffCode(staff.code || '');
     setEditStaffPhone(staff.phone || '');
     setEditStaffCommission(staff.commission_percent !== undefined ? String(staff.commission_percent) : (staff.commission_rate !== undefined ? String(staff.commission_rate) : '0'));
   };
@@ -512,6 +517,7 @@ export function POSBillingModal() {
       setSavingStaff(true);
       await updateAdminSalesperson(staffId, {
         name: editStaffName.trim(),
+        code: editStaffCode.trim() || undefined,
         phone: editStaffPhone.trim() || null,
         commission_percent: editStaffCommission ? parseFloat(editStaffCommission) : 0
       });
@@ -3466,12 +3472,20 @@ export function POSBillingModal() {
                             <div style={{ fontSize: '11px', fontWeight: 800, color: '#b45309' }}>
                               EDIT STAFF MEMBER #{staff.id}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '8px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                               <input
                                 type="text"
                                 placeholder="Staff Name"
                                 value={editStaffName}
                                 onChange={(e) => setEditStaffName(e.target.value)}
+                                style={{ padding: '6px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Staff Code"
+                                maxLength={50}
+                                value={editStaffCode}
+                                onChange={(e) => setEditStaffCode(e.target.value)}
                                 style={{ padding: '6px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
                               />
                               <input
@@ -3602,7 +3616,7 @@ export function POSBillingModal() {
               <div style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' }}>
                 Add New Staff Member
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '10px', marginBottom: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
                     FULL NAME *
@@ -3613,6 +3627,26 @@ export function POSBillingModal() {
                     placeholder="e.g. Priya S."
                     value={newStaffName}
                     onChange={(e) => setNewStaffName(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                    STAFF CODE
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Auto (SP-0000)"
+                    maxLength={50}
+                    value={newStaffCode}
+                    onChange={(e) => setNewStaffCode(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '8px 10px',

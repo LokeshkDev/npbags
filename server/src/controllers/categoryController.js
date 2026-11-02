@@ -74,9 +74,10 @@ async function createCategory(req, res, next) {
     }
 
     const parentIdVal = parent_id && parent_id !== '0' && parent_id !== 'null' ? parseInt(parent_id, 10) : null;
-    const genderVal = (gender && ['women', 'men', 'boys', 'girls', 'kids', 'all'].includes(gender.toLowerCase()))
-      ? gender.toLowerCase()
-      : 'all';
+    const rawGender = (gender || '').toLowerCase();
+    const genderVal = ['women', 'men', 'boys', 'girls', 'kids', 'all', 'none'].includes(rawGender)
+      ? rawGender
+      : 'none';
 
     const result = await query(
       `INSERT INTO categories (parent_id, slug, name, description, image, banner_image, banner_link, display_order, gender, is_active)
@@ -183,9 +184,9 @@ async function updateCategory(req, res, next) {
       params.push(is_active === true || is_active === 'true' || is_active === 1 || is_active === '1');
     }
     if (gender !== undefined) {
-      const normalizedGender = (gender || 'all').toLowerCase();
+      const normalizedGender = (gender || '').toLowerCase();
       updates.push('gender = ?');
-      params.push(['women', 'men', 'boys', 'girls', 'kids', 'all'].includes(normalizedGender) ? normalizedGender : 'all');
+      params.push(['women', 'men', 'boys', 'girls', 'kids', 'all', 'none'].includes(normalizedGender) ? normalizedGender : 'none');
     }
     if (banner_image !== undefined) {
       updates.push('banner_image = ?');

@@ -168,6 +168,12 @@ async function createSalesperson(req, res) {
     }
 
     const autoCode = code && code.trim() ? code.trim() : `SP-${Date.now().toString().slice(-4)}`;
+
+    const duplicateCode = await query('SELECT id FROM sales_persons WHERE code = ?', [autoCode]);
+    if (duplicateCode.length > 0) {
+      return res.status(400).json({ error: `Staff code "${autoCode}" is already in use. Please choose a different code.` });
+    }
+
     const comm = parseFloat(commission_percent !== undefined ? commission_percent : (commission_rate !== undefined ? commission_rate : 0)) || 0;
 
     const result = await query(
@@ -212,11 +218,18 @@ async function updateSalesperson(req, res) {
 
     const current = existing[0];
     const newName = name !== undefined ? name.trim() : current.name;
-    const newCode = code !== undefined ? code.trim() : current.code;
+    const newCode = code !== undefined ? (code.trim() || null) : current.code;
     const newPhone = phone !== undefined ? phone : current.phone;
     const commInput = commission_percent !== undefined ? commission_percent : commission_rate;
     const newComm = commInput !== undefined ? parseFloat(commInput) || 0 : current.commission_percent;
     const newActive = is_active !== undefined ? (is_active ? 1 : 0) : current.is_active;
+
+    if (newCode && newCode !== current.code) {
+      const duplicateCode = await query('SELECT id FROM sales_persons WHERE code = ? AND id <> ?', [newCode, id]);
+      if (duplicateCode.length > 0) {
+        return res.status(400).json({ error: `Staff code "${newCode}" is already in use. Please choose a different code.` });
+      }
+    }
 
     await query(`
       UPDATE sales_persons SET
@@ -238,10 +251,12 @@ async function updateSalesperson(req, res) {
       summary: `Updated salesperson "${newName}"`,
       old_values: {
         name: current.name,
+        code: current.code,
         commission_percent: current.commission_percent
       },
       new_values: {
         name: newName,
+        code: newCode,
         commission_percent: newComm,
         phone: newPhone
       },

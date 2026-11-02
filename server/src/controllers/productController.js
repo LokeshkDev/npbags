@@ -420,7 +420,7 @@ async function createProduct(req, res, next) {
     const id = slug;
 
     // Determine gender (explicit or inherited from category)
-    let genderVal = gender || 'all';
+    let genderVal = gender || 'none';
     if ((!gender || gender === 'all') && category_id) {
       const catRow = await query(`SELECT gender FROM categories WHERE id = ?`, [category_id]);
       if (catRow.length > 0 && catRow[0].gender) {
@@ -749,7 +749,7 @@ async function updateProduct(req, res, next) {
     }
 
     if (gender !== undefined) {
-      await query(`UPDATE products SET gender = ? WHERE id = ?`, [gender || 'all', id]);
+      await query(`UPDATE products SET gender = ? WHERE id = ?`, [gender || 'none', id]);
     }
 
     // If new files uploaded

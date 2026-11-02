@@ -19,7 +19,7 @@ export default function AdminCategoriesPage() {
     name: '',
     slug: '',
     parent_id: '',
-    gender: 'all',
+    gender: '',
     description: '',
     display_order: 0,
     image: null
@@ -44,7 +44,7 @@ export default function AdminCategoriesPage() {
   const openAddModal = (parentId = '') => {
     setEditingCategory(null);
     const parentCat = categories.find(c => String(c.id) === String(parentId));
-    const defaultGender = parentCat?.gender || (genderFilter !== 'all' ? genderFilter : 'all');
+    const defaultGender = parentCat?.gender || (genderFilter === 'unisex' ? 'all' : genderFilter !== 'all' ? genderFilter : '');
 
     setFormData({
       name: '',
@@ -64,7 +64,7 @@ export default function AdminCategoriesPage() {
       name: cat.name || '',
       slug: cat.slug || '',
       parent_id: cat.parent_id ? String(cat.parent_id) : '',
-      gender: cat.gender || 'all',
+      gender: cat.gender || '',
       description: cat.description || '',
       display_order: cat.display_order ?? 0,
       image: null
@@ -96,7 +96,7 @@ export default function AdminCategoriesPage() {
       data.append('name', formData.name);
       data.append('slug', formData.slug);
       data.append('parent_id', formData.parent_id ? formData.parent_id : '');
-      data.append('gender', formData.gender || 'all');
+      data.append('gender', formData.gender || 'none');
       data.append('description', formData.description || '');
       data.append('display_order', formData.display_order);
       if (formData.image) {
@@ -110,7 +110,7 @@ export default function AdminCategoriesPage() {
       }
 
       setIsModalOpen(false);
-      setFormData({ name: '', slug: '', parent_id: '', gender: 'all', description: '', display_order: 0, image: null });
+      setFormData({ name: '', slug: '', parent_id: '', gender: '', description: '', display_order: 0, image: null });
       loadCategories();
     } catch (err) {
       alert(err.message || 'Error saving category');
@@ -218,8 +218,13 @@ export default function AdminCategoriesPage() {
   };
 
   // Helper badge renderer for Gender / Department
+  const normalizeGender = (g) => {
+    const val = (g || '').toLowerCase();
+    return val || 'none';
+  };
+
   const renderGenderBadge = (g) => {
-    const val = (g || 'all').toLowerCase();
+    const val = normalizeGender(g);
     if (val === 'women') {
       return (
         <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fce7f3', color: '#be185d' }}>
@@ -255,23 +260,42 @@ export default function AdminCategoriesPage() {
         </span>
       );
     }
+    if (val === 'all' || val === 'unisex') {
+      return (
+        <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b' }}>
+          🌐 Unisex
+        </span>
+      );
+    }
     return (
-      <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b' }}>
-        🌐 Unisex
+      <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f8fafc', color: '#94a3b8', border: '1px dashed #cbd5e1' }}>
+        🚫 No Department
       </span>
     );
   };
 
+  // Visual level styling so a direct child is clearly distinct from deeper sub-items
+  const getCategoryLevelStyle = (depth) => {
+    if (depth === 0) {
+      return { label: 'CHILD', badgeBg: '#e0f2fe', badgeColor: '#0369a1', accent: '#38bdf8', rowBg: '#ffffff', indent: '#0284c7' };
+    }
+    if (depth === 1) {
+      return { label: 'SUB-ITEM', badgeBg: '#f3e8ff', badgeColor: '#7e22ce', accent: '#a855f7', rowBg: '#faf5ff', indent: '#7e22ce' };
+    }
+    return { label: `SUB-ITEM L${depth + 2}`, badgeBg: '#fef3c7', badgeColor: '#b45309', accent: '#f59e0b', rowBg: '#fffbeb', indent: '#b45309' };
+  };
+
   // Department counts
-  const womenCount = categories.filter(c => (c.gender || '').toLowerCase() === 'women').length;
-  const menCount = categories.filter(c => (c.gender || '').toLowerCase() === 'men').length;
-  const kidsCount = categories.filter(c => (c.gender || '').toLowerCase() === 'kids').length;
-  const boysCount = categories.filter(c => (c.gender || '').toLowerCase() === 'boys').length;
-  const girlsCount = categories.filter(c => (c.gender || '').toLowerCase() === 'girls').length;
+  const womenCount = categories.filter(c => normalizeGender(c.gender) === 'women').length;
+  const menCount = categories.filter(c => normalizeGender(c.gender) === 'men').length;
+  const kidsCount = categories.filter(c => normalizeGender(c.gender) === 'kids').length;
+  const boysCount = categories.filter(c => normalizeGender(c.gender) === 'boys').length;
+  const girlsCount = categories.filter(c => normalizeGender(c.gender) === 'girls').length;
   const unisexCount = categories.filter(c => {
-    const g = (c.gender || 'all').toLowerCase();
+    const g = normalizeGender(c.gender);
     return g === 'all' || g === 'unisex';
   }).length;
+  const noneCount = categories.filter(c => normalizeGender(c.gender) === 'none').length;
   const totalSubcategoriesCount = categories.filter(c => Boolean(c.parent_id)).length;
 
   // Filtered categories according to gender filter, level filter, search query, and sorting
@@ -281,12 +305,12 @@ export default function AdminCategoriesPage() {
     // 1. Department / Gender filter
     if (genderFilter !== 'all') {
       if (genderFilter === 'unisex') {
-        const isMainUnisex = (main.gender || 'all').toLowerCase() === 'all' || (main.gender || '').toLowerCase() === 'unisex';
-        const isSubUnisex = descendants.some(s => (s.gender || 'all').toLowerCase() === 'all' || (s.gender || '').toLowerCase() === 'unisex');
+        const isMainUnisex = ['all', 'unisex'].includes(normalizeGender(main.gender));
+        const isSubUnisex = descendants.some(s => ['all', 'unisex'].includes(normalizeGender(s.gender)));
         if (!isMainUnisex && !isSubUnisex) return false;
       } else {
-        const matchesMainGender = (main.gender || 'all').toLowerCase() === genderFilter;
-        const matchesSubGender = descendants.some(s => (s.gender || 'all').toLowerCase() === genderFilter);
+        const matchesMainGender = normalizeGender(main.gender) === genderFilter;
+        const matchesSubGender = descendants.some(s => normalizeGender(s.gender) === genderFilter);
         if (!matchesMainGender && !matchesSubGender) return false;
       }
     }
@@ -377,7 +401,8 @@ export default function AdminCategoriesPage() {
               { id: 'boys', label: '👦 Boys', count: boysCount },
               { id: 'girls', label: '👧 Girls', count: girlsCount },
               { id: 'kids', label: '🧒 Kids', count: kidsCount },
-              { id: 'unisex', label: '🌐 Unisex', count: unisexCount }
+              { id: 'unisex', label: '🌐 Unisex', count: unisexCount },
+              { id: 'none', label: '🚫 No Department', count: noneCount }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -477,7 +502,7 @@ export default function AdminCategoriesPage() {
                 <span>Showing <strong>{filteredMainCategories.length}</strong> of {mainCategories.length} main categories ({categories.length} total categories)</span>
                 {genderFilter !== 'all' && (
                   <span style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    Dept: {genderFilter}
+                    Dept: {genderFilter === 'none' ? 'No Department' : genderFilter === 'unisex' ? 'Unisex' : genderFilter}
                     <button type="button" onClick={() => setGenderFilter('all')} style={{ border: 'none', background: 'none', color: '#9d174d', cursor: 'pointer', padding: 0 }}>✕</button>
                   </span>
                 )}
@@ -698,9 +723,11 @@ export default function AdminCategoriesPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {descendants.map(({ cat: sub, depth }) => (
-                                  <tr key={sub.id}>
-                                    <td style={{ width: '48px' }}>
+                                {descendants.map(({ cat: sub, depth }) => {
+                                  const level = getCategoryLevelStyle(depth);
+                                  return (
+                                  <tr key={sub.id} style={{ background: level.rowBg }}>
+                                    <td style={{ width: '48px', borderLeft: `4px solid ${level.accent}` }}>
                                       <div style={{ width: '36px', height: '36px', borderRadius: '4px', overflow: 'hidden', background: '#f8fafc' }}>
                                         {sub.image ? (
                                           <img src={sub.image} alt={sub.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -713,14 +740,12 @@ export default function AdminCategoriesPage() {
                                     </td>
                                     <td>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: `${depth * 20}px` }}>
-                                        <span style={{ color: '#0284c7', fontWeight: 700, fontSize: '14px' }}>↳</span>
+                                        <span style={{ color: level.indent, fontWeight: 700, fontSize: '14px' }}>↳</span>
                                         <div>
+                                          <span style={{ fontSize: '9.5px', fontWeight: 800, letterSpacing: '0.3px', padding: '2px 6px', borderRadius: '4px', background: level.badgeBg, color: level.badgeColor, marginRight: '6px' }}>
+                                            {level.label}
+                                          </span>
                                           <strong style={{ fontSize: '13px', color: 'var(--ink)' }}>{sub.name}</strong>
-                                          {depth > 0 && (
-                                            <span style={{ fontSize: '10px', fontWeight: 600, color: '#94a3b8', marginLeft: '6px' }}>
-                                              L{depth + 2}
-                                            </span>
-                                          )}
                                           {sub.description && (
                                             <div style={{ fontSize: '11px', color: 'var(--muted)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                               {sub.description}
@@ -789,7 +814,8 @@ export default function AdminCategoriesPage() {
                                       </div>
                                     </td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -811,7 +837,18 @@ export default function AdminCategoriesPage() {
             <form onSubmit={handleSubmit}>
               {/* Parent Category Selector */}
               <div className="form-group">
-                <label className="form-label">Category Hierarchy (Parent Category)</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Category Hierarchy (Parent Category) — Optional</label>
+                  {formData.parent_id ? (
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, parent_id: '' }))}
+                      style={{ background: 'none', border: 'none', color: '#c8102e', fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                    >
+                      Clear selection
+                    </button>
+                  ) : null}
+                </div>
                 <select
                   className="form-control"
                   value={formData.parent_id}
@@ -834,13 +871,13 @@ export default function AdminCategoriesPage() {
                   ))}
                 </select>
                 <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
-                  Choose &quot;None&quot; for a primary category, or select any category/sub-item as the parent to nest deeper (e.g. Handbags → Tote Bags → Canvas Totes).
+                  Optional. Choose &quot;None&quot; for a primary category, or select any category/sub-item as the parent to nest deeper (e.g. Handbags → Tote Bags → Canvas Totes).
                 </span>
               </div>
 
               {/* Target Department / Gender */}
               <div className="form-group">
-                <label className="form-label">Department / Target Audience *</label>
+                <label className="form-label">Department / Target Audience (Optional)</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '6px' }}>
                   {[
                     { id: 'women', label: '👩 Women', desc: 'Handbags, Totes, Slings' },
@@ -852,6 +889,12 @@ export default function AdminCategoriesPage() {
                   ].map(g => (
                     <label
                       key={g.id}
+                      onClick={(e) => {
+                        if (formData.gender === g.id) {
+                          e.preventDefault();
+                          setFormData(prev => ({ ...prev, gender: '' }));
+                        }
+                      }}
                       style={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -882,7 +925,7 @@ export default function AdminCategoriesPage() {
                   ))}
                 </div>
                 <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  Assigning to Women, Men, Boys, Girls, or Kids enables dedicated department hubs at <code>/womens</code>, <code>/mens</code>, <code>/boys</code>, <code>/girls</code>, or <code>/kids</code>.
+                  Optional. Click a selected department again to unselect it. Assigning to Women, Men, Boys, Girls, or Kids enables dedicated department hubs at <code>/womens</code>, <code>/mens</code>, <code>/boys</code>, <code>/girls</code>, or <code>/kids</code>.
                 </span>
               </div>
 

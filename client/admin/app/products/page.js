@@ -71,7 +71,7 @@ export default function AdminProductsPage() {
     name: '',
     slug: '',
     category_id: '',
-    gender: 'all',
+    gender: 'none',
     price: '',
     sale_price: '',
     badge: '',
@@ -266,7 +266,7 @@ export default function AdminProductsPage() {
       name: '',
       slug: '',
       category_id: firstCat?.id || '',
-      gender: firstCat?.gender || 'all',
+      gender: firstCat?.gender || 'none',
       price: '',
       sale_price: '',
       badge: '',
@@ -333,7 +333,7 @@ export default function AdminProductsPage() {
       name: p.name || '',
       slug: p.slug || p.id || '',
       category_id: p.category_id || '',
-      gender: p.gender || 'all',
+      gender: p.gender || 'none',
       price: p.price || '',
       sale_price: p.sale_price || '',
       badge: p.badge || '',
@@ -885,8 +885,12 @@ export default function AdminProductsPage() {
   const countBoys = products.filter(p => (p.gender || '').toLowerCase() === 'boys').length;
   const countGirls = products.filter(p => (p.gender || '').toLowerCase() === 'girls').length;
   const countUnisex = products.filter(p => {
-    const g = (p.gender || 'all').toLowerCase();
+    const g = (p.gender || '').toLowerCase();
     return g === 'all' || g === 'unisex';
+  }).length;
+  const countNoDept = products.filter(p => {
+    const g = (p.gender || '').toLowerCase();
+    return g === '' || g === 'none';
   }).length;
 
   const countInStock = products.filter(p => getProductStock(p) > 10).length;
@@ -945,9 +949,11 @@ export default function AdminProductsPage() {
 
     // 3. Gender / Department Filter
     if (genderFilter !== 'all') {
-      const pGender = (p.gender || 'all').toLowerCase();
+      const pGender = (p.gender || 'none').toLowerCase();
       if (genderFilter === 'unisex') {
         if (pGender !== 'all' && pGender !== 'unisex') return false;
+      } else if (genderFilter === 'none') {
+        if (pGender !== 'none' && pGender !== '') return false;
       } else {
         if (pGender !== genderFilter && pGender !== 'all') return false;
       }
@@ -1029,7 +1035,8 @@ export default function AdminProductsPage() {
               { id: 'boys', label: '👦 Boys', count: countBoys },
               { id: 'girls', label: '👧 Girls', count: countGirls },
               { id: 'kids', label: '🧒 Kids', count: countKids },
-              { id: 'unisex', label: '🌐 Unisex', count: countUnisex }
+              { id: 'unisex', label: '🌐 Unisex', count: countUnisex },
+              { id: 'none', label: '🚫 No Department', count: countNoDept }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1104,7 +1111,17 @@ export default function AdminProductsPage() {
                 >
                   <option value="all">📁 Filter by Category: All ({products.length})</option>
                   {categoryOptions.map(({ cat, depth }) => (
-                    <option key={cat.id} value={cat.id} style={depth === 0 ? { fontWeight: 700 } : undefined}>
+                    <option
+                      key={cat.id}
+                      value={cat.id}
+                      style={
+                        depth === 0
+                          ? { fontWeight: 700, background: '#f1f5f9' }
+                          : depth === 1
+                          ? { fontWeight: 400, background: '#e0f2fe' }
+                          : { fontWeight: 400, fontStyle: 'italic', background: '#f3e8ff' }
+                      }
+                    >
                       {depth === 0 ? '📂 ' : `${'\u00A0\u00A0'.repeat(depth)}↳ `}{cat.name} ({getCategoryProductCount(cat.id)})
                     </option>
                   ))}
@@ -1200,7 +1217,7 @@ export default function AdminProductsPage() {
                 )}
                 {genderFilter !== 'all' && (
                   <span style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    Dept: {genderFilter}
+                    Dept: {genderFilter === 'none' ? 'No Department' : genderFilter}
                     <button type="button" onClick={() => setGenderFilter('all')} style={{ border: 'none', background: 'none', color: '#9d174d', cursor: 'pointer', padding: 0 }}>✕</button>
                   </span>
                 )}
@@ -1539,13 +1556,13 @@ export default function AdminProductsPage() {
                     value={cat.id}
                     style={
                       depth === 0
-                        ? { fontWeight: 700 }
-                        : depth >= 2
-                        ? { fontStyle: 'italic' }
-                        : { fontWeight: 400, fontStyle: 'normal' }
+                        ? { fontWeight: 700, background: '#f1f5f9' }
+                        : depth === 1
+                        ? { fontWeight: 400, background: '#e0f2fe' }
+                        : { fontWeight: 400, fontStyle: 'italic', background: '#f3e8ff' }
                     }
                   >
-                    {depth > 0 ? `${'\u00A0\u00A0'.repeat(depth)}↳ ` : ''}{cat.name} ({cat.gender || 'all'})
+                    {depth > 0 ? `${'\u00A0\u00A0'.repeat(depth)}↳ ` : ''}{cat.name} ({cat.gender || 'none'})
                   </option>
                 ))}
               </select>
@@ -1555,7 +1572,7 @@ export default function AdminProductsPage() {
               <label className="form-label">Department / Gender</label>
               <select
                 className="form-control"
-                value={formData.gender || 'all'}
+                value={formData.gender || 'none'}
                 onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
               >
                 <option value="women">👩 Women</option>
@@ -1564,6 +1581,7 @@ export default function AdminProductsPage() {
                 <option value="girls">👧 Girls</option>
                 <option value="kids">🧒 Kids</option>
                 <option value="all">🌐 All / Unisex</option>
+                <option value="none">🚫 No Department</option>
               </select>
             </div>
           </div>
