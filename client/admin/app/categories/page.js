@@ -217,60 +217,48 @@ export default function AdminCategoriesPage() {
     setExpandedIds(new Set());
   };
 
-  // Helper badge renderer for Gender / Department
+  // Helper badge renderer for Gender / Department (supports multiple selected departments)
+  const parseDepartments = (g) => {
+    if (!g) return [];
+    if (Array.isArray(g)) return g;
+    return String(g).split(',').map(s => s.trim().toLowerCase()).filter(s => s && s !== 'none');
+  };
+
   const normalizeGender = (g) => {
-    const val = (g || '').toLowerCase();
-    return val || 'none';
+    const depts = parseDepartments(g);
+    return depts.length > 0 ? depts[0] : 'none';
+  };
+
+  const deptBadgeThemes = {
+    women: { label: '👩 Women', bg: '#fce7f3', color: '#be185d' },
+    men: { label: '👤 Men', bg: '#e0f2fe', color: '#0369a1' },
+    kids: { label: '🧒 Kids', bg: '#fef3c7', color: '#b45309' },
+    boys: { label: '👦 Boys', bg: '#dbeafe', color: '#1d4ed8' },
+    girls: { label: '👧 Girls', bg: '#fce7f3', color: '#be185d' },
+    all: { label: '🌐 All / Unisex', bg: '#f1f5f9', color: '#475569' },
+    unisex: { label: '🌐 Unisex', bg: '#f1f5f9', color: '#475569' }
   };
 
   const renderGenderBadge = (g) => {
-    const val = normalizeGender(g);
-    if (val === 'women') {
+    const depts = parseDepartments(g);
+    if (!depts.length) {
       return (
-        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fce7f3', color: '#be185d' }}>
-          👩 Women
-        </span>
-      );
-    }
-    if (val === 'men') {
-      return (
-        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#e0f2fe', color: '#0369a1' }}>
-          👤 Men
-        </span>
-      );
-    }
-    if (val === 'kids') {
-      return (
-        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fef3c7', color: '#b45309' }}>
-          🧒 Kids
-        </span>
-      );
-    }
-    if (val === 'boys') {
-      return (
-        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#dbeafe', color: '#1d4ed8' }}>
-          👦 Boys
-        </span>
-      );
-    }
-    if (val === 'girls') {
-      return (
-        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fce7f3', color: '#be185d' }}>
-          👧 Girls
-        </span>
-      );
-    }
-    if (val === 'all' || val === 'unisex') {
-      return (
-        <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b' }}>
-          🌐 Unisex
+        <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f8fafc', color: '#94a3b8', border: '1px dashed #cbd5e1' }}>
+          🚫 No Department
         </span>
       );
     }
     return (
-      <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f8fafc', color: '#94a3b8', border: '1px dashed #cbd5e1' }}>
-        🚫 No Department
-      </span>
+      <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+        {depts.map(d => {
+          const theme = deptBadgeThemes[d] || { label: d, bg: '#f1f5f9', color: '#475569' };
+          return (
+            <span key={d} style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: theme.bg, color: theme.color }}>
+              {theme.label}
+            </span>
+          );
+        })}
+      </div>
     );
   };
 
@@ -286,31 +274,28 @@ export default function AdminCategoriesPage() {
   };
 
   // Department counts
-  const womenCount = categories.filter(c => normalizeGender(c.gender) === 'women').length;
-  const menCount = categories.filter(c => normalizeGender(c.gender) === 'men').length;
-  const kidsCount = categories.filter(c => normalizeGender(c.gender) === 'kids').length;
-  const boysCount = categories.filter(c => normalizeGender(c.gender) === 'boys').length;
-  const girlsCount = categories.filter(c => normalizeGender(c.gender) === 'girls').length;
-  const unisexCount = categories.filter(c => {
-    const g = normalizeGender(c.gender);
-    return g === 'all' || g === 'unisex';
-  }).length;
-  const noneCount = categories.filter(c => normalizeGender(c.gender) === 'none').length;
+  const womenCount = categories.filter(c => parseDepartments(c.gender).includes('women') || parseDepartments(c.gender).includes('all')).length;
+  const menCount = categories.filter(c => parseDepartments(c.gender).includes('men') || parseDepartments(c.gender).includes('all')).length;
+  const kidsCount = categories.filter(c => parseDepartments(c.gender).includes('kids') || parseDepartments(c.gender).includes('all')).length;
+  const boysCount = categories.filter(c => parseDepartments(c.gender).includes('boys') || parseDepartments(c.gender).includes('all')).length;
+  const girlsCount = categories.filter(c => parseDepartments(c.gender).includes('girls') || parseDepartments(c.gender).includes('all')).length;
+  const unisexCount = categories.filter(c => parseDepartments(c.gender).some(x => ['all', 'unisex'].includes(x))).length;
+  const noneCount = categories.filter(c => parseDepartments(c.gender).length === 0).length;
   const totalSubcategoriesCount = categories.filter(c => Boolean(c.parent_id)).length;
 
   // Filtered categories according to gender filter, level filter, search query, and sorting
   const filteredMainCategories = mainCategories.filter(main => {
     const descendants = flattenDescendants(main.id).map(d => d.cat);
 
-    // 1. Department / Gender filter
+    // 1. Department / Gender filter (supports multiple assigned departments)
     if (genderFilter !== 'all') {
       if (genderFilter === 'unisex') {
-        const isMainUnisex = ['all', 'unisex'].includes(normalizeGender(main.gender));
-        const isSubUnisex = descendants.some(s => ['all', 'unisex'].includes(normalizeGender(s.gender)));
+        const isMainUnisex = parseDepartments(main.gender).some(x => ['all', 'unisex'].includes(x));
+        const isSubUnisex = descendants.some(s => parseDepartments(s.gender).some(x => ['all', 'unisex'].includes(x)));
         if (!isMainUnisex && !isSubUnisex) return false;
       } else {
-        const matchesMainGender = normalizeGender(main.gender) === genderFilter;
-        const matchesSubGender = descendants.some(s => normalizeGender(s.gender) === genderFilter);
+        const matchesMainGender = parseDepartments(main.gender).includes(genderFilter) || parseDepartments(main.gender).includes('all');
+        const matchesSubGender = descendants.some(s => parseDepartments(s.gender).includes(genderFilter) || parseDepartments(s.gender).includes('all'));
         if (!matchesMainGender && !matchesSubGender) return false;
       }
     }
@@ -875,9 +860,22 @@ export default function AdminCategoriesPage() {
                 </span>
               </div>
 
-              {/* Target Department / Gender */}
+              {/* Target Department / Gender (Multiple Selection) */}
               <div className="form-group">
-                <label className="form-label">Department / Target Audience (Optional)</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    Departments / Target Audience (Multiple Select Allowed)
+                  </label>
+                  {parseDepartments(formData.gender).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, gender: '' }))}
+                      style={{ background: 'none', border: 'none', color: '#c8102e', fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                    >
+                      Clear Selection
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '6px' }}>
                   {[
                     { id: 'women', label: '👩 Women', desc: 'Handbags, Totes, Slings' },
@@ -886,46 +884,68 @@ export default function AdminCategoriesPage() {
                     { id: 'girls', label: '👧 Girls', desc: 'Handbags, Pouches, Charms' },
                     { id: 'kids', label: '🧒 Kids', desc: 'School Bags, Mini Pouches' },
                     { id: 'all', label: '🌐 All / Unisex', desc: 'Common Collections' }
-                  ].map(g => (
-                    <label
-                      key={g.id}
-                      onClick={(e) => {
-                        if (formData.gender === g.id) {
-                          e.preventDefault();
-                          setFormData(prev => ({ ...prev, gender: '' }));
-                        }
-                      }}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        padding: '10px 8px',
-                        borderRadius: '8px',
-                        border: formData.gender === g.id ? '2px solid var(--brand-red, #c8102e)' : '1px solid #e2e8f0',
-                        background: formData.gender === g.id ? 'rgba(200, 16, 46, 0.05)' : '#ffffff',
-                        cursor: 'pointer',
-                        textAlign: 'center',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="category-gender"
-                        value={g.id}
-                        checked={formData.gender === g.id}
-                        onChange={() => setFormData({ ...formData, gender: g.id })}
-                        style={{ display: 'none' }}
-                      />
-                      <span style={{ fontWeight: '700', fontSize: '13px', color: formData.gender === g.id ? 'var(--brand-red, #c8102e)' : '#111827' }}>
-                        {g.label}
-                      </span>
-                      <span style={{ fontSize: '10.5px', color: '#6b7280', marginTop: '3px' }}>
-                        {g.desc}
-                      </span>
-                    </label>
-                  ))}
+                  ].map(g => {
+                    const selectedList = parseDepartments(formData.gender);
+                    const isSelected = selectedList.includes(g.id);
+                    return (
+                      <div
+                        key={g.id}
+                        onClick={() => {
+                          let next;
+                          if (g.id === 'all') {
+                            next = isSelected ? [] : ['all'];
+                          } else {
+                            const withoutAll = selectedList.filter(x => x !== 'all');
+                            if (isSelected) {
+                              next = withoutAll.filter(x => x !== g.id);
+                            } else {
+                              next = [...withoutAll, g.id];
+                            }
+                          }
+                          setFormData(prev => ({ ...prev, gender: next.join(',') }));
+                        }}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          padding: '10px 8px',
+                          borderRadius: '8px',
+                          border: isSelected ? '2px solid var(--brand-red, #c8102e)' : '1px solid #e2e8f0',
+                          background: isSelected ? 'rgba(200, 16, 46, 0.05)' : '#ffffff',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          position: 'relative',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                          <span style={{
+                            width: '14px',
+                            height: '14px',
+                            borderRadius: '3px',
+                            border: isSelected ? '1px solid #c8102e' : '1px solid #cbd5e1',
+                            background: isSelected ? '#c8102e' : '#fff',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            fontSize: '10px',
+                            fontWeight: 900
+                          }}>
+                            {isSelected ? '✓' : ''}
+                          </span>
+                          <span style={{ fontWeight: '700', fontSize: '13px', color: isSelected ? 'var(--brand-red, #c8102e)' : '#111827' }}>
+                            {g.label}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '10.5px', color: '#6b7280', marginTop: '3px' }}>
+                          {g.desc}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
                 <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  Optional. Click a selected department again to unselect it. Assigning to Women, Men, Boys, Girls, or Kids enables dedicated department hubs at <code>/womens</code>, <code>/mens</code>, <code>/boys</code>, <code>/girls</code>, or <code>/kids</code>.
+                  Multiple departments can be selected. Selected categories appear across all chosen department hubs (e.g. <code>/womens</code>, <code>/mens</code>, <code>/boys</code>, <code>/girls</code>, or <code>/kids</code>).
                 </span>
               </div>
 

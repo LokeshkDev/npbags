@@ -9,6 +9,11 @@ import { useSidebar } from '../lib/sidebar-context';
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  // Default collapsed; expands smoothly on hover when collapsed
+  const effectiveCollapsed = isCollapsed && !isHovered;
+  const isHoverExpanded = isCollapsed && isHovered;
 
   const navLinks = [
     { label: 'Dashboard', href: '/dashboard', icon: 'home' },
@@ -36,66 +41,92 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className={`admin-sidebar ${isCollapsed ? 'is-collapsed' : ''}`}>
-      <div className="admin-sidebar__brand">
-        <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
-          <img src="/assets/brand-logo.png" alt="NP Grand Admin" className="admin-sidebar__logo" />
-          {!isCollapsed && (
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#fff', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-              Admin Panel
-            </span>
-          )}
-        </Link>
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="admin-sidebar__collapse-btn"
-          title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-          aria-label={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-        >
-          <Icon name={isCollapsed ? 'chevronRight' : 'chevronLeft'} size={14} />
-        </button>
-      </div>
-
-      <nav className="admin-sidebar__nav">
-        {navLinks.map((item, i) => {
-          if (item.title) {
-            if (isCollapsed) return <div key={i} className="admin-nav-divider" />;
-            return (
-              <div key={i} className="admin-nav-section-title">
-                {item.title}
-              </div>
-            );
-          }
-          const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
-          return (
-            <Link
-              key={i}
-              href={item.href}
-              className={`admin-nav-item ${isActive ? 'is-active' : ''}`}
-              title={isCollapsed ? item.label : undefined}
-            >
-              <Icon name={item.icon} size={18} />
-              {!isCollapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
-
-        <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid #28322e' }}>
-          <a
-            href={process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="admin-nav-item"
-            style={{ color: 'var(--brand-green)' }}
-            title={isCollapsed ? 'View Live Website' : undefined}
+    <div
+      style={{
+        position: 'relative',
+        width: isCollapsed ? '72px' : '260px',
+        flexShrink: 0,
+        transition: 'width 0.22s cubic-bezier(0.4, 0, 0.2, 1)'
+      }}
+    >
+      <aside
+        className={`admin-sidebar ${effectiveCollapsed ? 'is-collapsed' : ''} ${isHoverExpanded ? 'is-hover-expanded' : ''}`}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          height: '100%',
+          ...(isHoverExpanded ? {
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: '260px',
+            zIndex: 1000,
+            boxShadow: '8px 0 28px rgba(0, 0, 0, 0.45)'
+          } : {})
+        }}
+      >
+        <div className="admin-sidebar__brand">
+          <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+            <img src="/assets/brand-logo.png" alt="NP Grand Admin" className="admin-sidebar__logo" />
+            {!effectiveCollapsed && (
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#fff', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Admin Panel
+              </span>
+            )}
+          </Link>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="admin-sidebar__collapse-btn"
+            title={effectiveCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            aria-label={effectiveCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            style={effectiveCollapsed ? { display: 'none' } : {}}
           >
-            <Icon name="externalLink" size={16} />
-            {!isCollapsed && <span>View Live Website</span>}
-          </a>
+            <Icon name={effectiveCollapsed ? 'chevronRight' : 'chevronLeft'} size={14} />
+          </button>
         </div>
-      </nav>
-    </aside>
+
+        <nav className="admin-sidebar__nav">
+          {navLinks.map((item, i) => {
+            if (item.title) {
+              if (effectiveCollapsed) return <div key={i} className="admin-nav-divider" />;
+              return (
+                <div key={i} className="admin-nav-section-title">
+                  {item.title}
+                </div>
+              );
+            }
+            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+            return (
+              <Link
+                key={i}
+                href={item.href}
+                className={`admin-nav-item ${isActive ? 'is-active' : ''}`}
+                title={effectiveCollapsed ? item.label : undefined}
+              >
+                <Icon name={item.icon} size={18} />
+                {!effectiveCollapsed && <span>{item.label}</span>}
+              </Link>
+            );
+          })}
+
+          <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid #28322e' }}>
+            <a
+              href={process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="admin-nav-item"
+              style={{ color: 'var(--brand-green)' }}
+              title={effectiveCollapsed ? 'View Live Website' : undefined}
+            >
+              <Icon name="externalLink" size={16} />
+              {!effectiveCollapsed && <span>View Live Website</span>}
+            </a>
+          </div>
+        </nav>
+      </aside>
+    </div>
   );
 }
 

@@ -51,6 +51,22 @@ a {
   width: 72px;
 }
 
+.admin-sidebar.is-hover-expanded {
+  width: 260px !important;
+  z-index: 1000 !important;
+  box-shadow: 8px 0 28px rgba(0, 0, 0, 0.45);
+}
+
+.admin-sidebar.is-collapsed.is-hover-expanded .admin-sidebar__brand {
+  padding: 20px 16px;
+  justify-content: space-between;
+}
+
+.admin-sidebar.is-collapsed.is-hover-expanded .admin-nav-item {
+  justify-content: flex-start;
+  padding: 10px 14px;
+}
+
 .admin-sidebar__brand {
   padding: 20px 16px;
   border-bottom: 1px solid #28322e;

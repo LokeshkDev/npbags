@@ -706,7 +706,8 @@ export default function AdminDashboardPage() {
                       return (
                         <div
                           key={idx}
-                          onMouseEnter={() => setHoveredPoint({ pt, idx, posVal, onlineVal, totalVal })}
+                          onMouseEnter={(e) => setHoveredPoint({ pt, idx, posVal, onlineVal, totalVal, clientX: e.clientX, clientY: e.clientY })}
+                          onMouseMove={(e) => setHoveredPoint({ pt, idx, posVal, onlineVal, totalVal, clientX: e.clientX, clientY: e.clientY })}
                           onMouseLeave={() => setHoveredPoint(null)}
                           style={{
                             flex: 1,
@@ -720,14 +721,13 @@ export default function AdminDashboardPage() {
                             cursor: 'pointer'
                           }}
                         >
-                          {/* Rich Floating Theme Tooltip on Hover */}
+                          {/* Rich Floating Theme Tooltip on Hover (Anchored Near Cursor) */}
                           {hoveredPoint && hoveredPoint.idx === idx && (
                             <div
                               style={{
-                                position: 'absolute',
-                                bottom: 'calc(100% + 8px)',
-                                left: '50%',
-                                transform: 'translateX(-50%)',
+                                position: 'fixed',
+                                left: Math.min((hoveredPoint.clientX || 0) + 16, typeof window !== 'undefined' ? window.innerWidth - 230 : 800),
+                                top: Math.max(10, (hoveredPoint.clientY || 0) - 80),
                                 background: '#0b1120',
                                 border: '1.5px solid #065935',
                                 borderRadius: '8px',
@@ -735,8 +735,8 @@ export default function AdminDashboardPage() {
                                 color: '#ffffff',
                                 fontSize: '11px',
                                 whiteSpace: 'nowrap',
-                                zIndex: 100,
-                                boxShadow: '0 10px 28px rgba(0,0,0,0.4)',
+                                zIndex: 99999,
+                                boxShadow: '0 10px 28px rgba(0,0,0,0.45)',
                                 pointerEvents: 'none'
                               }}
                             >
@@ -755,18 +755,6 @@ export default function AdminDashboardPage() {
                                 <span>Total:</span>
                                 <span>{chartMetric === 'revenue' ? formatCurrency(totalVal) : `${totalVal} total`}</span>
                               </div>
-                              {/* Arrow */}
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: '100%',
-                                  left: '50%',
-                                  transform: 'translateX(-50%)',
-                                  borderLeft: '5px solid transparent',
-                                  borderRight: '5px solid transparent',
-                                  borderTop: '5px solid #065935'
-                                }}
-                              />
                             </div>
                           )}
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
@@ -96,6 +97,7 @@ function PaymentBadge({ status }) {
 }
 
 export default function AdminVendorsPage() {
+  const router = useRouter();
   const [mainTab, setMainTab] = useState('vendors');
   const [vendors, setVendors] = useState([]);
   const [products, setProducts] = useState([]);
@@ -204,17 +206,95 @@ export default function AdminVendorsPage() {
     loadProducts();
     loadPurchaseBills();
     loadOutstanding();
+
+    // Check if returning from creating a product for a purchase bill
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('from_product_create') === '1') {
+        try {
+          const savedDraft = window.sessionStorage.getItem('vendor_purchase_bill_draft');
+          const newlyCreatedRaw = window.sessionStorage.getItem('vendor_bill_new_product');
+          let restoredForm = null;
+          if (savedDraft) {
+            restoredForm = JSON.parse(savedDraft);
+          }
+
+          if (newlyCreatedRaw) {
+            const newProd = JSON.parse(newlyCreatedRaw);
+            const newItem = {
+              key: `item-${billItemKey++}`,
+              product_id: newProd.id,
+              product_name: newProd.name,
+              variant_id: '',
+              variant_info: '',
+              quantity: 1,
+              purchase_rate: newProd.purchased_rate || newProd.purchase_price || ''
+            };
+
+            if (restoredForm) {
+              const cleanItems = (restoredForm.items || []).filter(it => it.product_name && it.product_name.trim());
+              restoredForm.items = [...cleanItems, newItem];
+              setBillForm(restoredForm);
+            } else {
+              setBillForm(prev => ({
+                ...prev,
+                items: [...prev.items.filter(it => it.product_name), newItem]
+              }));
+            }
+          } else if (restoredForm) {
+            setBillForm(restoredForm);
+          }
+
+          setIsBillModalOpen(true);
+          window.sessionStorage.removeItem('vendor_purchase_bill_draft');
+          window.sessionStorage.removeItem('vendor_bill_new_product');
+          window.history.replaceState({}, '', '/vendors');
+        } catch (err) {
+          console.warn('Could not restore vendor bill draft:', err);
+        }
+      }
+    }
   }, []);
+
+  const handleRedirectNewProduct = (prefillName = '') => {
+    try {
+      window.sessionStorage.setItem('vendor_purchase_bill_draft', JSON.stringify(billForm));
+    } catch (e) {
+      console.warn('Could not save draft to sessionStorage', e);
+    }
+    const params = new URLSearchParams();
+    params.set('from', 'vendor_bill');
+    if (billForm.vendor_id) params.set('vendor_id', String(billForm.vendor_id));
+    if (prefillName && typeof prefillName === 'string') params.set('product_name', prefillName.trim());
+    router.push(`/products?${params.toString()}`);
+  };
 
   useEffect(() => {
     if (mainTab === 'purchase-bills') loadPurchaseBills();
     if (mainTab === 'outstanding') loadOutstanding();
   }, [mainTab]);
 
+  // Keyboard shortcut F2 or Alt+N to open New Purchase Bill
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.key === 'F2' || (e.altKey && (e.key === 'n' || e.key === 'N'))) && !isBillModalOpen) {
+        e.preventDefault();
+        openNewBill('');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isBillModalOpen]);
+
   const refreshAll = () => {
     loadVendors();
     loadPurchaseBills();
     loadOutstanding();
+    loadProducts();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('np_inventory_updated'));
+      window.dispatchEvent(new CustomEvent('np_product_updated'));
+    }
     if (expandedVendorId) loadVendorHistory(expandedVendorId);
   };
 
@@ -363,11 +443,13 @@ export default function AdminVendorsPage() {
   const handleItemProductName = (index, value) => {
     const match = products.find(p => String(p.name || '').trim().toLowerCase() === value.trim().toLowerCase());
     if (match) {
+      const vars = Array.isArray(match.variants) ? match.variants : [];
+      const firstVar = vars.length > 0 ? vars[0] : null;
       updateBillItem(index, {
         product_name: match.name,
         product_id: match.id,
-        variant_id: '',
-        variant_info: '',
+        variant_id: firstVar ? String(firstVar.id) : '',
+        variant_info: firstVar ? [firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
         purchase_rate: match.purchased_rate !== null && match.purchased_rate !== undefined
           ? String(match.purchased_rate)
           : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : '')
@@ -778,8 +860,8 @@ export default function AdminVendorsPage() {
               <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>Manage suppliers, purchase bills, payments and outstanding payables.</p>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="button" onClick={() => openNewBill('')} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#b45309', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontWeight: 800, fontSize: '13px', cursor: 'pointer', border: 'none' }}>
-                + New Purchase Bill
+              <button type="button" onClick={() => openNewBill('')} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#b45309', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontWeight: 800, fontSize: '13px', cursor: 'pointer', border: 'none' }} title="Create new vendor purchase bill [Shortcut: F2 or Alt+N]">
+                + New Purchase Bill [F2]
               </button>
               <button type="button" onClick={openAddModal} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#065935', color: '#fff', padding: '10px 18px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', border: 'none' }}>
                 <Icon name="plus" size={16} />
@@ -1078,7 +1160,14 @@ export default function AdminVendorsPage() {
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                 <div style={{ padding: '9px 12px', background: '#0f172a', color: '#fff', fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>PRODUCT LINE ITEMS</span>
-                  <button type="button" onClick={addBillItem} style={{ background: '#065935', color: '#fff', border: 'none', borderRadius: '5px', padding: '4px 10px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>+ ADD ITEM</button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" onClick={() => handleRedirectNewProduct('')} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '5px', padding: '4px 10px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>
+                      + NEW PRODUCT
+                    </button>
+                    <button type="button" onClick={addBillItem} style={{ background: '#065935', color: '#fff', border: 'none', borderRadius: '5px', padding: '4px 10px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>
+                      + ADD ITEM
+                    </button>
+                  </div>
                 </div>
                 <div style={{ padding: '8px', background: '#f8fafc' }}>
                   <datalist id="purchase-product-options">
@@ -1088,32 +1177,92 @@ export default function AdminVendorsPage() {
                     const variantSource = products.find(p => p.id === item.product_id);
                     const variants = Array.isArray(variantSource?.variants) ? variantSource.variants : [];
                     const amount = (Number(item.quantity) || 0) * (parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0);
+
+                    // Stock calculation for this item
+                    let currentStock = 0;
+                    if (item.variant_id) {
+                      const vObj = variants.find(v => String(v.id) === String(item.variant_id));
+                      currentStock = vObj ? (Number(vObj.stock_quantity) || 0) : 0;
+                    } else if (variantSource) {
+                      currentStock = variants.length > 0
+                        ? variants.reduce((sum, v) => sum + (Number(v.stock_quantity) || 0), 0)
+                        : (Number(variantSource.stock) || 0);
+                    }
+                    const addQty = parseInt(item.quantity, 10) || 0;
+                    const newTotalStock = currentStock + addQty;
+
                     return (
-                      <div key={item.key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '8px', marginBottom: '6px', display: 'grid', gridTemplateColumns: '2.2fr 1.4fr 0.65fr 1fr 0.9fr 0.35fr', gap: '7px', alignItems: 'center' }}>
-                        <div>
-                          <input list="purchase-product-options" value={item.product_name} onChange={(e) => handleItemProductName(index, e.target.value)} placeholder="Type product name (new items auto-create)" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
-                          {item.product_id && <div style={{ fontSize: '9.5px', color: '#15803d', marginTop: '2px', fontWeight: 700 }}>Linked to catalog product</div>}
+                      <div key={item.key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '10px 10px', marginBottom: '8px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2.2fr 1.3fr 0.8fr 1fr 0.9fr 0.35fr', gap: '8px', alignItems: 'center' }}>
+                          <div>
+                            <input list="purchase-product-options" value={item.product_name} onChange={(e) => handleItemProductName(index, e.target.value)} placeholder="Type product name or select from catalog" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
+                            {item.product_id ? (
+                              <div style={{ fontSize: '9.5px', color: '#15803d', marginTop: '2px', fontWeight: 700 }}>✓ Linked to catalog product</div>
+                            ) : (
+                              item.product_name && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                                  <span style={{ fontSize: '10px', color: '#b45309', fontWeight: 700 }}>Not in catalog:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRedirectNewProduct(item.product_name)}
+                                    style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', borderRadius: '4px', padding: '1px 6px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}
+                                  >
+                                    + Add New Product to Catalog
+                                  </button>
+                                </div>
+                              )
+                            )}
+                          </div>
+                          <div>
+                            {variants.length > 0 ? (
+                              <select value={item.variant_id} onChange={(e) => {
+                                const variant = variants.find(v => String(v.id) === e.target.value);
+                                updateBillItem(index, {
+                                  variant_id: e.target.value,
+                                  variant_info: variant ? [variant.color_name, variant.size_name].filter(Boolean).join(' / ') : ''
+                                });
+                              }} style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff' }}>
+                                <option value="">Main product (all variants)</option>
+                                {variants.map(v => <option key={v.id} value={v.id}>{[v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`} (Stock: {v.stock_quantity ?? 0})</option>)}
+                              </select>
+                            ) : (
+                              <input type="text" value={item.variant_info} onChange={(e) => updateBillItem(index, { variant_info: e.target.value })} placeholder="Variant/size (optional)" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                            )}
+                          </div>
+                          <div>
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.quantity}
+                              onChange={(e) => updateBillItem(index, { quantity: e.target.value })}
+                              style={{ width: '100%', padding: '7px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }}
+                              title={`Current stock is ${currentStock}. Adding ${addQty} will make new stock ${newTotalStock}.`}
+                            />
+                          </div>
+                          <input type="text" value={item.purchase_rate} onChange={(e) => updateBillItem(index, { purchase_rate: e.target.value })} placeholder="Rate" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} title="Purchased rate" />
+                          <div style={{ textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '12px' }}>₹{money(amount)}</div>
+                          <button type="button" onClick={() => removeBillItem(index)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '5px', padding: '5px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
                         </div>
-                        <div>
-                          {variants.length > 0 ? (
-                            <select value={item.variant_id} onChange={(e) => {
-                              const variant = variants.find(v => String(v.id) === e.target.value);
-                              updateBillItem(index, {
-                                variant_id: e.target.value,
-                                variant_info: variant ? [variant.color_name, variant.size_name].filter(Boolean).join(' / ') : ''
-                              });
-                            }} style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff' }}>
-                              <option value="">Main product</option>
-                              {variants.map(v => <option key={v.id} value={v.id}>{[v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`}</option>)}
-                            </select>
-                          ) : (
-                            <input type="text" value={item.variant_info} onChange={(e) => updateBillItem(index, { variant_info: e.target.value })} placeholder="Variant/size (optional)" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
-                          )}
-                        </div>
-                        <input type="number" min="1" value={item.quantity} onChange={(e) => updateBillItem(index, { quantity: e.target.value })} style={{ width: '100%', padding: '7px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center' }} title="Quantity" />
-                        <input type="text" value={item.purchase_rate} onChange={(e) => updateBillItem(index, { purchase_rate: e.target.value })} placeholder="Rate" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} title="Purchased rate (numeric or alphanumeric)" />
-                        <div style={{ textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '12px' }}>₹{money(amount)}</div>
-                        <button type="button" onClick={() => removeBillItem(index)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '5px', padding: '5px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+
+                        {/* Stock Value & Quantity to Add Display */}
+                        {item.product_id && (
+                          <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px', fontSize: '11px' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ color: '#475569', fontWeight: 600 }}>
+                                Current Stock: <strong style={{ color: '#0f172a', fontSize: '12px' }}>{currentStock}</strong>
+                              </span>
+                              <span style={{ color: '#b45309', fontWeight: 700 }}>
+                                + Adding: <strong style={{ fontSize: '12px' }}>{addQty}</strong>
+                              </span>
+                              <span style={{ padding: '2px 8px', borderRadius: '10px', background: '#dcfce7', color: '#15803d', fontWeight: 800 }}>
+                                ➔ New Total Stock: {newTotalStock} units
+                              </span>
+                            </div>
+                            <span style={{ color: '#64748b', fontSize: '10.5px' }}>
+                              (Stock will increase from {currentStock} to {newTotalStock} upon bill confirmation)
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

@@ -185,12 +185,64 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
       }
     }
 
+    // Fallback if variant_id was not explicitly passed:
+    // Check if the product has existing variants in product_variants
+    const existingVariants = await tx.query(
+      'SELECT * FROM product_variants WHERE product_id = ? ORDER BY id ASC FOR UPDATE',
+      [item.product_id]
+    );
+
+    if (existingVariants.length > 0) {
+      // Apply stock to the first/primary variant
+      const primaryVariant = existingVariants[0];
+      const beforeV = parseInt(primaryVariant.stock_quantity, 10) || 0;
+      const afterV = Math.max(0, beforeV + signedQty);
+      await tx.query('UPDATE product_variants SET stock_quantity = ? WHERE id = ?', [afterV, primaryVariant.id]);
+
+      // Keep products.stock synchronized to the sum of all variants
+      const sumRows = await tx.query(
+        'SELECT COALESCE(SUM(stock_quantity), 0) AS total FROM product_variants WHERE product_id = ?',
+        [item.product_id]
+      );
+      const totalStock = parseInt(sumRows[0]?.total || 0, 10);
+      await tx.query('UPDATE products SET stock = ? WHERE id = ?', [totalStock, item.product_id]);
+
+      await tx.query(
+        `INSERT INTO inventory_transactions (
+          product_id, variant_sku, type, change_qty, balance_after, reference, notes,
+          size, color, quantity_before, source, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'purchase', ?)`,
+        [
+          item.product_id,
+          primaryVariant.sku || `${primaryVariant.size_name || 'Standard'}-${primaryVariant.color_name || 'Standard'}`,
+          direction > 0 ? 'Purchase Bill' : 'Purchase Bill Reversal',
+          signedQty,
+          afterV,
+          bill.bill_number,
+          `${direction > 0 ? 'Received' : 'Reversed'} ${qty} units against purchase bill ${bill.bill_number}`,
+          primaryVariant.size_name || null,
+          primaryVariant.color_name || null,
+          beforeV,
+          userId || null
+        ]
+      );
+      continue;
+    }
+
     const products = await tx.query('SELECT * FROM products WHERE id = ? FOR UPDATE', [item.product_id]);
     if (products.length === 0) continue;
     const product = products[0];
     const before = parseInt(product.stock, 10) || 0;
     const after = direction > 0 ? before + qty : Math.max(0, before - qty);
     await tx.query('UPDATE products SET stock = ? WHERE id = ?', [after, product.id]);
+
+    // Also ensure a default variant is recorded so catalog inventory functions see it
+    await tx.query(
+      `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, sku)
+       VALUES (?, 'Standard', '#000000', 'Standard', ?, ?)`,
+      [product.id, after, `NP-${product.id}-STD`]
+    );
+
     await tx.query(
       `INSERT INTO inventory_transactions (
         product_id, variant_sku, type, change_qty, balance_after, reference, notes,

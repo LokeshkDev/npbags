@@ -16,6 +16,7 @@ async function getAllCustomersAdmin(req, res, next) {
         u.role, 
         u.phone, 
         u.avatar, 
+        COALESCE(u.np_points, 0) AS np_points,
         u.created_at, 
         u.updated_at,
         COUNT(o.id) AS total_orders,
@@ -32,7 +33,7 @@ async function getAllCustomersAdmin(req, res, next) {
       params.push(term, term, term);
     }
 
-    sql += ` GROUP BY u.id, u.name, u.email, u.role, u.phone, u.avatar, u.created_at, u.updated_at ORDER BY u.created_at DESC`;
+    sql += ` GROUP BY u.id, u.name, u.email, u.role, u.phone, u.avatar, u.np_points, u.created_at, u.updated_at ORDER BY u.created_at DESC`;
 
     const customers = await query(sql, params);
     return sendSuccess(res, customers, 'Customers retrieved successfully');
@@ -48,7 +49,7 @@ async function getCustomerByIdAdmin(req, res, next) {
   try {
     const { id } = req.params;
     const users = await query(
-      `SELECT id, name, email, role, phone, avatar, created_at, updated_at FROM users WHERE id = ?`,
+      `SELECT id, name, email, role, phone, avatar, COALESCE(np_points, 0) AS np_points, created_at, updated_at FROM users WHERE id = ?`,
       [id]
     );
 
@@ -58,12 +59,38 @@ async function getCustomerByIdAdmin(req, res, next) {
 
     const customer = users[0];
     const orders = await query(
-      `SELECT id, order_number, total_amount, order_status, payment_method, shipping_address, created_at 
+      `SELECT id, order_number, total_amount, taxable_amount, cgst_amount, sgst_amount, discount, 
+              order_status, payment_method, shipping_address, order_type, is_accountable,
+              points_redeemed, points_discount, points_earned, created_at 
        FROM orders WHERE user_id = ? ORDER BY created_at DESC`,
       [id]
     );
 
+    const orderIds = orders.map(o => o.id);
+    const itemsByOrderId = {};
+    if (orderIds.length > 0) {
+      const items = await query(
+        `SELECT oi.*, 
+          COALESCE(
+            (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1),
+            p.image
+          ) AS product_image
+         FROM order_items oi
+         LEFT JOIN products p ON p.id = oi.product_id
+         WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})`,
+        orderIds
+      );
+      for (const it of items) {
+        if (!itemsByOrderId[it.order_id]) itemsByOrderId[it.order_id] = [];
+        itemsByOrderId[it.order_id].push({
+          ...it,
+          image: it.product_image || '/assets/bestsellers/best-handbag.png'
+        });
+      }
+    }
+
     for (const ord of orders) {
+      ord.items = itemsByOrderId[ord.id] || [];
       if (typeof ord.shipping_address === 'string') {
         try {
           ord.shipping_address = JSON.parse(ord.shipping_address);
@@ -222,7 +249,7 @@ async function lookupCustomerByPhone(req, res, next) {
 
     // 1. Check registered users table
     const users = await query(
-      `SELECT id, name, email, phone FROM users WHERE phone LIKE ? OR phone LIKE ? LIMIT 1`,
+      `SELECT id, name, email, phone, COALESCE(np_points, 0) AS np_points FROM users WHERE phone LIKE ? OR phone LIKE ? LIMIT 1`,
       [`%${rawPhone}%`, `%${tenDigit}%`]
     );
 
@@ -232,10 +259,11 @@ async function lookupCustomerByPhone(req, res, next) {
 
     // 2. Check orders table for past walk-in or POS billing
     const orderCustomer = await query(
-      `SELECT customer_name AS name, customer_email AS email, customer_phone AS phone
-       FROM orders
-       WHERE customer_phone LIKE ? OR customer_phone LIKE ?
-       ORDER BY id DESC LIMIT 1`,
+      `SELECT o.customer_name AS name, o.customer_email AS email, o.customer_phone AS phone, COALESCE(u.np_points, 0) AS np_points
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.user_id
+       WHERE o.customer_phone LIKE ? OR o.customer_phone LIKE ?
+       ORDER BY o.id DESC LIMIT 1`,
       [`%${rawPhone}%`, `%${tenDigit}%`]
     );
 

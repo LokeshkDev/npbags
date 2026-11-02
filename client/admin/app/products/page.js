@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
@@ -39,8 +40,10 @@ export default function AdminProductsPage() {
   const [variants, setVariants] = useState([]);
   const [isUploadingVariantIndex, setIsUploadingVariantIndex] = useState(null);
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [pendingAddCategory, setPendingAddCategory] = useState(null);
+  const [vendorBillContext, setVendorBillContext] = useState(null);
 
   // Filter & sorting states
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -243,14 +246,30 @@ export default function AdminProductsPage() {
 
   useEffect(() => {
     loadData();
+    const handleRefresh = () => {
+      loadData();
+    };
+    window.addEventListener('np_inventory_updated', handleRefresh);
+    window.addEventListener('np_product_updated', handleRefresh);
+    window.addEventListener('focus', handleRefresh);
+    return () => {
+      window.removeEventListener('np_inventory_updated', handleRefresh);
+      window.removeEventListener('np_product_updated', handleRefresh);
+      window.removeEventListener('focus', handleRefresh);
+    };
   }, []);
 
-  // Read "Add Product" intent coming from the Categories page (?add=1&category_id=..)
+  // Read "Add Product" intent coming from Categories page or Vendor Purchase Bill
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('add') === '1') {
       setPendingAddCategory(params.get('category_id') || '');
+    } else if (params.get('from') === 'vendor_bill') {
+      const vId = params.get('vendor_id') || '';
+      const pName = params.get('product_name') || '';
+      setVendorBillContext({ vendor_id: vId, product_name: pName });
+      openAddModal(null, { vendor_id: vId, name: pName });
     }
   }, []);
 
@@ -265,7 +284,7 @@ export default function AdminProductsPage() {
     }
   }, [pendingAddCategory, categories]);
 
-  const openAddModal = (presetCategoryId = null) => {
+  const openAddModal = (presetCategoryId = null, extraDefaults = {}) => {
     setEditingProduct(null);
     setProductImages([]);
     setVariants([
@@ -276,8 +295,8 @@ export default function AdminProductsPage() {
       : null;
     const firstCat = presetCat || categories[0];
     setFormData({
-      name: '',
-      slug: '',
+      name: extraDefaults.name || '',
+      slug: extraDefaults.name ? extraDefaults.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '',
       category_id: firstCat?.id || '',
       gender: firstCat?.gender || 'none',
       price: '',
@@ -300,7 +319,7 @@ export default function AdminProductsPage() {
       is_best_selling: false,
       is_active: true,
       is_online: true,
-      vendor_id: '',
+      vendor_id: extraDefaults.vendor_id || '',
       purchase_price: '',
       mrp: '',
       gst_type: 'exclusive',
@@ -827,13 +846,32 @@ export default function AdminProductsPage() {
     }
 
     try {
+      let createdRes = null;
       if (editingProduct) {
         await updateAdminProduct(editingProduct.id, data);
       } else {
-        await createAdminProduct(data);
+        createdRes = await createAdminProduct(data);
       }
       setModalOpen(false);
       loadData();
+
+      // If product creation was triggered from Vendor Management Purchase Bill, automatically insert into bill!
+      if (!editingProduct && vendorBillContext) {
+        const prodId = createdRes?.id || createdRes?.product?.id || `prod_${Date.now()}`;
+        const newProductForBill = {
+          id: prodId,
+          name: formData.name,
+          purchase_price: formData.purchase_price,
+          purchased_rate: formData.purchased_rate,
+          mrp: formData.mrp || formData.price,
+          price: formData.price
+        };
+        try {
+          window.sessionStorage.setItem('vendor_bill_new_product', JSON.stringify(newProductForBill));
+        } catch (_) {}
+        router.push('/vendors?from_product_create=1');
+        return;
+      }
     } catch (err) {
       alert(err.message || 'Error saving product');
     } finally {
@@ -855,6 +893,9 @@ export default function AdminProductsPage() {
   const getProductStock = (p) => {
     if (Array.isArray(p.variants) && p.variants.length > 0) {
       return p.variants.reduce((sum, v) => sum + (parseInt(v.stock_quantity, 10) || 0), 0);
+    }
+    if (p.stock !== undefined && p.stock !== null && !isNaN(parseInt(p.stock, 10))) {
+      return parseInt(p.stock, 10);
     }
     if (Array.isArray(p.colors) && p.colors.length > 0) {
       return p.colors.reduce((sum, c) => sum + (parseInt(c.stock_quantity, 10) || 0), 0);
@@ -1526,6 +1567,15 @@ export default function AdminProductsPage() {
         height="80vh"
       >
         <form onSubmit={handleSubmit} style={{ paddingRight: '8px' }}>
+          {vendorBillContext && (
+            <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '18px' }}>📦</span>
+              <div style={{ fontSize: '12.5px', color: '#92400e', fontWeight: 700 }}>
+                Creating product from Vendor Management. Once saved, this product will automatically be inserted into your Purchase Bill!
+              </div>
+            </div>
+          )}
+
           {/* Basic Details */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
             <div className="form-group">

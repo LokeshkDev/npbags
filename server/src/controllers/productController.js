@@ -130,7 +130,12 @@ async function getAllProducts(req, res, next) {
     }
 
     if (gender && gender !== 'all') {
-      sql += ` AND (LOWER(COALESCE(p.gender, 'all')) = LOWER(?) OR LOWER(COALESCE(c.gender, 'all')) = LOWER(?) OR LOWER(COALESCE(parent.gender, 'all')) = LOWER(?) OR p.gender = 'all' OR p.gender IS NULL)`;
+      sql += ` AND (
+        FIND_IN_SET(LOWER(?), REPLACE(LOWER(COALESCE(p.gender, 'all')), ' ', '')) > 0
+        OR FIND_IN_SET(LOWER(?), REPLACE(LOWER(COALESCE(c.gender, 'all')), ' ', '')) > 0
+        OR FIND_IN_SET(LOWER(?), REPLACE(LOWER(COALESCE(parent.gender, 'all')), ' ', '')) > 0
+        OR p.gender = 'all' OR p.gender IS NULL OR c.gender = 'all' OR parent.gender = 'all'
+      )`;
       params.push(gender, gender, gender);
     }
 

@@ -186,7 +186,7 @@ async function getDashboardAnalytics(req, res, next) {
       dateCondition = `o.created_at >= CURDATE() - INTERVAL 30 DAY`;
     }
 
-    const whereClause = `WHERE o.order_status != 'cancelled' AND ${dateCondition}`;
+    const whereClause = `WHERE o.order_status != 'cancelled' AND COALESCE(o.is_accountable, 1) = 1 AND ${dateCondition}`;
 
     // 2. Today's Dedicated Sales & Register Metrics (Always Today 00:00 to 23:59)
     const todayRows = await query(`
@@ -200,7 +200,7 @@ async function getDashboardAnalytics(req, res, next) {
         COALESCE(SUM(CASE WHEN LOWER(COALESCE(order_type, '')) = 'pos' AND LOWER(COALESCE(payment_method, '')) = 'cash' THEN total_amount ELSE 0 END), 0) AS today_pos_cash,
         COALESCE(SUM(CASE WHEN LOWER(COALESCE(order_type, '')) = 'pos' AND LOWER(COALESCE(payment_method, '')) = 'upi' THEN total_amount ELSE 0 END), 0) AS today_pos_upi
       FROM orders
-      WHERE order_status != 'cancelled' AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
+      WHERE order_status != 'cancelled' AND COALESCE(is_accountable, 1) = 1 AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
     `);
     const todayData = todayRows[0] || {};
 
@@ -313,10 +313,11 @@ async function getDashboardAnalytics(req, res, next) {
     const lowStockRes = await query(`SELECT COUNT(DISTINCT product_id) AS count FROM product_variants WHERE stock_quantity <= 10`);
     const outOfStockRes = await query(`SELECT COUNT(DISTINCT product_id) AS count FROM product_variants WHERE stock_quantity <= 0`);
 
-    // 8. Recent Combined Feed (Online Orders & POS Bills)
+    // 8. Recent Combined Feed (Online Orders & POS Bills) - Accountable (Pakka) Only
     const recentFeed = await query(`
       SELECT id, order_number, customer_name, customer_phone, total_amount, payment_method, order_status, order_type, created_at
       FROM orders
+      WHERE COALESCE(is_accountable, 1) = 1
       ORDER BY created_at DESC
       LIMIT 8
     `);

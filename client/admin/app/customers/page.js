@@ -30,6 +30,7 @@ export default function AdminCustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerDetail, setCustomerDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [viewingBill, setViewingBill] = useState(null);
 
   // Form states
   const [createForm, setCreateForm] = useState({
@@ -431,6 +432,7 @@ export default function AdminCustomersPage() {
                     <th style={{ width: '40px', textAlign: 'center' }}>#</th>
                     <th>Customer Name</th>
                     <th>Contact Details</th>
+                    <th>NPPoints</th>
                     <th>Role</th>
                     <th>Orders Count</th>
                     <th>Total Spent</th>
@@ -441,14 +443,14 @@ export default function AdminCustomersPage() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan="8" style={{ textAlign: 'center', padding: '40px' }}>
+                      <td colSpan="9" style={{ textAlign: 'center', padding: '40px' }}>
                         <div style={{ width: '32px', height: '32px', border: '3px solid #eee', borderTopColor: 'var(--brand-green)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
                         <span style={{ color: 'var(--muted)', fontSize: '13.5px' }}>Loading registered customers...</span>
                       </td>
                     </tr>
                   ) : filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan="8" style={{ textAlign: 'center', padding: '48px 20px' }}>
+                      <td colSpan="9" style={{ textAlign: 'center', padding: '48px 20px' }}>
                         <div style={{ fontSize: '36px', marginBottom: '8px' }}>👥</div>
                         <div style={{ fontWeight: 600, fontSize: '16px', color: 'var(--ink)' }}>No customers found</div>
                         <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>
@@ -502,13 +504,71 @@ export default function AdminCustomersPage() {
                             </div>
                           </td>
 
-                          {/* Contact: Email & Phone */}
+                          {/* Contact: Email & Phone + WhatsApp & Call */}
                           <td>
                             <div style={{ fontSize: '13.5px', color: 'var(--ink)' }}>
                               {cust.email}
                             </div>
-                            <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
-                              {cust.phone ? `📞 ${cust.phone}` : 'No phone registered'}
+                            {cust.phone ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '12px', color: '#334155', fontWeight: 600 }}>
+                                  📞 {cust.phone}
+                                </span>
+                                <a
+                                  href={`https://wa.me/91${String(cust.phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hello ${cust.name || 'Customer'}, greetings from NP Grand!`)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Chat on WhatsApp"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    padding: '2px 7px',
+                                    borderRadius: '5px',
+                                    background: '#25D366',
+                                    color: '#ffffff',
+                                    fontSize: '10.5px',
+                                    fontWeight: 700,
+                                    textDecoration: 'none'
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  💬 WhatsApp
+                                </a>
+                                <a
+                                  href={`tel:${String(cust.phone).replace(/[^\d+]/g, '')}`}
+                                  title="Call Customer"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    padding: '2px 7px',
+                                    borderRadius: '5px',
+                                    background: '#0284c7',
+                                    color: '#ffffff',
+                                    fontSize: '10.5px',
+                                    fontWeight: 700,
+                                    textDecoration: 'none'
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  📞 Call
+                                </a>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>
+                                No phone registered
+                              </div>
+                            )}
+                          </td>
+
+                          {/* NPPoints Badge */}
+                          <td>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '12px', background: '#fef3c7', color: '#b45309', fontWeight: 800, fontSize: '11.5px' }}>
+                              ⭐ {cust.np_points || 0} pts
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                              ₹{((Number(cust.np_points) || 0) * 0.25).toFixed(2)} value
                             </div>
                           </td>
 
@@ -974,21 +1034,70 @@ export default function AdminCustomersPage() {
                 <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '4px' }}>
                   ✉ {customerDetail?.email || selectedCustomer?.email}
                 </div>
-                <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '2px' }}>
-                  📞 {customerDetail?.phone || selectedCustomer?.phone || 'No phone provided'}
+                <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span>📞 {customerDetail?.phone || selectedCustomer?.phone || 'No phone provided'}</span>
+                  {(customerDetail?.phone || selectedCustomer?.phone) && (
+                    <>
+                      <a
+                        href={`https://wa.me/91${String(customerDetail?.phone || selectedCustomer?.phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hello ${customerDetail?.name || selectedCustomer?.name || 'Customer'}, greetings from NP Grand!`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '3px 9px',
+                          borderRadius: '6px',
+                          background: '#25D366',
+                          color: '#ffffff',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          textDecoration: 'none'
+                        }}
+                      >
+                        💬 WhatsApp
+                      </a>
+                      <a
+                        href={`tel:${String(customerDetail?.phone || selectedCustomer?.phone).replace(/[^\d+]/g, '')}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '3px 9px',
+                          borderRadius: '6px',
+                          background: '#0284c7',
+                          color: '#ffffff',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          textDecoration: 'none'
+                        }}
+                      >
+                        📞 Call
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '20px' }}>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <div style={{ textAlign: 'right', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '8px', padding: '6px 12px' }}>
+                  <div style={{ fontSize: '10.5px', textTransform: 'uppercase', color: '#b45309', fontWeight: 800 }}>NPPoints Balance</div>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#b45309' }}>
+                    ⭐ {customerDetail?.np_points !== undefined ? customerDetail.np_points : (selectedCustomer?.np_points || 0)} pts
+                  </div>
+                  <div style={{ fontSize: '10.5px', color: '#78350f' }}>
+                    Worth ₹{((Number(customerDetail?.np_points !== undefined ? customerDetail.np_points : (selectedCustomer?.np_points || 0))) * 0.25).toFixed(2)}
+                  </div>
+                </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 600 }}>Total Orders</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#0284c7' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#0284c7' }}>
                     {customerDetail?.orders ? customerDetail.orders.length : selectedCustomer?.total_orders || 0}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 600 }}>Lifetime Spend</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#065935' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#065935' }}>
                     ₹{Number(selectedCustomer?.total_spent || 0).toLocaleString('en-IN')}
                   </div>
                 </div>
@@ -1008,7 +1117,7 @@ export default function AdminCustomersPage() {
                   </p>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gap: '10px', maxHeight: '340px', overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gap: '12px', maxHeight: '420px', overflowY: 'auto' }}>
                   {customerDetail.orders.map((ord) => (
                     <div
                       key={ord.id}
@@ -1018,40 +1127,124 @@ export default function AdminCustomersPage() {
                         borderRadius: '10px',
                         padding: '14px 16px',
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
+                        flexDirection: 'column',
                         gap: '12px'
                       }}
                     >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>
-                            #{ord.order_number || ord.id}
-                          </strong>
-                          <span style={{
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
-                            background: ord.order_status === 'delivered' ? '#edf7f0' : '#fef8eb',
-                            color: ord.order_status === 'delivered' ? '#065935' : '#b45309'
-                          }}>
-                            {ord.order_status || 'placed'}
-                          </span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>
+                              #{ord.order_number || ord.id}
+                            </strong>
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              background: ord.order_status === 'delivered' ? '#edf7f0' : '#fef8eb',
+                              color: ord.order_status === 'delivered' ? '#065935' : '#b45309'
+                            }}>
+                              {ord.order_status || 'placed'}
+                            </span>
+                            {ord.order_type === 'pos' && (
+                              <span style={{ fontSize: '10.5px', background: '#eaf4ee', color: '#065935', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
+                                POS BILL
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                            Placed on {ord.created_at ? new Date(ord.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'}
+                            {ord.payment_method && ` • ${ord.payment_method.toUpperCase()}`}
+                          </div>
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
-                          Placed on {ord.created_at ? new Date(ord.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'}
-                          {ord.payment_method && ` • ${ord.payment_method.toUpperCase()}`}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '16px', fontWeight: 800, color: '#065935' }}>
+                              ₹{parseFloat(ord.total_amount || 0).toFixed(2)}
+                            </div>
+                            {Number(ord.points_earned) > 0 && (
+                              <div style={{ fontSize: '10.5px', color: '#166534', fontWeight: 700 }}>
+                                +{ord.points_earned} NPPoints
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setViewingBill(ord)}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '6px',
+                              background: '#065935',
+                              color: '#ffffff',
+                              border: 'none',
+                              fontSize: '11.5px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              boxShadow: '0 1px 3px rgba(6, 89, 53, 0.2)'
+                            }}
+                          >
+                            <span>📄</span>
+                            <span>View Bill</span>
+                          </button>
                         </div>
                       </div>
 
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '16px', fontWeight: 800, color: '#065935' }}>
-                          ₹{parseFloat(ord.total_amount || 0).toFixed(2)}
+                      {/* Purchased Items List */}
+                      {ord.items && ord.items.length > 0 && (
+                        <div style={{ borderTop: '1px dashed #e2e8f0', paddingTop: '10px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Purchased Items ({ord.items.reduce((s, it) => s + (Number(it.quantity) || 1), 0)}):</span>
+                            <span>Rate / Amount</span>
+                          </div>
+                          <div style={{ display: 'grid', gap: '6px' }}>
+                            {ord.items.map((item, itIdx) => (
+                              <div
+                                key={item.id || itIdx}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  background: '#f8fafc',
+                                  padding: '7px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px'
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {item.image && (
+                                    <img
+                                      src={item.image}
+                                      alt=""
+                                      style={{ width: '28px', height: '34px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }}
+                                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                  )}
+                                  <div>
+                                    <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.product_name}</div>
+                                    <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                      Qty: <strong>{item.quantity}</strong> {item.selected_size ? `• Size: ${item.selected_size}` : ''} {item.selected_color ? `• Color: ${item.selected_color}` : ''}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontWeight: 800, color: '#0f172a' }}>
+                                    ₹{Number(item.total_price || (item.price * (item.quantity || 1))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </div>
+                                  <div style={{ fontSize: '10px', color: '#64748b' }}>
+                                    @ ₹{Number(item.price).toFixed(2)} / ea
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1066,6 +1259,142 @@ export default function AdminCustomersPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ========================================================
+          MODAL 5: DETAILED BILL RECEIPT / INVOICE VIEW
+          ======================================================== */}
+      <Modal
+        isOpen={Boolean(viewingBill)}
+        onClose={() => setViewingBill(null)}
+        title={`Tax Invoice / Bill Receipt #${viewingBill?.order_number || viewingBill?.id}`}
+        maxWidth="640px"
+      >
+        {viewingBill && (
+          <div style={{ fontSize: '13px', color: '#0f172a' }}>
+            {/* Header info */}
+            <div style={{ borderBottom: '2px solid #0f172a', paddingBottom: '14px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#065935' }}>NP GRAND SHOPPING</h3>
+                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>Omnichannel Fashion &amp; Retail Store</div>
+                <div style={{ fontSize: '11.5px', color: '#64748b' }}>GSTIN: 33ABCDE1234F1Z5 • Chennai, TN</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>
+                  Bill #{viewingBill.order_number || viewingBill.id}
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
+                  Date: {new Date(viewingBill.created_at).toLocaleString('en-IN')}
+                </div>
+                <span style={{
+                  display: 'inline-block',
+                  marginTop: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  background: viewingBill.order_type === 'pos' ? '#ecfdf5' : '#f0f9ff',
+                  color: viewingBill.order_type === 'pos' ? '#065935' : '#0369a1'
+                }}>
+                  {viewingBill.order_type === 'pos' ? 'POS RETAIL COUNTER' : 'ONLINE STORE ORDER'}
+                </span>
+              </div>
+            </div>
+
+            {/* Customer Details */}
+            <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Billed To:</div>
+                <div style={{ fontWeight: 800, fontSize: '13px', marginTop: '2px' }}>{customerDetail?.name || selectedCustomer?.name || 'Walk-in Customer'}</div>
+                <div style={{ fontSize: '12px', color: '#475569' }}>Phone: {customerDetail?.phone || selectedCustomer?.phone || viewingBill.customer_phone || 'N/A'}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Payment:</div>
+                <div style={{ fontWeight: 800, fontSize: '13px', textTransform: 'uppercase', marginTop: '2px' }}>{viewingBill.payment_method || 'Cash'}</div>
+                <div style={{ fontSize: '12px', color: '#065935', fontWeight: 700 }}>Status: {viewingBill.order_status ? viewingBill.order_status.toUpperCase() : 'DELIVERED'}</div>
+              </div>
+            </div>
+
+            {/* Line items table */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', marginBottom: '16px' }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', color: '#475569' }}>
+                  <th style={{ padding: '8px 10px' }}>Item Description</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right' }}>Rate</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(viewingBill.items || []).map((it, idx) => (
+                  <tr key={it.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '8px 10px' }}>
+                      <strong style={{ color: '#0f172a' }}>{it.product_name}</strong>
+                      {(it.selected_color || it.selected_size) && (
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                          {[it.selected_color, it.selected_size].filter(Boolean).join(' • ')}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{it.quantity}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>₹{Number(it.price).toFixed(2)}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800 }}>
+                      ₹{Number(it.total_price || (it.price * it.quantity)).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Totals Summary */}
+            <div style={{ borderTop: '1.5px solid #0f172a', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '300px', marginLeft: 'auto', fontSize: '12.5px' }}>
+              {Number(viewingBill.discount) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
+                  <span>Discount Applied:</span>
+                  <span style={{ fontWeight: 800 }}>-₹{Number(viewingBill.discount).toFixed(2)}</span>
+                </div>
+              )}
+              {Number(viewingBill.points_discount) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#15803d' }}>
+                  <span>NPPoints Redeemed ({viewingBill.points_redeemed} pts):</span>
+                  <span style={{ fontWeight: 800 }}>-₹{Number(viewingBill.points_discount).toFixed(2)}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #0f172a', paddingTop: '8px', fontSize: '15px', fontWeight: 900, color: '#065935' }}>
+                <span>NET TOTAL:</span>
+                <span>₹{Number(viewingBill.total_amount).toFixed(2)}</span>
+              </div>
+              {Number(viewingBill.points_earned) > 0 && (
+                <div style={{ fontSize: '11px', color: '#166534', fontWeight: 800, textAlign: 'right', marginTop: '2px' }}>
+                  ✨ NPPoints Earned on this Bill: +{viewingBill.points_earned} pts
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', marginTop: '20px', paddingTop: '14px' }}>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>GST Inclusive • Thank you for shopping with us!</div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="admin-btn admin-btn-primary"
+                  style={{ fontSize: '12px', padding: '7px 14px' }}
+                >
+                  🖨️ Print Invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingBill(null)}
+                  className="admin-btn admin-btn-secondary"
+                  style={{ fontSize: '12px', padding: '7px 14px' }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

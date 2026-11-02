@@ -44,9 +44,16 @@ export default function AdminOrdersPage() {
   const [exchangeItemPrice, setExchangeItemPrice] = useState(0);
   const [processingReturn, setProcessingReturn] = useState(false);
 
+  const [billingLedger, setBillingLedger] = useState('pakka'); // 'pakka' (accountable) | 'kaccha' (unaccountable)
+
   // Load orders from API
   const loadOrders = () => {
-    getAdminOrders({ status: statusFilter === 'all' ? '' : statusFilter, search, limit: 100 })
+    getAdminOrders({
+      status: statusFilter === 'all' ? '' : statusFilter,
+      search,
+      is_accountable: billingLedger === 'kaccha' ? '0' : '1',
+      limit: 100
+    })
       .then(data => {
         if (data && data.orders) setOrders(data.orders);
       })
@@ -60,7 +67,7 @@ export default function AdminOrdersPage() {
     };
     window.addEventListener('np_order_updated', handleOrderUpdated);
     return () => window.removeEventListener('np_order_updated', handleOrderUpdated);
-  }, [statusFilter, search]);
+  }, [statusFilter, search, billingLedger]);
 
   // Load catalog products for POS item editing
   useEffect(() => {
@@ -469,6 +476,54 @@ export default function AdminOrdersPage() {
         <Topbar title="Customer Orders Management" />
 
         <div className="admin-content">
+          {/* Top Ledger Selection: Accountable (Pakka) vs Unaccountable (Kaccha) */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '6px', background: '#e2e8f0', padding: '4px', borderRadius: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setBillingLedger('pakka')}
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: billingLedger === 'pakka' ? '#065935' : 'transparent',
+                  color: billingLedger === 'pakka' ? '#ffffff' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                  boxShadow: billingLedger === 'pakka' ? '0 1px 4px rgba(6, 89, 53, 0.25)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                ✓ Official Orders &amp; Pakka Bills (Accountable)
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingLedger('kaccha')}
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: billingLedger === 'kaccha' ? '#0f172a' : 'transparent',
+                  color: billingLedger === 'kaccha' ? '#ffffff' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                  boxShadow: billingLedger === 'kaccha' ? '0 1px 4px rgba(15, 23, 42, 0.25)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                ⊘ Kaccha Bills Ledger (Unaccountable)
+              </button>
+            </div>
+
+            {billingLedger === 'kaccha' && (
+              <div style={{ padding: '6px 14px', borderRadius: '6px', background: '#09090b', color: '#f4f4f5', fontSize: '12px', fontWeight: 700, border: '1px solid #27272a' }}>
+                Unaccountable Ledger Active • Excluded from official sales &amp; GST reports
+              </div>
+            )}
+          </div>
+
           {/* Order Type Tabs (Online vs Walk-in POS Billing) */}
           <div style={{ display: 'flex', gap: '8px', background: '#e2e8f0', padding: '4px', borderRadius: '8px', marginBottom: '20px', width: 'fit-content' }}>
             <button
@@ -613,8 +668,60 @@ export default function AdminOrdersPage() {
                           </td>
                           <td style={{ color: 'var(--muted)' }}>{new Date(o.created_at).toLocaleDateString()}</td>
                           <td>
-                            <div><strong>{o.customer_name}</strong></div>
-                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{o.customer_email || o.customer_phone}</div>
+                            <div style={{ fontWeight: 800, color: 'var(--ink)' }}>{o.customer_name || 'Walk-in Customer'}</div>
+                            {o.customer_phone ? (
+                              <div style={{ marginTop: '4px' }}>
+                                <div style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>
+                                  {o.customer_phone}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                  <a
+                                    href={`https://wa.me/${o.customer_phone.replace(/\D/g, '').length === 10 ? `91${o.customer_phone.replace(/\D/g, '')}` : o.customer_phone.replace(/\D/g, '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Chat on WhatsApp"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      background: '#25D366',
+                                      color: '#ffffff',
+                                      fontSize: '11px',
+                                      fontWeight: 800,
+                                      textDecoration: 'none'
+                                    }}
+                                  >
+                                    <span>💬</span>
+                                    <span>WhatsApp</span>
+                                  </a>
+                                  <a
+                                    href={`tel:${o.customer_phone}`}
+                                    title="Direct Phone Call"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      background: '#0284c7',
+                                      color: '#ffffff',
+                                      fontSize: '11px',
+                                      fontWeight: 800,
+                                      textDecoration: 'none'
+                                    }}
+                                  >
+                                    <span>📞</span>
+                                    <span>Call</span>
+                                  </a>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                                {o.customer_email || 'No phone'}
+                              </div>
+                            )}
                           </td>
                           <td>
                             <span style={{ textTransform: 'uppercase', fontSize: '12px', fontWeight: 600 }}>

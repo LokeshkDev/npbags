@@ -3,6 +3,16 @@ const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { processUploadedFile, deleteUploadedFile } = require('../middleware/upload');
 
+function normalizeDepartmentGender(value) {
+  if (!value) return 'none';
+  if (Array.isArray(value)) {
+    const valid = value.map(v => String(v).trim().toLowerCase()).filter(v => ['women', 'men', 'boys', 'girls', 'kids', 'all', 'none'].includes(v));
+    return valid.length > 0 ? Array.from(new Set(valid)).join(',') : 'none';
+  }
+  const parts = String(value).split(',').map(s => s.trim().toLowerCase()).filter(s => ['women', 'men', 'boys', 'girls', 'kids', 'all', 'none'].includes(s));
+  return parts.length > 0 ? Array.from(new Set(parts)).join(',') : 'none';
+}
+
 async function getAllCategories(req, res, next) {
   try {
     const { gender } = req.query;
@@ -12,9 +22,11 @@ async function getAllCategories(req, res, next) {
     if (gender && gender !== 'all') {
       const g = gender.toLowerCase();
       whereClause += ` AND (
-        LOWER(c.gender) = ? 
-        OR LOWER(COALESCE(parent.gender, '')) = ?
-        OR c.id IN (SELECT DISTINCT sub.parent_id FROM categories sub WHERE LOWER(sub.gender) = ? AND sub.parent_id IS NOT NULL)
+        FIND_IN_SET(?, REPLACE(LOWER(c.gender), ' ', '')) > 0
+        OR LOWER(c.gender) = 'all'
+        OR FIND_IN_SET(?, REPLACE(LOWER(COALESCE(parent.gender, '')), ' ', '')) > 0
+        OR LOWER(parent.gender) = 'all'
+        OR c.id IN (SELECT DISTINCT sub.parent_id FROM categories sub WHERE (FIND_IN_SET(?, REPLACE(LOWER(sub.gender), ' ', '')) > 0 OR LOWER(sub.gender) = 'all') AND sub.parent_id IS NOT NULL)
       )`;
       params.push(g, g, g);
     }
@@ -74,10 +86,7 @@ async function createCategory(req, res, next) {
     }
 
     const parentIdVal = parent_id && parent_id !== '0' && parent_id !== 'null' ? parseInt(parent_id, 10) : null;
-    const rawGender = (gender || '').toLowerCase();
-    const genderVal = ['women', 'men', 'boys', 'girls', 'kids', 'all', 'none'].includes(rawGender)
-      ? rawGender
-      : 'none';
+    const genderVal = normalizeDepartmentGender(gender);
 
     const result = await query(
       `INSERT INTO categories (parent_id, slug, name, description, image, banner_image, banner_link, display_order, gender, is_active)
@@ -184,9 +193,8 @@ async function updateCategory(req, res, next) {
       params.push(is_active === true || is_active === 'true' || is_active === 1 || is_active === '1');
     }
     if (gender !== undefined) {
-      const normalizedGender = (gender || '').toLowerCase();
       updates.push('gender = ?');
-      params.push(['women', 'men', 'boys', 'girls', 'kids', 'all', 'none'].includes(normalizedGender) ? normalizedGender : 'none');
+      params.push(normalizeDepartmentGender(gender));
     }
     if (banner_image !== undefined) {
       updates.push('banner_image = ?');

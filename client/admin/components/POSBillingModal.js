@@ -106,6 +106,8 @@ export function POSBillingModal() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerFoundBadge, setCustomerFoundBadge] = useState(null);
+  const [customerNpPoints, setCustomerNpPoints] = useState(0);
+  const [redeemPoints, setRedeemPoints] = useState(0);
 
   // Payment state
   const [paymentMethod, setPaymentMethod] = useState('Cash'); // 'Cash' | 'UPI' | 'Card'
@@ -116,11 +118,16 @@ export function POSBillingModal() {
 
   // Billing Hold / Resume
   const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
+  const [selectedHeldIndex, setSelectedHeldIndex] = useState(0);
   const [heldBills, setHeldBills] = useState([]);
   const [loadingHeldBills, setLoadingHeldBills] = useState(false);
   const [holdingBill, setHoldingBill] = useState(false);
   const [resumedHeldId, setResumedHeldId] = useState(null);
   const [resumedHeldRef, setResumedHeldRef] = useState(null);
+
+  // Accountable (Pakka) vs Unaccountable (Kaccha) stealth mode
+  // Initial / default is Pakka (true). Secret toggle via Ctrl+Shift+K or Alt+K.
+  const [isAccountable, setIsAccountable] = useState(true);
 
   // Sales Staff Attribution
   const [salespersons, setSalespersons] = useState([]);
@@ -385,19 +392,36 @@ export function POSBillingModal() {
             setCustomerName(cust.name);
             if (cust.email) setCustomerEmail(cust.email);
             setCustomerFoundBadge(cust.name);
-            showToast(`Existing Customer Recognized: ${cust.name}`, 'info', 3000);
+            const pts = Number(cust.np_points) || 0;
+            setCustomerNpPoints(pts);
+            showToast(`Customer Recognized: ${cust.name}${pts > 0 ? ` (${pts} NPPoints)` : ''}`, 'info', 3000);
           } else {
             setCustomerFoundBadge(null);
+    setCustomerNpPoints(0);
+    setRedeemPoints(0);
+            setCustomerNpPoints(0);
+            setRedeemPoints(0);
           }
         })
-        .catch(() => setCustomerFoundBadge(null));
+        .catch(() => {
+          setCustomerFoundBadge(null);
+    setCustomerNpPoints(0);
+    setRedeemPoints(0);
+          setCustomerNpPoints(0);
+          setRedeemPoints(0);
+        });
     } else {
       setCustomerFoundBadge(null);
+    setCustomerNpPoints(0);
+    setRedeemPoints(0);
+      setCustomerNpPoints(0);
+      setRedeemPoints(0);
     }
   }, [customerPhone]);
 
-  // Add product to cart helper
+  // Add product to cart helper with seamless keyboard focus advance (Product -> Staff -> Qty -> Next Product)
   const handleAddItemToCart = (item) => {
+    let targetIdx = 0;
     setCart(prev => {
       const existingIdx = prev.findIndex(ci =>
         ci.product_id === item.product_id &&
@@ -405,10 +429,12 @@ export function POSBillingModal() {
       );
 
       if (existingIdx > -1) {
+        targetIdx = existingIdx;
         const copy = [...prev];
         copy[existingIdx].quantity += 1;
         return copy;
       } else {
+        targetIdx = prev.length;
         return [
           ...prev,
           {
@@ -429,6 +455,20 @@ export function POSBillingModal() {
     });
 
     showToast(`Added: ${item.product_name} [${item.barcode || 'ITEM'}]`, 'success', 2200);
+
+    // Auto-advance focus to Sales Person field; pressing Enter then advances to Qty, then Enter advances to Next Product
+    setTimeout(() => {
+      const staffEl = document.getElementById(`pos-item-staff-${targetIdx}`);
+      if (staffEl) {
+        staffEl.focus();
+      } else {
+        const qtyEl = document.getElementById(`pos-item-qty-${targetIdx}`);
+        if (qtyEl) {
+          qtyEl.focus();
+          qtyEl.select();
+        }
+      }
+    }, 60);
   };
 
   // Add Custom Product to cart (Supports Name, MRP, Selling Price, and instant Enter key submit)
@@ -560,12 +600,13 @@ export function POSBillingModal() {
         setRowInput('');
       } else {
         showToast(`Barcode not found: ${scannedCode}`, 'error');
+        rowInputRef.current?.focus();
       }
     } catch (err) {
       showToast(`Error: ${err.message || 'Item not found'}`, 'error');
+      rowInputRef.current?.focus();
     } finally {
       setSearching(false);
-      rowInputRef.current?.focus();
     }
   };
 
@@ -624,7 +665,6 @@ export function POSBillingModal() {
     setSearchInput('');
     setShowSuggestions(false);
     setHighlightedIndex(-1);
-    rowInputRef.current?.focus();
   };
 
   // Inline editable table row: resolve typed name/barcode and append as a new line item
@@ -658,7 +698,6 @@ export function POSBillingModal() {
       setRowInput('');
       setShowRowSuggestions(false);
       setRowHighlightedIndex(-1);
-      setTimeout(() => rowInputRef.current?.focus(), 0);
       return;
     }
 
@@ -673,12 +712,13 @@ export function POSBillingModal() {
         setRowHighlightedIndex(-1);
       } else {
         showToast(`No product found for "${q}"`, 'error');
+        setTimeout(() => rowInputRef.current?.focus(), 0);
       }
     } catch (err) {
       showToast(`No product found for "${q}"`, 'error');
+      setTimeout(() => rowInputRef.current?.focus(), 0);
     } finally {
       setSearching(false);
-      setTimeout(() => rowInputRef.current?.focus(), 0);
     }
   };
 
@@ -773,7 +813,8 @@ export function POSBillingModal() {
       discount_value: cartFinancials.discountValue,
       payment_method: paymentMethod,
       sales_person_id: chosenStaff ? chosenStaff.id : null,
-      sales_person_name: chosenStaff ? chosenStaff.name : null
+      sales_person_name: chosenStaff ? chosenStaff.name : null,
+      is_accountable: isAccountable ? 1 : 0
     };
   };
 
@@ -791,6 +832,8 @@ export function POSBillingModal() {
     setCustomerPhone('');
     setCustomerEmail('');
     setCustomerFoundBadge(null);
+    setCustomerNpPoints(0);
+    setRedeemPoints(0);
     setResumedHeldId(null);
     setResumedHeldRef(null);
     setSearchInput('');
@@ -935,10 +978,15 @@ export function POSBillingModal() {
     setCustomerPhone(bill.customer_phone || '');
     setCustomerEmail(bill.customer_email || '');
     setCustomerFoundBadge(null);
+    setCustomerNpPoints(0);
+    setRedeemPoints(0);
     setPaymentMethod(bill.payment_method || 'Cash');
     setDiscountType(bill.discount_type === 'percentage' || bill.discount_type === 'percent' ? 'percent' : 'flat');
     setDiscountInput(bill.discount_value !== undefined && bill.discount_value !== null ? String(bill.discount_value) : (bill.discount_amount ? String(bill.discount_amount) : ''));
     if (bill.sales_person_id) setSelectedSalespersonId(String(bill.sales_person_id));
+    if (bill.is_accountable !== undefined && bill.is_accountable !== null) {
+      setIsAccountable(Number(bill.is_accountable) !== 0);
+    }
     setCart(Array.isArray(bill.items) ? bill.items : []);
     setResumedHeldId(bill.id);
     setResumedHeldRef(bill.reference || 'HOLD');
@@ -965,7 +1013,7 @@ export function POSBillingModal() {
     }
   };
 
-  // Cart financial calculations (Flat vs % discount, GST 18% inclusive standard)
+  // Cart financial calculations (Flat vs % discount, NPPoints redemption, GST 18% inclusive standard)
   const cartFinancials = useMemo(() => {
     const rawSubtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const parsedDiscountVal = parseFloat(discountInput) || 0;
@@ -978,7 +1026,17 @@ export function POSBillingModal() {
       disc = Math.min(Math.max(0, parsedDiscountVal), rawSubtotal);
     }
 
-    const grandTotal = Math.max(0, rawSubtotal - disc);
+    const prePointsTotal = Math.max(0, rawSubtotal - disc);
+
+    // NPPoints Loyalty: 1 pt = ₹0.25 (25 paise discount)
+    const maxRedeemablePoints = Math.min(customerNpPoints, Math.floor(prePointsTotal / 0.25));
+    const validRedeemPoints = Math.min(maxRedeemablePoints, Math.max(0, parseInt(redeemPoints, 10) || 0));
+    const pointsDiscount = Math.round(validRedeemPoints * 0.25 * 100) / 100;
+
+    const grandTotal = Math.max(0, Math.round((prePointsTotal - pointsDiscount) * 100) / 100);
+
+    // Points earned on bill: For every ₹100 spent = 1 pt
+    const pointsEarned = Math.floor(grandTotal / 100);
 
     const gstRate = 18;
     const taxableAmount = Math.round((grandTotal / (1 + (gstRate / 100))) * 100) / 100;
@@ -994,6 +1052,11 @@ export function POSBillingModal() {
       discountAmount: disc,
       discountType,
       discountValue: parsedDiscountVal,
+      prePointsTotal,
+      maxRedeemablePoints,
+      validRedeemPoints,
+      pointsDiscount,
+      pointsEarned,
       grandTotal,
       taxableAmount,
       totalTax,
@@ -1002,7 +1065,7 @@ export function POSBillingModal() {
       received,
       changeDue
     };
-  }, [cart, discountType, discountInput, receivedAmount]);
+  }, [cart, discountType, discountInput, redeemPoints, customerNpPoints, receivedAmount]);
 
   // Handle Checkout & Order Submission
   const handleCheckout = async () => {
@@ -1019,9 +1082,11 @@ export function POSBillingModal() {
         customer_phone: customerPhone.trim(),
         customer_email: customerEmail.trim(),
         payment_method: paymentMethod,
+        is_accountable: isAccountable ? 1 : 0,
         discount_amount: cartFinancials.discountAmount,
         discount_type: discountType,
         discount_value: cartFinancials.discountValue,
+        points_redeemed: cartFinancials.validRedeemPoints || 0,
         sales_person_id: chosenStaff ? chosenStaff.id : null,
         sales_person_name: chosenStaff ? chosenStaff.name : null,
         received_amount: paymentMethod === 'Cash' ? (Number(receivedAmount) || cartFinancials.grandTotal) : cartFinancials.grandTotal,
@@ -1110,10 +1175,18 @@ export function POSBillingModal() {
     }
   };
 
-  // Keyboard shortcut listener (F2: search, F4: pay, F7: custom item, F8: hold & new, F9: clear, ESC: close)
+  // Keyboard shortcut listener (F2: search, F4: pay, F7: custom item, F8: hold & new, F9: clear, ESC: close, Ctrl+Shift+K: stealth mode)
   useEffect(() => {
     if (!isPOSOpen) return;
     const handleKeyDown = (e) => {
+      // Stealth Mode Toggle (Pakka vs Kaccha): Ctrl+Shift+K or Alt+K
+      if ((e.ctrlKey && e.shiftKey && (e.key === 'K' || e.key === 'k')) || (e.altKey && (e.key === 'K' || e.key === 'k'))) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsAccountable(prev => !prev);
+        return;
+      }
+
       if (isSearchModalOpen) {
         if (e.key === 'Escape' || e.key === 'F2') {
           e.preventDefault();
@@ -1123,18 +1196,75 @@ export function POSBillingModal() {
         return;
       }
 
+      // HELD BILLS MODAL DEDICATED SHORTCUTS
+      if (isHeldModalOpen) {
+        if (e.key === 'Escape' || e.key === 'F6') {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsHeldModalOpen(false);
+          return;
+        }
+        if (heldBills.length > 0) {
+          const targetIndex = selectedHeldIndex >= 0 && selectedHeldIndex < heldBills.length ? selectedHeldIndex : 0;
+          const targetBill = heldBills[targetIndex];
+
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedHeldIndex(prev => Math.min(prev + 1, heldBills.length - 1));
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedHeldIndex(prev => Math.max(prev - 1, 0));
+            return;
+          }
+          // Resume Bill shortcut: Enter, 'r' or 'R'
+          if (e.key === 'Enter' || e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            if (targetBill) {
+              handleResumeHeldBill(targetBill);
+            }
+            return;
+          }
+          // Cancel / Remove Bill shortcut: Delete, 'c' or 'C', 'x' or 'X'
+          if (e.key === 'Delete' || e.key === 'c' || e.key === 'C' || e.key === 'x' || e.key === 'X') {
+            e.preventDefault();
+            if (targetBill) {
+              handleCancelHeldBill(targetBill);
+            }
+            return;
+          }
+          // 1-9 direct slot pick
+          if (/^[1-9]$/.test(e.key)) {
+            const slotNum = parseInt(e.key, 10);
+            if (slotNum >= 1 && slotNum <= heldBills.length) {
+              e.preventDefault();
+              setSelectedHeldIndex(slotNum - 1);
+              return;
+            }
+          }
+        }
+        return;
+      }
+
       if (e.key === 'F2') {
         e.preventDefault();
         if (!isHeldModalOpen && !isCustomModalOpen && !isStaffModalOpen && !completedOrder) {
           openSearchModal();
         }
+      } else if (e.key === 'F3' || e.key === 'F10') {
+        e.preventDefault();
+        handleNewBill();
       } else if (e.key === 'F4') {
         e.preventDefault();
         if (cart.length > 0) handleCheckout();
       } else if (e.key === 'F6') {
         e.preventDefault();
         setIsHeldModalOpen(prev => {
-          if (!prev) loadHeldBillsData();
+          if (!prev) {
+            setSelectedHeldIndex(0);
+            loadHeldBillsData();
+          }
           return !prev;
         });
       } else if (e.key === 'F7') {
@@ -1177,7 +1307,7 @@ export function POSBillingModal() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS]);
+  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, selectedHeldIndex, heldBills, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS]);
 
   // Thermal Receipt Printing (Standard ESC/POS HTML) - Pure Solid Black #000000 with 300 Bold Density
   const printThermalReceipt = (orderData, overrideSettings) => {
@@ -1244,6 +1374,15 @@ export function POSBillingModal() {
         <div class="flex-row"><span>Taxable Value:</span><span class="bold">Rs. ${Number(order.taxable_amount || cartFinancials.taxableAmount).toFixed(2)}</span></div>
         <div class="flex-row"><span>CGST (9%):</span><span class="bold">Rs. ${Number(order.cgst_amount || cartFinancials.cgstAmount).toFixed(2)}</span></div>
         <div class="flex-row"><span>SGST (9%):</span><span class="bold">Rs. ${Number(order.sgst_amount || cartFinancials.sgstAmount).toFixed(2)}</span></div>
+        ${Number(order.points_discount || cartFinancials.pointsDiscount) > 0 ? `
+          <div class="flex-row"><span>NPPoints Redeemed:</span><span class="bold">-${Number(order.points_redeemed || cartFinancials.validRedeemPoints)} pts (-Rs. ${Number(order.points_discount || cartFinancials.pointsDiscount).toFixed(2)})</span></div>
+        ` : ''}
+        ${Number(order.points_earned || cartFinancials.pointsEarned) > 0 ? `
+          <div class="flex-row"><span>NPPoints Earned:</span><span class="bold">+${Number(order.points_earned || cartFinancials.pointsEarned)} pts</span></div>
+        ` : ''}
+        ${order.customer_np_points !== undefined ? `
+          <div class="flex-row"><span>Total NPPoints:</span><span class="bold">${order.customer_np_points} pts</span></div>
+        ` : ''}
         <div class="double-divider"></div>
         <div class="flex-row" style="font-size: ${is58mm ? '12px' : '14px'};">
           <span class="bold">NET PAYABLE:</span>
@@ -1258,7 +1397,7 @@ export function POSBillingModal() {
         ` : ''}
 
         <div class="footer-note">
-          <div class="bold">GST INCLUSIVE. ALL TAXES ACCOUNTED FOR.</div>
+          <div class="bold">${(order.is_accountable === 0 || (!isAccountable && order.is_accountable !== 1)) ? 'RETAIL ESTIMATE MEMO' : 'GST INCLUSIVE. ALL TAXES ACCOUNTED FOR.'}</div>
           <div>Items exchangeable within 7 days with bill tag.</div>
           <div class="bold" style="margin-top: 6px;">*** THANK YOU FOR SHOPPING WITH US! ***</div>
         </div>
@@ -1421,6 +1560,46 @@ export function POSBillingModal() {
 
   if (!isPOSOpen) return null;
 
+  const posTheme = {
+    isAccountable,
+    bgOuter: isAccountable ? '#0f172a' : '#000000',
+    bgHeader: isAccountable ? '#0b1120' : '#050505',
+    borderHeader: isAccountable ? '#1e293b' : '#1f1f23',
+    bgLayout: isAccountable ? '#f1f5f9' : '#050505',
+    bgLeftCol: isAccountable ? '#ffffff' : '#09090b',
+    borderCol: isAccountable ? '#cbd5e1' : '#27272a',
+    bgTopBar: isAccountable ? '#f8fafc' : '#09090b',
+    borderTopBar: isAccountable ? '#e2e8f0' : '#27272a',
+    textMain: isAccountable ? '#0f172a' : '#f4f4f5',
+    textMuted: isAccountable ? '#64748b' : '#a1a1aa',
+    textSub: isAccountable ? '#475569' : '#a1a1aa',
+    inputBg: isAccountable ? '#ffffff' : '#121215',
+    inputBorder: isAccountable ? '#cbd5e1' : '#27272a',
+    btnCustomBg: isAccountable ? '#0f172a' : '#18181b',
+    btnCustomBorder: isAccountable ? 'none' : '1px solid #3f3f46',
+    btnHoldBg: isAccountable ? '#b45309' : '#18181b',
+    btnHoldBorder: isAccountable ? 'none' : '1px solid #3f3f46',
+    btnNewBg: isAccountable ? '#ffffff' : '#18181b',
+    btnNewColor: isAccountable ? '#1e293b' : '#f4f4f5',
+    btnNewBorder: isAccountable ? '1.5px solid #cbd5e1' : '1px solid #3f3f46',
+    btnRecallBg: heldBills.length > 0 ? (isAccountable ? '#fef3c7' : '#18181b') : (isAccountable ? '#ffffff' : '#18181b'),
+    btnRecallBorder: heldBills.length > 0 ? (isAccountable ? '2px solid #b45309' : '1px solid #3f3f46') : (isAccountable ? '1.5px solid #cbd5e1' : '1px solid #27272a'),
+    btnRecallColor: isAccountable ? '#92400e' : '#f4f4f5',
+    tableHeadBg: isAccountable ? '#f8fafc' : '#121215',
+    tableBorder: isAccountable ? '#f1f5f9' : '#18181b',
+    tableRowEven: isAccountable ? '#ffffff' : '#09090b',
+    tableRowOdd: isAccountable ? '#fcfcfc' : '#0d0d10',
+    rightColBg: isAccountable ? '#f8fafc' : '#050505',
+    cardBg: isAccountable ? '#ffffff' : '#09090b',
+    cardBorder: isAccountable ? '#e2e8f0' : '#27272a',
+    payableColor: isAccountable ? '#065935' : '#f4f4f5',
+    btnPrimaryBg: isAccountable ? '#065935' : '#18181b',
+    btnPrimaryBorder: isAccountable ? 'none' : '1px solid #3f3f46',
+    payActiveBg: isAccountable ? '#ecfdf5' : '#18181b',
+    payActiveBorder: isAccountable ? '2px solid #065935' : '2px solid #52525b',
+    payActiveColor: isAccountable ? '#065935' : '#ffffff',
+  };
+
   return (
     <div
       role="dialog"
@@ -1429,20 +1608,21 @@ export function POSBillingModal() {
         position: 'fixed',
         inset: 0,
         zIndex: 99999,
-        background: '#0f172a',
+        background: posTheme.bgOuter,
         width: '100vw',
         height: '100vh',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        fontFamily: 'var(--font-body, system-ui, sans-serif)'
+        fontFamily: 'var(--font-body, system-ui, sans-serif)',
+        transition: 'background-color 0.2s ease'
       }}
     >
       {/* 1. TOP HEADER STRIP (Icon-Free, Full Width) */}
       <header
         style={{
-          background: '#0b1120',
-          borderBottom: '1px solid #1e293b',
+          background: posTheme.bgHeader,
+          borderBottom: `1px solid ${posTheme.borderHeader}`,
           padding: '12px 24px',
           display: 'flex',
           alignItems: 'center',
@@ -1480,8 +1660,8 @@ export function POSBillingModal() {
                 borderRadius: '4px',
                 fontSize: '11px',
                 fontWeight: 700,
-                background: '#065935',
-                color: '#ffffff',
+                background: posTheme.isAccountable ? '#065935' : '#27272a',
+                color: posTheme.isAccountable ? '#ffffff' : '#a1a1aa',
                 letterSpacing: '0.02em'
               }}
             >
@@ -1566,20 +1746,20 @@ export function POSBillingModal() {
       )}
 
       {/* 2. MAIN 2-COLUMN FULL-SCREEN LAYOUT */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#f1f5f9' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: posTheme.bgLayout }}>
         {/* LEFT COLUMN: SCANNER, CUSTOMER, CART ITEMS (65% Width) */}
         <div
           style={{
             flex: '1 1 65%',
             display: 'flex',
             flexDirection: 'column',
-            borderRight: '1px solid #cbd5e1',
-            background: '#ffffff',
+            borderRight: `1px solid ${posTheme.borderCol}`,
+            background: posTheme.bgLeftCol,
             overflow: 'hidden'
           }}
         >
           {/* Top Controls: Scanner Bar + Custom Item Button + Customer Inputs */}
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${posTheme.borderTopBar}`, background: posTheme.bgTopBar }}>
             {/* Top Action Toolbar: Custom Item, Hold Bill, New Bill, and Held Bills */}
             <div
               style={{
@@ -1602,9 +1782,9 @@ export function POSBillingModal() {
                   style={{
                     padding: '10px 16px',
                     borderRadius: '8px',
-                    background: '#0f172a',
+                    background: posTheme.btnCustomBg,
                     color: '#ffffff',
-                    border: 'none',
+                    border: posTheme.btnCustomBorder,
                     fontSize: '13px',
                     fontWeight: 800,
                     cursor: 'pointer',
@@ -1626,9 +1806,9 @@ export function POSBillingModal() {
                   style={{
                     padding: '10px 16px',
                     borderRadius: '8px',
-                    background: cart.length === 0 ? '#94a3b8' : '#b45309',
+                    background: cart.length === 0 ? (posTheme.isAccountable ? '#94a3b8' : '#27272a') : posTheme.btnHoldBg,
                     color: '#ffffff',
-                    border: 'none',
+                    border: posTheme.btnHoldBorder,
                     fontSize: '13px',
                     fontWeight: 800,
                     cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
@@ -1637,7 +1817,7 @@ export function POSBillingModal() {
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
-                    boxShadow: cart.length > 0 ? '0 2px 6px rgba(180, 83, 9, 0.3)' : 'none'
+                    boxShadow: cart.length > 0 && posTheme.isAccountable ? '0 2px 6px rgba(180, 83, 9, 0.3)' : 'none'
                   }}
                   title="Park current bill in hold queue (up to 15 slots) and immediately open a fresh new bill session [Shortcut F8]"
                 >
@@ -1650,9 +1830,9 @@ export function POSBillingModal() {
                   style={{
                     padding: '10px 14px',
                     borderRadius: '8px',
-                    background: '#ffffff',
-                    color: '#1e293b',
-                    border: '1.5px solid #cbd5e1',
+                    background: posTheme.btnNewBg,
+                    color: posTheme.btnNewColor,
+                    border: posTheme.btnNewBorder,
                     fontSize: '13px',
                     fontWeight: 800,
                     cursor: 'pointer',
@@ -1662,9 +1842,9 @@ export function POSBillingModal() {
                     alignItems: 'center',
                     gap: '5px'
                   }}
-                  title="Start a fresh blank bill session"
+                  title="Start a fresh blank bill session [Shortcut F3]"
                 >
-                  <span>+ NEW BILL</span>
+                  <span>+ NEW BILL [F3]</span>
                 </button>
               </div>
 
@@ -1673,14 +1853,15 @@ export function POSBillingModal() {
                 type="button"
                 onClick={() => {
                   setIsHeldModalOpen(true);
+                  setSelectedHeldIndex(0);
                   loadHeldBillsData();
                 }}
                 style={{
                   padding: '10px 16px',
                   borderRadius: '8px',
-                  background: heldBills.length > 0 ? '#fef3c7' : '#ffffff',
-                  color: '#92400e',
-                  border: heldBills.length > 0 ? '2px solid #b45309' : '1.5px solid #cbd5e1',
+                  background: posTheme.btnRecallBg,
+                  color: posTheme.btnRecallColor,
+                  border: posTheme.btnRecallBorder,
                   fontSize: '13px',
                   fontWeight: 800,
                   cursor: 'pointer',
@@ -1689,7 +1870,7 @@ export function POSBillingModal() {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '8px',
-                  boxShadow: heldBills.length > 0 ? '0 2px 8px rgba(180, 83, 9, 0.2)' : 'none',
+                  boxShadow: heldBills.length > 0 && posTheme.isAccountable ? '0 2px 8px rgba(180, 83, 9, 0.2)' : 'none',
                   flexShrink: 0
                 }}
                 title="View active held bills (up to 15 slots) [Shortcut F6]"
@@ -1697,7 +1878,7 @@ export function POSBillingModal() {
                 <span>RECALL [F6]</span>
                 <span
                   style={{
-                    background: heldBills.length > 0 ? '#b45309' : '#64748b',
+                    background: heldBills.length > 0 ? (posTheme.isAccountable ? '#b45309' : '#3f3f46') : '#64748b',
                     color: '#ffffff',
                     borderRadius: '12px',
                     padding: '2px 8px',
@@ -1715,11 +1896,11 @@ export function POSBillingModal() {
               {/* 1. Mobile Phone (FIRST KEYBOARD FOCUS) */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#065935' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: posTheme.isAccountable ? '#065935' : posTheme.textSub }}>
                     📱 MOBILE (AUTOFOCUS)
                   </label>
                   {customerFoundBadge && (
-                    <span style={{ fontSize: '10px', color: '#065935', fontWeight: 800 }}>
+                    <span style={{ fontSize: '10px', color: posTheme.isAccountable ? '#065935' : '#a1a1aa', fontWeight: 800 }}>
                       [{customerFoundBadge}]
                     </span>
                   )}
@@ -1741,12 +1922,12 @@ export function POSBillingModal() {
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: customerFoundBadge ? '2px solid #065935' : '1.5px solid #065935',
-                    background: customerFoundBadge ? '#f0fdf4' : '#ffffff',
+                    border: customerFoundBadge ? (posTheme.isAccountable ? '2px solid #065935' : '2px solid #52525b') : (posTheme.isAccountable ? '1.5px solid #065935' : `1.5px solid ${posTheme.inputBorder}`),
+                    background: customerFoundBadge ? (posTheme.isAccountable ? '#f0fdf4' : posTheme.inputBg) : posTheme.inputBg,
                     fontSize: '13px',
                     fontWeight: 700,
-                    color: '#0f172a',
-                    outlineColor: '#065935'
+                    color: posTheme.textMain,
+                    outlineColor: posTheme.isAccountable ? '#065935' : '#52525b'
                   }}
                 />
               </div>
@@ -1754,12 +1935,12 @@ export function POSBillingModal() {
               {/* 2. Customer Name */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: posTheme.textSub }}>
                     CUSTOMER NAME
                   </label>
                   {customerFoundBadge && (
-                    <span style={{ fontSize: '10px', color: '#065935', fontWeight: 800 }}>
-                      [AUTO-FILLED]
+                    <span style={{ fontSize: '10px', color: posTheme.isAccountable ? '#065935' : '#a1a1aa', fontWeight: 800 }}>
+                      [RECOGNIZED] {customerNpPoints > 0 ? `• ⭐ ${customerNpPoints} NPPoints` : ''}
                     </span>
                   )}
                 </div>
@@ -1778,11 +1959,11 @@ export function POSBillingModal() {
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: customerFoundBadge ? '1.5px solid #065935' : '1px solid #cbd5e1',
-                    background: customerFoundBadge ? '#f0fdf4' : '#ffffff',
+                    border: customerFoundBadge ? (posTheme.isAccountable ? '1.5px solid #065935' : `1.5px solid ${posTheme.inputBorder}`) : `1px solid ${posTheme.inputBorder}`,
+                    background: customerFoundBadge ? (posTheme.isAccountable ? '#f0fdf4' : posTheme.inputBg) : posTheme.inputBg,
                     fontSize: '13px',
                     fontWeight: 600,
-                    color: '#1e293b'
+                    color: posTheme.textMain
                   }}
                 />
               </div>
@@ -1790,13 +1971,13 @@ export function POSBillingModal() {
               {/* 3. Salesperson / Staff Selection */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: posTheme.textSub }}>
                     SALES STAFF
                   </label>
                   <button
                     type="button"
                     onClick={() => setIsStaffModalOpen(true)}
-                    style={{ fontSize: '10px', color: '#065935', fontWeight: 800, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                    style={{ fontSize: '10px', color: posTheme.isAccountable ? '#065935' : '#a1a1aa', fontWeight: 800, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                   >
                     [+ MANAGE STAFF]
                   </button>
@@ -1817,11 +1998,11 @@ export function POSBillingModal() {
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
+                    border: `1px solid ${posTheme.inputBorder}`,
                     fontSize: '13px',
                     fontWeight: 600,
-                    color: '#1e293b',
-                    background: '#ffffff',
+                    color: posTheme.textMain,
+                    background: posTheme.inputBg,
                     cursor: 'pointer'
                   }}
                 >
@@ -1836,22 +2017,28 @@ export function POSBillingModal() {
 
               {/* 4. Customer Email (Optional) */}
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: posTheme.textSub, marginBottom: '4px' }}>
                   EMAIL (OPTIONAL)
                 </label>
                 <input
                   type="email"
                   value={customerEmail}
                   onChange={(e) => setCustomerEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      rowInputRef.current?.focus();
+                    }
+                  }}
                   placeholder="customer@example.com"
                   style={{
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
+                    border: `1px solid ${posTheme.inputBorder}`,
+                    background: posTheme.inputBg,
                     fontSize: '13px',
-                    fontWeight: 600,
-                    color: '#1e293b'
+                    color: posTheme.textMain
                   }}
                 />
               </div>
@@ -1996,6 +2183,7 @@ export function POSBillingModal() {
                 type="button"
                 onClick={() => {
                   setIsHeldModalOpen(true);
+                  setSelectedHeldIndex(0);
                   loadHeldBillsData();
                 }}
                 style={{
@@ -2051,7 +2239,7 @@ export function POSBillingModal() {
           </div>
 
           {/* Cart Items Scrollable List */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '260px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800, textAlign: 'left' }}>
@@ -2097,6 +2285,7 @@ export function POSBillingModal() {
                         </td>
                         <td style={{ padding: '12px 14px' }}>
                           <select
+                            id={`pos-item-staff-${idx}`}
                             value={item.sales_person_id || selectedSalespersonId || ''}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -2111,6 +2300,16 @@ export function POSBillingModal() {
                                 return copy;
                               });
                             }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const qtyInput = document.getElementById(`pos-item-qty-${idx}`);
+                                if (qtyInput) {
+                                  qtyInput.focus();
+                                  qtyInput.select();
+                                }
+                              }
+                            }}
                             style={{
                               padding: '4px 6px',
                               borderRadius: '4px',
@@ -2121,6 +2320,7 @@ export function POSBillingModal() {
                               color: '#334155',
                               maxWidth: '120px'
                             }}
+                            title="Sales Person [Press Enter to jump to Quantity]"
                           >
                             <option value="">Default ({salespersons.find(s => String(s.id) === String(selectedSalespersonId))?.name || 'Counter'})</option>
                             {salespersons.map(sp => (
@@ -2136,6 +2336,16 @@ export function POSBillingModal() {
                               min="0"
                               value={item.price}
                               onChange={(e) => updateItemField(idx, 'price', Math.max(0, parseFloat(e.target.value) || 0))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const qtyInput = document.getElementById(`pos-item-qty-${idx}`);
+                                  if (qtyInput) {
+                                    qtyInput.focus();
+                                    qtyInput.select();
+                                  }
+                                }
+                              }}
                               style={{
                                 width: '72px',
                                 padding: '4px 6px',
@@ -2176,12 +2386,20 @@ export function POSBillingModal() {
                               -
                             </button>
                             <input
+                              id={`pos-item-qty-${idx}`}
                               type="number"
                               min="1"
                               value={item.quantity}
                               onChange={(e) => {
                                 const val = parseInt(e.target.value, 10);
                                 if (!Number.isNaN(val) && val > 0) updateItemField(idx, 'quantity', val);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  rowInputRef.current?.focus();
+                                  rowInputRef.current?.select();
+                                }
                               }}
                               style={{
                                 width: '40px',
@@ -2193,6 +2411,7 @@ export function POSBillingModal() {
                                 background: 'transparent',
                                 color: '#0f172a'
                               }}
+                              title="Quantity [Press Enter to jump to Next Product input]"
                             />
                             <button
                               type="button"
@@ -2286,7 +2505,7 @@ export function POSBillingModal() {
                             <div
                               style={{
                                 position: 'absolute',
-                                ...(cart.length > 0 ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
+                                top: 'calc(100% + 4px)',
                                 left: 0,
                                 right: 0,
                                 background: '#ffffff',
@@ -2373,20 +2592,21 @@ export function POSBillingModal() {
             flex: '1 1 35%',
             display: 'flex',
             flexDirection: 'column',
-            background: '#f8fafc',
+            background: posTheme.rightColBg,
+            borderLeft: `1px solid ${posTheme.borderCol}`,
             padding: '20px',
             overflowY: 'auto'
           }}
         >
           {/* Bill Summary Card */}
-          <div style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '18px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a', letterSpacing: '0.04em', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+          <div style={{ background: posTheme.cardBg, borderRadius: '10px', border: `1px solid ${posTheme.cardBorder}`, padding: '18px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 900, color: posTheme.textMain, letterSpacing: '0.04em', marginBottom: '12px', borderBottom: `1px solid ${posTheme.borderTopBar}`, paddingBottom: '8px' }}>
               BILL CALCULATION
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', color: '#475569' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', color: posTheme.textSub }}>
               <span>Items Total ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
-              <span style={{ fontWeight: 700, color: '#0f172a' }}>₹{cartFinancials.rawSubtotal.toLocaleString('en-IN')}</span>
+              <span style={{ fontWeight: 700, color: posTheme.textMain }}>₹{cartFinancials.rawSubtotal.toLocaleString('en-IN')}</span>
             </div>
 
             {/* Discount Input with Flat ₹ vs % Dropdown */}
@@ -2399,11 +2619,11 @@ export function POSBillingModal() {
                   style={{
                     padding: '3px 6px',
                     borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
+                    border: `1px solid ${posTheme.inputBorder}`,
                     fontSize: '11px',
                     fontWeight: 700,
-                    background: '#f1f5f9',
-                    color: '#334155',
+                    background: posTheme.inputBg,
+                    color: posTheme.textMain,
                     cursor: 'pointer'
                   }}
                 >
@@ -2424,12 +2644,12 @@ export function POSBillingModal() {
                     width: '85px',
                     padding: '4px 8px',
                     borderRadius: '4px',
-                    border: '1.5px solid #cbd5e1',
+                    border: `1.5px solid ${posTheme.inputBorder}`,
                     textAlign: 'right',
                     fontSize: '13px',
                     fontWeight: 800,
                     color: '#ef4444',
-                    background: '#ffffff'
+                    background: posTheme.inputBg
                   }}
                 />
                 {discountType === 'percent' && (
@@ -2440,38 +2660,109 @@ export function POSBillingModal() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: '#64748b' }}>
+            {/* NPPoints Loyalty Section */}
+            {customerNpPoints > 0 && (
+              <div style={{ background: posTheme.isAccountable ? '#fffbeb' : posTheme.inputBg, border: posTheme.isAccountable ? '1px solid #fef3c7' : `1px solid ${posTheme.cardBorder}`, borderRadius: '8px', padding: '10px 12px', margin: '8px 0 10px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '13px' }}>⭐</span>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: posTheme.isAccountable ? '#92400e' : '#fbbf24' }}>NPPoints Available:</span>
+                    <span style={{ fontSize: '12.5px', fontWeight: 900, color: posTheme.isAccountable ? '#b45309' : '#fbbf24' }}>{customerNpPoints} pts</span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: posTheme.textMuted, fontWeight: 700 }}>
+                    (Worth: ₹{(customerNpPoints * 0.25).toFixed(2)})
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ fontSize: '11.5px', color: posTheme.isAccountable ? '#92400e' : '#fbbf24', fontWeight: 600 }}>
+                    Redeem Points (1 pt = ₹0.25):
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      max={cartFinancials.maxRedeemablePoints}
+                      value={redeemPoints}
+                      onChange={(e) => setRedeemPoints(Math.min(cartFinancials.maxRedeemablePoints, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                      placeholder="0"
+                      style={{
+                        width: '75px',
+                        padding: '3px 6px',
+                        borderRadius: '4px',
+                        border: `1.5px solid ${posTheme.isAccountable ? '#d97706' : posTheme.inputBorder}`,
+                        textAlign: 'right',
+                        fontSize: '12.5px',
+                        fontWeight: 800,
+                        color: posTheme.isAccountable ? '#b45309' : '#fbbf24',
+                        background: posTheme.inputBg
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setRedeemPoints(cartFinancials.maxRedeemablePoints)}
+                      style={{
+                        padding: '3px 7px',
+                        borderRadius: '4px',
+                        background: '#d97706',
+                        color: '#fff',
+                        border: 'none',
+                        fontSize: '10.5px',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      MAX
+                    </button>
+                  </div>
+                </div>
+
+                {cartFinancials.pointsDiscount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11.5px', fontWeight: 800, color: '#15803d' }}>
+                    <span>NPPoints Discount:</span>
+                    <span>-₹{cartFinancials.pointsDiscount.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: posTheme.textMuted }}>
               <span>Taxable Value</span>
               <span>₹{cartFinancials.taxableAmount.toFixed(2)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: '#64748b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px', color: posTheme.textMuted }}>
               <span>CGST (9%)</span>
               <span>₹{cartFinancials.cgstAmount.toFixed(2)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px', color: '#64748b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px', color: posTheme.textMuted }}>
               <span>SGST (9%)</span>
               <span>₹{cartFinancials.sgstAmount.toFixed(2)}</span>
             </div>
 
             <div
               style={{
-                borderTop: '2px dashed #e2e8f0',
+                borderTop: `2px dashed ${posTheme.borderTopBar}`,
                 paddingTop: '12px',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'baseline'
               }}
             >
-              <span style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>NET PAYABLE</span>
-              <span style={{ fontSize: '24px', fontWeight: 900, color: '#065935' }}>
+              <span style={{ fontSize: '15px', fontWeight: 900, color: posTheme.textMain }}>NET PAYABLE</span>
+              <span style={{ fontSize: '24px', fontWeight: 900, color: posTheme.payableColor }}>
                 ₹{cartFinancials.grandTotal.toLocaleString('en-IN')}
               </span>
+            </div>
+
+            <div style={{ marginTop: '10px', padding: '6px 10px', background: posTheme.isAccountable ? '#f0fdf4' : posTheme.inputBg, border: posTheme.isAccountable ? '1px solid #bbf7d0' : `1px solid ${posTheme.cardBorder}`, borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', fontWeight: 700, color: posTheme.isAccountable ? '#166534' : '#a1a1aa' }}>
+              <span>✨ NPPoints to be earned:</span>
+              <span style={{ fontWeight: 900, fontSize: '12px', color: posTheme.isAccountable ? '#166534' : '#f4f4f5' }}>+{cartFinancials.pointsEarned} pts (₹100 = 1pt)</span>
             </div>
           </div>
 
           {/* Payment Method Selector (Icon-Free Clean Buttons) */}
-          <div style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '18px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a', letterSpacing: '0.04em', marginBottom: '12px' }}>
+          <div style={{ background: posTheme.cardBg, borderRadius: '10px', border: `1px solid ${posTheme.cardBorder}`, padding: '18px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 900, color: posTheme.textMain, letterSpacing: '0.04em', marginBottom: '12px' }}>
               PAYMENT METHOD
             </div>
 
@@ -2484,9 +2775,9 @@ export function POSBillingModal() {
                   style={{
                     padding: '12px 8px',
                     borderRadius: '6px',
-                    border: paymentMethod === m ? '2px solid #065935' : '1px solid #cbd5e1',
-                    background: paymentMethod === m ? '#ecfdf5' : '#ffffff',
-                    color: paymentMethod === m ? '#065935' : '#475569',
+                    border: paymentMethod === m ? posTheme.payActiveBorder : `1px solid ${posTheme.inputBorder}`,
+                    background: paymentMethod === m ? posTheme.payActiveBg : posTheme.inputBg,
+                    color: paymentMethod === m ? posTheme.payActiveColor : posTheme.textSub,
                     fontSize: '13px',
                     fontWeight: 800,
                     cursor: 'pointer',
@@ -2502,7 +2793,7 @@ export function POSBillingModal() {
             {/* Cash Tendered & Change Due Calculator */}
             {paymentMethod === 'Cash' && (
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: posTheme.textSub, marginBottom: '6px' }}>
                   CASH RECEIVED (₹)
                 </label>
                 <input
@@ -2514,10 +2805,11 @@ export function POSBillingModal() {
                     width: '100%',
                     padding: '10px 14px',
                     borderRadius: '6px',
-                    border: '1.5px solid #0f172a',
+                    border: `1.5px solid ${posTheme.inputBorder}`,
+                    background: posTheme.inputBg,
                     fontSize: '16px',
                     fontWeight: 800,
-                    color: '#0f172a',
+                    color: posTheme.textMain,
                     marginBottom: '10px'
                   }}
                 />
@@ -2532,8 +2824,9 @@ export function POSBillingModal() {
                       style={{
                         padding: '4px 8px',
                         borderRadius: '4px',
-                        border: '1px solid #cbd5e1',
-                        background: '#f8fafc',
+                        border: `1px solid ${posTheme.inputBorder}`,
+                        background: posTheme.inputBg,
+                        color: posTheme.textMain,
                         fontSize: '11px',
                         fontWeight: 700,
                         cursor: 'pointer'
@@ -2548,9 +2841,9 @@ export function POSBillingModal() {
                     style={{
                       padding: '4px 8px',
                       borderRadius: '4px',
-                      border: '1px solid #065935',
-                      background: '#ecfdf5',
-                      color: '#065935',
+                      border: posTheme.payActiveBorder,
+                      background: posTheme.payActiveBg,
+                      color: posTheme.payActiveColor,
                       fontSize: '11px',
                       fontWeight: 800,
                       cursor: 'pointer'
@@ -2565,15 +2858,15 @@ export function POSBillingModal() {
                   style={{
                     padding: '10px 14px',
                     borderRadius: '6px',
-                    background: cartFinancials.changeDue > 0 ? '#fef3c7' : '#f1f5f9',
-                    border: cartFinancials.changeDue > 0 ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                    background: cartFinancials.changeDue > 0 ? (posTheme.isAccountable ? '#fef3c7' : '#18181b') : (posTheme.isAccountable ? '#f1f5f9' : '#121215'),
+                    border: cartFinancials.changeDue > 0 ? (posTheme.isAccountable ? '1px solid #f59e0b' : '1px solid #3f3f46') : `1px solid ${posTheme.cardBorder}`,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center'
                   }}
                 >
-                  <span style={{ fontSize: '12px', fontWeight: 800, color: '#78350f' }}>CHANGE RETURN:</span>
-                  <span style={{ fontSize: '18px', fontWeight: 900, color: '#78350f' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 800, color: posTheme.isAccountable ? '#78350f' : '#f4f4f5' }}>CHANGE RETURN:</span>
+                  <span style={{ fontSize: '18px', fontWeight: 900, color: posTheme.isAccountable ? '#78350f' : '#f4f4f5' }}>
                     ₹{cartFinancials.changeDue.toLocaleString('en-IN')}
                   </span>
                 </div>
@@ -2591,14 +2884,14 @@ export function POSBillingModal() {
               width: '100%',
               padding: '16px 20px',
               borderRadius: '8px',
-              background: cart.length === 0 ? '#94a3b8' : '#065935',
+              background: cart.length === 0 ? (posTheme.isAccountable ? '#94a3b8' : '#27272a') : posTheme.btnPrimaryBg,
               color: '#ffffff',
-              border: 'none',
+              border: posTheme.btnPrimaryBorder,
               fontSize: '16px',
               fontWeight: 900,
               cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
               letterSpacing: '0.04em',
-              boxShadow: cart.length > 0 ? '0 4px 14px rgba(6, 89, 53, 0.35)' : 'none',
+              boxShadow: cart.length > 0 && posTheme.isAccountable ? '0 4px 14px rgba(6, 89, 53, 0.35)' : 'none',
               transition: 'all 0.15s ease'
             }}
           >
@@ -2676,26 +2969,36 @@ export function POSBillingModal() {
                     ? bill.items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0)
                     : 0;
                   const isCurrent = resumedHeldId === bill.id;
+                  const isSelected = selectedHeldIndex === idx;
                   return (
                     <div
                       key={bill.id}
+                      onClick={() => setSelectedHeldIndex(idx)}
                       style={{
-                        background: '#ffffff',
-                        border: isCurrent ? '2px solid #b45309' : '1px solid #e2e8f0',
+                        background: isSelected ? '#f0fdf4' : '#ffffff',
+                        border: isSelected ? '2px solid #065935' : (isCurrent ? '2px solid #b45309' : '1px solid #e2e8f0'),
                         borderRadius: '8px',
                         padding: '12px 14px',
                         marginBottom: '10px',
                         display: 'flex',
                         justifyContent: 'space-between',
                         gap: '12px',
-                        alignItems: 'center'
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        boxShadow: isSelected ? '0 4px 14px rgba(6, 89, 53, 0.16)' : 'none',
+                        transition: 'all 0.15s ease'
                       }}
                     >
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '10.5px', fontWeight: 900, color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
-                            SLOT #{idx + 1}
+                          <span style={{ fontSize: '10.5px', fontWeight: 900, color: isSelected ? '#065935' : '#64748b', background: isSelected ? '#dcfce7' : '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
+                            SLOT #{idx + 1} {idx < 9 ? `[Key ${idx + 1}]` : ''}
                           </span>
+                          {isSelected && (
+                            <span style={{ fontSize: '10px', fontWeight: 900, background: '#065935', color: '#ffffff', padding: '2px 6px', borderRadius: '4px' }}>
+                              ▶ SELECTED
+                            </span>
+                          )}
                           <span style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>{bill.reference}</span>
                           {isCurrent && (
                             <span style={{ fontSize: '10px', fontWeight: 900, background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px' }}>
@@ -2722,26 +3025,56 @@ export function POSBillingModal() {
                       <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                         <button
                           type="button"
-                          onClick={() => handleResumeHeldBill(bill)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResumeHeldBill(bill);
+                          }}
                           style={{
                             padding: '8px 14px',
                             borderRadius: '6px',
-                            background: isCurrent ? '#fef3c7' : '#065935',
+                            background: isCurrent ? '#fef3c7' : (isSelected ? '#065935' : '#047857'),
                             color: isCurrent ? '#92400e' : '#ffffff',
                             border: isCurrent ? '1.5px solid #d97706' : 'none',
                             fontSize: '12px',
                             fontWeight: 800,
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            boxShadow: isSelected ? '0 2px 8px rgba(6, 89, 53, 0.3)' : 'none'
                           }}
+                          title="Resume this bill session (Shortcut: Enter or R)"
                         >
-                          {isCurrent ? 'IN REGISTER' : 'RESUME'}
+                          <span>{isCurrent ? 'IN REGISTER' : 'RESUME'}</span>
+                          <span style={{ fontSize: '10px', opacity: 0.9, fontWeight: 800, background: 'rgba(0,0,0,0.18)', padding: '1px 5px', borderRadius: '3px' }}>
+                            [ENTER / R]
+                          </span>
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleCancelHeldBill(bill)}
-                          style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', color: '#dc2626', border: '1px solid #fca5a5', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancelHeldBill(bill);
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            background: '#ffffff',
+                            color: '#dc2626',
+                            border: '1.5px solid #fca5a5',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}
+                          title="Cancel / remove this bill (Shortcut: Del or C)"
                         >
-                          REMOVE
+                          <span>CANCEL</span>
+                          <span style={{ fontSize: '10px', opacity: 0.9, fontWeight: 800, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: '3px' }}>
+                            [DEL / C]
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -2750,17 +3083,31 @@ export function POSBillingModal() {
               )}
             </div>
 
-            <div style={{ padding: '10px 20px', borderTop: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11.5px', color: '#64748b' }}>
-                {heldBills.length} active held bill(s) — {15 - heldBills.length} slots available
-              </span>
-              <button
-                type="button"
-                onClick={loadHeldBillsData}
-                style={{ background: 'transparent', border: 'none', color: '#065935', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
-              >
-                REFRESH
-              </button>
+            <div style={{ padding: '10px 20px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#475569', fontWeight: 700, flexWrap: 'wrap' }}>
+                <span style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', color: '#0f172a', fontWeight: 900 }}>⌨️ SHORTCUTS:</span>
+                <span><strong style={{ color: '#065935' }}>[Enter]</strong> or <strong style={{ color: '#065935' }}>[R]</strong> Resume</span>
+                <span>•</span>
+                <span><strong style={{ color: '#dc2626' }}>[Del]</strong> or <strong style={{ color: '#dc2626' }}>[C]</strong> Cancel</span>
+                <span>•</span>
+                <span><strong>[↑ / ↓]</strong> Navigate</span>
+                <span>•</span>
+                <span><strong>[1-9]</strong> Select Slot</span>
+                <span>•</span>
+                <span><strong>[Esc]</strong> Close</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+                  {heldBills.length} active held bill(s) — {15 - heldBills.length} slots available
+                </span>
+                <button
+                  type="button"
+                  onClick={loadHeldBillsData}
+                  style={{ background: 'transparent', border: 'none', color: '#065935', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  REFRESH
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3243,6 +3590,25 @@ export function POSBillingModal() {
                       <span>SGST (9%):</span>
                       <span>Rs. {Number(completedOrder.sgst_amount || cartFinancials.sgstAmount).toFixed(2)}</span>
                     </div>
+
+                    {(Number(completedOrder.points_discount) > 0 || cartFinancials.pointsDiscount > 0) && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                        <span>NPPoints Redeemed:</span>
+                        <span>- Rs. {(Number(completedOrder.points_discount) || cartFinancials.pointsDiscount).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {(Number(completedOrder.points_earned) > 0 || cartFinancials.pointsEarned > 0) && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                        <span>⭐ NPPoints Earned:</span>
+                        <span>+{Number(completedOrder.points_earned) || cartFinancials.pointsEarned} pts</span>
+                      </div>
+                    )}
+                    {completedOrder.customer_np_points !== undefined && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                        <span>Total NPPoints:</span>
+                        <span>{completedOrder.customer_np_points} pts</span>
+                      </div>
+                    )}
 
                     <div style={{ borderTop: '2.5px solid #000000', margin: '6px 0' }} />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: thermalSettings.paperWidth === '58mm' ? '12px' : '13.5px', fontWeight: 900 }}>

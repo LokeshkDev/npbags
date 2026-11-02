@@ -306,9 +306,19 @@ async function validateCoupon(req, res, next) {
 // Admin: List all orders
 async function getAllOrdersAdmin(req, res, next) {
   try {
-    const { status, search, page = 1, limit = 20 } = req.query;
+    const { status, search, page = 1, limit = 20, is_accountable } = req.query;
     let sql = `SELECT * FROM orders WHERE 1=1`;
     const params = [];
+
+    // Filter by Accountable (Pakka) vs Unaccountable (Kaccha)
+    if (is_accountable === '0' || is_accountable === 0) {
+      sql += ` AND is_accountable = 0`;
+    } else if (is_accountable === 'all') {
+      // Do not restrict by accountability
+    } else {
+      // Default: Only accountable / official Pakka bills (including online orders)
+      sql += ` AND COALESCE(is_accountable, 1) = 1`;
+    }
 
     if (status && status !== 'all') {
       sql += ` AND order_status = ?`;
@@ -316,8 +326,8 @@ async function getAllOrdersAdmin(req, res, next) {
     }
 
     if (search) {
-      sql += ` AND (order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      sql += ` AND (order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ? OR customer_phone LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     sql += ` ORDER BY created_at DESC`;
@@ -437,8 +447,6 @@ async function createPOSOrder(req, res, next) {
 
     const order_number = await generateNextPosOrderNumber();
     const grandTotal = taxSummary.grandTotal;
-    const received = Number(received_amount) > 0 ? Number(received_amount) : grandTotal;
-    const balance = Math.max(0, received - grandTotal);
 
     // Save or link newly added / recognized customer into users table so customer info is preserved
     let customerUserId = null;
@@ -452,15 +460,41 @@ async function createPOSOrder(req, res, next) {
       console.warn('[POS] Could not auto-save customer info:', custErr.message);
     }
 
+    // NPPoints Loyalty Calculation: 1 pt = ₹0.25 (redeem), ₹100 spent = 1 pt (earn)
+    const points_redeemed_req = parseInt(req.body.points_redeemed, 10) || 0;
+    let currentCustomerPoints = 0;
+    if (customerUserId) {
+      const uRows = await query('SELECT COALESCE(np_points, 0) AS np_points FROM users WHERE id = ?', [customerUserId]);
+      if (uRows.length > 0) currentCustomerPoints = Number(uRows[0].np_points) || 0;
+    }
+
+    const points_redeemed = Math.min(currentCustomerPoints, Math.max(0, points_redeemed_req));
+    const points_discount = Math.min(grandTotal, Math.round(points_redeemed * 0.25 * 100) / 100);
+    const finalTotal = Math.max(0, Math.round((grandTotal - points_discount) * 100) / 100);
+    const points_earned = Math.floor(finalTotal / 100);
+
+    let updatedPointsBalance = currentCustomerPoints;
+    if (customerUserId) {
+      updatedPointsBalance = Math.max(0, currentCustomerPoints - points_redeemed) + points_earned;
+      await query('UPDATE users SET np_points = ? WHERE id = ?', [updatedPointsBalance, customerUserId]);
+    }
+
+    const received = Number(received_amount) > 0 ? Number(received_amount) : finalTotal;
+    const balance = Math.max(0, received - finalTotal);
+    const is_accountable = req.body.is_accountable !== undefined && req.body.is_accountable !== null
+      ? (Number(req.body.is_accountable) === 0 ? 0 : 1)
+      : 1;
+
     const orderResult = await query(
       `INSERT INTO orders (
         order_number, user_id, customer_name, customer_email, customer_phone,
         shipping_address, subtotal, discount, shipping_fee, total_amount,
         payment_method, payment_status, order_status, notes,
-        order_type, received_amount, balance_amount, gst_rate, is_gst_inclusive,
+        order_type, is_accountable, received_amount, balance_amount, gst_rate, is_gst_inclusive,
         taxable_amount, cgst_amount, sgst_amount, igst_amount,
-        sales_person_id, sales_person_name, discount_type, discount_value
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, 18.00, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sales_person_id, sales_person_name, discount_type, discount_value,
+        points_redeemed, points_discount, points_earned
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, ?, 18.00, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         order_number,
         customerUserId || (req.user ? req.user.id : null),
@@ -470,9 +504,10 @@ async function createPOSOrder(req, res, next) {
         JSON.stringify({ address: 'In-Store POS Billing Counter', city: 'Chennai', state: 'Tamil Nadu' }),
         taxSummary.subtotal,
         taxSummary.discountAmount,
-        grandTotal,
+        finalTotal,
         payment_method,
         notes || 'In-store POS counter billing',
+        is_accountable,
         received,
         balance,
         taxSummary.taxableAmount,
@@ -482,7 +517,10 @@ async function createPOSOrder(req, res, next) {
         sales_person_id ? parseInt(sales_person_id, 10) : null,
         sales_person_name || null,
         discount_type || 'flat',
-        parseFloat(discount_value) || parseFloat(discount_amount) || 0
+        parseFloat(discount_value) || parseFloat(discount_amount) || 0,
+        points_redeemed,
+        points_discount,
+        points_earned
       ]
     );
 
@@ -546,9 +584,13 @@ async function createPOSOrder(req, res, next) {
     return sendSuccess(res, {
       order_id: orderId,
       order_number,
-      total_amount: grandTotal,
+      total_amount: finalTotal,
       subtotal: taxSummary.subtotal,
       discount: taxSummary.discountAmount,
+      points_redeemed,
+      points_discount,
+      points_earned,
+      customer_np_points: updatedPointsBalance,
       taxable_amount: taxSummary.taxableAmount,
       cgst_amount: taxSummary.cgstAmount,
       sgst_amount: taxSummary.sgstAmount,
