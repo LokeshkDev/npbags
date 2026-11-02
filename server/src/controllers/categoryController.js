@@ -74,7 +74,7 @@ async function createCategory(req, res, next) {
     }
 
     const parentIdVal = parent_id && parent_id !== '0' && parent_id !== 'null' ? parseInt(parent_id, 10) : null;
-    const genderVal = (gender && ['women', 'men', 'kids', 'all'].includes(gender.toLowerCase()))
+    const genderVal = (gender && ['women', 'men', 'boys', 'girls', 'kids', 'all'].includes(gender.toLowerCase()))
       ? gender.toLowerCase()
       : 'all';
 
@@ -183,8 +183,9 @@ async function updateCategory(req, res, next) {
       params.push(is_active === true || is_active === 'true' || is_active === 1 || is_active === '1');
     }
     if (gender !== undefined) {
+      const normalizedGender = (gender || 'all').toLowerCase();
       updates.push('gender = ?');
-      params.push(gender || 'all');
+      params.push(['women', 'men', 'boys', 'girls', 'kids', 'all'].includes(normalizedGender) ? normalizedGender : 'all');
     }
     if (banner_image !== undefined) {
       updates.push('banner_image = ?');

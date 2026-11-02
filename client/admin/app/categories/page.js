@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
@@ -10,6 +11,7 @@ import { Icon } from '../../components/Icons';
 import { getAdminCategories, createAdminCategory, updateAdminCategory, deleteAdminCategory } from '../../lib/api';
 
 export default function AdminCategoriesPage() {
+  const router = useRouter();
   const [categories, setCategories] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -68,6 +70,11 @@ export default function AdminCategoriesPage() {
       image: null
     });
     setIsModalOpen(true);
+  };
+
+  // Open the Add Product screen with this category preselected
+  const goAddProduct = (categoryId) => {
+    router.push(`/products?add=1&category_id=${categoryId}`);
   };
 
   // Helper to auto-generate slug from current category name
@@ -234,6 +241,20 @@ export default function AdminCategoriesPage() {
         </span>
       );
     }
+    if (val === 'boys') {
+      return (
+        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#dbeafe', color: '#1d4ed8' }}>
+          👦 Boys
+        </span>
+      );
+    }
+    if (val === 'girls') {
+      return (
+        <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#fce7f3', color: '#be185d' }}>
+          👧 Girls
+        </span>
+      );
+    }
     return (
       <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b' }}>
         🌐 Unisex
@@ -245,6 +266,8 @@ export default function AdminCategoriesPage() {
   const womenCount = categories.filter(c => (c.gender || '').toLowerCase() === 'women').length;
   const menCount = categories.filter(c => (c.gender || '').toLowerCase() === 'men').length;
   const kidsCount = categories.filter(c => (c.gender || '').toLowerCase() === 'kids').length;
+  const boysCount = categories.filter(c => (c.gender || '').toLowerCase() === 'boys').length;
+  const girlsCount = categories.filter(c => (c.gender || '').toLowerCase() === 'girls').length;
   const unisexCount = categories.filter(c => {
     const g = (c.gender || 'all').toLowerCase();
     return g === 'all' || g === 'unisex';
@@ -345,12 +368,14 @@ export default function AdminCategoriesPage() {
             </div>
           </div>
 
-          {/* Department Filter Tabs (All, Women, Men, Kids, Unisex) */}
+          {/* Department Filter Tabs (All, Women, Men, Boys, Girls, Kids, Unisex) */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
             {[
               { id: 'all', label: 'All Categories', count: categories.length },
               { id: 'women', label: '👩 Women', count: womenCount },
               { id: 'men', label: '👤 Men', count: menCount },
+              { id: 'boys', label: '👦 Boys', count: boysCount },
+              { id: 'girls', label: '👧 Girls', count: girlsCount },
               { id: 'kids', label: '🧒 Kids', count: kidsCount },
               { id: 'unisex', label: '🌐 Unisex', count: unisexCount }
             ].map(tab => (
@@ -590,6 +615,16 @@ export default function AdminCategoriesPage() {
                           <button
                             type="button"
                             className="admin-btn admin-btn-outline"
+                            style={{ padding: '5px 12px', fontSize: '12px', borderRadius: '6px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
+                            onClick={() => goAddProduct(mainCat.id)}
+                            title="Add a new product in this category"
+                          >
+                            <Icon name="plus" size={13} />
+                            <span>Add Product</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-outline"
                             style={{ padding: '5px 12px', fontSize: '12px', borderRadius: '6px' }}
                             onClick={() => openAddModal(mainCat.id)}
                             title="Add subcategory under this category"
@@ -714,6 +749,16 @@ export default function AdminCategoriesPage() {
                                         <button
                                           type="button"
                                           className="admin-btn admin-btn-outline"
+                                          style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '5px', color: '#065935', borderColor: '#86efac', background: '#f0fdf4' }}
+                                          onClick={() => goAddProduct(sub.id)}
+                                          title="Add a new product in this category"
+                                        >
+                                          <Icon name="plus" size={12} />
+                                          <span>Add Product</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="admin-btn admin-btn-outline"
                                           style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '5px' }}
                                           onClick={() => openAddModal(sub.id)}
                                           title="Add a sub-item inside this subcategory"
@@ -796,10 +841,12 @@ export default function AdminCategoriesPage() {
               {/* Target Department / Gender */}
               <div className="form-group">
                 <label className="form-label">Department / Target Audience *</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '6px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '6px' }}>
                   {[
                     { id: 'women', label: '👩 Women', desc: 'Handbags, Totes, Slings' },
                     { id: 'men', label: '👤 Men', desc: 'Wallets, Backpacks, Belts' },
+                    { id: 'boys', label: '👦 Boys', desc: 'Backpacks, Wallets, Belts' },
+                    { id: 'girls', label: '👧 Girls', desc: 'Handbags, Pouches, Charms' },
                     { id: 'kids', label: '🧒 Kids', desc: 'School Bags, Mini Pouches' },
                     { id: 'all', label: '🌐 All / Unisex', desc: 'Common Collections' }
                   ].map(g => (
@@ -835,7 +882,7 @@ export default function AdminCategoriesPage() {
                   ))}
                 </div>
                 <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  Assigning to Women, Men, or Kids enables dedicated department hubs at <code>/womens</code>, <code>/mens</code>, or <code>/kids</code>.
+                  Assigning to Women, Men, Boys, Girls, or Kids enables dedicated department hubs at <code>/womens</code>, <code>/mens</code>, <code>/boys</code>, <code>/girls</code>, or <code>/kids</code>.
                 </span>
               </div>
 

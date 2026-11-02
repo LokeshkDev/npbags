@@ -33,6 +33,20 @@ const defaultNavItems = [
     ]
   },
   {
+    label: 'Boys',
+    url: '/boys',
+    sub_items: [
+      { label: 'All Boys', url: '/boys' }
+    ]
+  },
+  {
+    label: 'Girls',
+    url: '/girls',
+    sub_items: [
+      { label: 'All Girls', url: '/girls' }
+    ]
+  },
+  {
     label: 'Kids',
     url: '/kids',
     sub_items: [

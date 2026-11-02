@@ -34,7 +34,7 @@ export default function AdminAuditLogsPage() {
       };
 
       if (actionFilter !== 'all') params.action = actionFilter;
-      if (entityFilter !== 'all') params.entity = entityFilter;
+      if (entityFilter !== 'all') params.entity_type = entityFilter;
       if (searchQuery.trim()) params.search = searchQuery.trim();
 
       // Compute dates based on preset
@@ -60,7 +60,7 @@ export default function AdminAuditLogsPage() {
       if (res && Array.isArray(res.logs)) {
         setLogs(res.logs);
         setTotalCount(res.total || 0);
-        setTotalPages(res.totalPages || 1);
+        setTotalPages(res.totalPages || Math.ceil((res.total || 0) / 30) || 1);
       } else if (Array.isArray(res)) {
         setLogs(res);
         setTotalCount(res.length);
@@ -355,7 +355,7 @@ export default function AdminAuditLogsPage() {
                 >
                   <option value="all">All Modules</option>
                   <option value="product">Products &amp; Costing</option>
-                  <option value="order">Orders &amp; Walk-in Bills</option>
+                  <option value="pos">Orders &amp; Walk-in Bills</option>
                   <option value="vendor">Vendors &amp; Suppliers</option>
                   <option value="salesperson">Sales Staff Attribution</option>
                 </select>
@@ -473,26 +473,26 @@ export default function AdminAuditLogsPage() {
                                   <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '13px' }}>
                                     {log.product_name || `Product #${log.entity_id}`}
                                   </div>
-                                  {log.product_price ? (
-                                    <div style={{ fontSize: '11px', color: '#065935', fontWeight: 600 }}>
-                                      ₹{log.product_price}
+                                  {log.entity_id ? (
+                                    <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                      Ref: {log.entity_id}
                                     </div>
                                   ) : null}
                                 </div>
                               </div>
-                            ) : log.order_number ? (
+                            ) : log.entity_type === 'pos' ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span style={{ fontSize: '16px' }}>🧾</span>
                                 <div>
                                   <div style={{ fontWeight: 800, color: '#065935', fontFamily: 'monospace' }}>
-                                    {log.order_number}
+                                    {log.entity_id || '—'}
                                   </div>
                                   <div style={{ fontSize: '11px', color: '#64748b' }}>Order Bill</div>
                                 </div>
                               </div>
                             ) : (
                               <div style={{ color: '#64748b', fontSize: '12px' }}>
-                                {log.entity.toUpperCase()} #{log.entity_id || '—'}
+                                {(log.entity_type || 'record').toUpperCase()} #{log.entity_id || '—'}
                               </div>
                             )}
                           </td>
@@ -500,31 +500,14 @@ export default function AdminAuditLogsPage() {
                           {/* Staff / User */}
                           <td style={{ padding: '12px 18px' }}>
                             <div style={{ fontWeight: 700, color: '#0f172a' }}>
-                              {log.user_name || 'Admin'}
+                              {log.performed_by || 'Admin'}
                             </div>
-                            {log.ip_address && (
-                              <div style={{ fontSize: '10.5px', color: '#94a3b8', fontFamily: 'monospace' }}>
-                                IP: {log.ip_address}
-                              </div>
-                            )}
                           </td>
 
                           {/* Summary / Notes */}
                           <td style={{ padding: '12px 18px', maxWidth: '320px' }}>
                             <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.4 }}>
-                              {typeof log.details === 'object' && log.details !== null ? (
-                                <span>
-                                  {log.details.notes ||
-                                    log.details.description ||
-                                    (log.action === 'price_change'
-                                      ? `Price changed: ₹${log.details.old_price} → ₹${log.details.new_price}`
-                                      : log.action === 'stock_adjust'
-                                      ? `Stock updated: ${log.details.old_stock} → ${log.details.new_stock}`
-                                      : JSON.stringify(log.details).slice(0, 70))}
-                                </span>
-                              ) : (
-                                <span>{String(log.details || '—')}</span>
-                              )}
+                              {log.summary || '—'}
                             </div>
                           </td>
 
@@ -676,7 +659,7 @@ export default function AdminAuditLogsPage() {
                     <div>
                       <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>OPERATOR / USER</div>
                       <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
-                        {activeLogModal.user_name || 'Admin'}
+                        {activeLogModal.performed_by || 'Admin'}
                       </div>
                     </div>
                     <div>
@@ -686,12 +669,23 @@ export default function AdminAuditLogsPage() {
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>IP ADDRESS</div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>MODULE / REFERENCE</div>
                       <div style={{ fontSize: '13px', color: '#334155', fontFamily: 'monospace', marginTop: '2px' }}>
-                        {activeLogModal.ip_address || '—'}
+                        {(activeLogModal.entity_type || '—').toUpperCase()} #{activeLogModal.entity_id || '—'}
                       </div>
                     </div>
                   </div>
+
+                  {activeLogModal.summary && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>
+                        SUMMARY
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }}>
+                        {activeLogModal.summary}
+                      </div>
+                    </div>
+                  )}
 
                   <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>
                     JSON DETAILS PAYLOAD
@@ -708,9 +702,14 @@ export default function AdminAuditLogsPage() {
                       margin: 0
                     }}
                   >
-                    {typeof activeLogModal.details === 'object'
-                      ? JSON.stringify(activeLogModal.details, null, 2)
-                      : String(activeLogModal.details)}
+                    {JSON.stringify(
+                      {
+                        old_values: activeLogModal.old_values,
+                        new_values: activeLogModal.new_values
+                      },
+                      null,
+                      2
+                    )}
                   </pre>
                 </div>
 

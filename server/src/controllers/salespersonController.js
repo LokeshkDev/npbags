@@ -179,17 +179,17 @@ async function createSalesperson(req, res) {
 
     // Record audit log
     await recordAuditLog({
-      userName: req.admin?.name || req.user?.name || 'Admin',
+      entity_type: 'salesperson',
+      entity_id: result.insertId,
       action: 'staff_created',
-      entity: 'salesperson',
-      entityId: result.insertId,
-      details: {
+      summary: `Created salesperson "${name.trim()}" (Code: ${autoCode})`,
+      new_values: {
         name: name.trim(),
         code: autoCode,
         phone: phone || null,
         commission_percent: comm
       },
-      ipAddress: req.ip
+      performed_by: req.admin?.name || req.user?.name || 'Admin'
     });
 
     res.status(201).json(created[0]);
@@ -232,18 +232,20 @@ async function updateSalesperson(req, res) {
 
     // Record audit log
     await recordAuditLog({
-      userName: req.admin?.name || req.user?.name || 'Admin',
+      entity_type: 'salesperson',
+      entity_id: id,
       action: 'staff_updated',
-      entity: 'salesperson',
-      entityId: id,
-      details: {
-        old_name: current.name,
-        new_name: newName,
-        old_commission: current.commission_percent,
-        new_commission: newComm,
+      summary: `Updated salesperson "${newName}"`,
+      old_values: {
+        name: current.name,
+        commission_percent: current.commission_percent
+      },
+      new_values: {
+        name: newName,
+        commission_percent: newComm,
         phone: newPhone
       },
-      ipAddress: req.ip
+      performed_by: req.admin?.name || req.user?.name || 'Admin'
     });
 
     res.json(updated[0]);
@@ -272,12 +274,12 @@ async function deleteSalesperson(req, res) {
 
     // Record audit log
     await recordAuditLog({
-      userName: req.admin?.name || req.user?.name || 'Admin',
+      entity_type: 'salesperson',
+      entity_id: id,
       action: 'staff_deleted',
-      entity: 'salesperson',
-      entityId: id,
-      details: { name: staffName },
-      ipAddress: req.ip
+      summary: `Deleted salesperson "${staffName}"`,
+      old_values: { name: staffName },
+      performed_by: req.admin?.name || req.user?.name || 'Admin'
     });
 
     res.json({ success: true, message: `Sales person "${staffName}" deleted successfully` });

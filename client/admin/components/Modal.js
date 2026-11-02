@@ -3,14 +3,18 @@
 import React from 'react';
 import { Icon } from './Icons';
 
-export function Modal({ isOpen, onClose, title, children, maxWidth = '640px' }) {
+export function Modal({ isOpen, onClose, title, children, maxWidth = '640px', maxHeight, height }) {
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-dialog"
-        style={{ maxWidth }}
+        style={{
+          maxWidth,
+          ...(maxHeight ? { maxHeight } : {}),
+          ...(height ? { height } : {})
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">

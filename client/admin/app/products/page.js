@@ -40,6 +40,7 @@ export default function AdminProductsPage() {
   const [isUploadingVariantIndex, setIsUploadingVariantIndex] = useState(null);
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingAddCategory, setPendingAddCategory] = useState(null);
 
   // Filter & sorting states
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -231,13 +232,36 @@ export default function AdminProductsPage() {
     loadData();
   }, []);
 
-  const openAddModal = () => {
+  // Read "Add Product" intent coming from the Categories page (?add=1&category_id=..)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('add') === '1') {
+      setPendingAddCategory(params.get('category_id') || '');
+    }
+  }, []);
+
+  // Open the Add Product modal once categories are ready, then clean the URL
+  useEffect(() => {
+    if (pendingAddCategory === null) return;
+    if (pendingAddCategory && categories.length === 0) return;
+    openAddModal(pendingAddCategory || null);
+    setPendingAddCategory(null);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', '/products');
+    }
+  }, [pendingAddCategory, categories]);
+
+  const openAddModal = (presetCategoryId = null) => {
     setEditingProduct(null);
     setProductImages([]);
     setVariants([
       { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
     ]);
-    const firstCat = categories[0];
+    const presetCat = presetCategoryId
+      ? categories.find(c => String(c.id) === String(presetCategoryId))
+      : null;
+    const firstCat = presetCat || categories[0];
     setFormData({
       name: '',
       slug: '',
@@ -812,19 +836,54 @@ export default function AdminProductsPage() {
     return parseInt(p.stock_quantity, 10) || 0;
   };
 
-  const mainCategoriesList = categories.filter(c => !c.parent_id);
-  const getSubcategories = (parentId) => categories.filter(c => String(c.parent_id) === String(parentId));
+  // Recursively collect all descendant category ids (supports unlimited nesting)
+  const getDescendantIds = (parentId) => {
+    const ids = [];
+    const walk = (pid) => {
+      categories
+        .filter(c => String(c.parent_id) === String(pid))
+        .forEach(child => {
+          ids.push(String(child.id));
+          walk(child.id);
+        });
+    };
+    walk(parentId);
+    return ids;
+  };
+
+  // Flat list of every category (any depth) with its indent level, for dropdowns
+  const categoryOptions = (() => {
+    const options = [];
+    const visited = new Set();
+    const walk = (parentId, depth) => {
+      categories
+        .filter(c => (parentId === null ? !c.parent_id : String(c.parent_id) === String(parentId)))
+        .forEach(cat => {
+          if (visited.has(String(cat.id))) return;
+          visited.add(String(cat.id));
+          options.push({ cat, depth });
+          walk(cat.id, depth + 1);
+        });
+    };
+    walk(null, 0);
+    // Include any orphaned categories that were not reachable from a root
+    categories.forEach(cat => {
+      if (!visited.has(String(cat.id))) options.push({ cat, depth: 0 });
+    });
+    return options;
+  })();
 
   const getCategoryProductCount = (catId) => {
     const cidStr = String(catId);
-    const subIds = categories.filter(c => String(c.parent_id) === cidStr).map(c => String(c.id));
-    const allIds = [cidStr, ...subIds];
+    const allIds = [cidStr, ...getDescendantIds(catId)];
     return products.filter(p => allIds.includes(String(p.category_id || '')) || (p.parent_id && allIds.includes(String(p.parent_id)))).length;
   };
 
   const countWomen = products.filter(p => (p.gender || '').toLowerCase() === 'women').length;
   const countMen = products.filter(p => (p.gender || '').toLowerCase() === 'men').length;
   const countKids = products.filter(p => (p.gender || '').toLowerCase() === 'kids').length;
+  const countBoys = products.filter(p => (p.gender || '').toLowerCase() === 'boys').length;
+  const countGirls = products.filter(p => (p.gender || '').toLowerCase() === 'girls').length;
   const countUnisex = products.filter(p => {
     const g = (p.gender || 'all').toLowerCase();
     return g === 'all' || g === 'unisex';
@@ -877,8 +936,7 @@ export default function AdminProductsPage() {
     // 2. Category Filter (Main category includes its subcategories, or specific subcategory)
     if (categoryFilter !== 'all') {
       const catIdStr = String(categoryFilter);
-      const subcatIds = categories.filter(c => String(c.parent_id) === catIdStr).map(c => String(c.id));
-      const allowedCatIds = [catIdStr, ...subcatIds];
+      const allowedCatIds = [catIdStr, ...getDescendantIds(categoryFilter)];
       const pCatId = String(p.category_id || '');
       const pParentId = String(p.parent_id || '');
       const matchesCategory = allowedCatIds.includes(pCatId) || (pParentId && allowedCatIds.includes(pParentId));
@@ -968,6 +1026,8 @@ export default function AdminProductsPage() {
               { id: 'all', label: 'All Products', count: products.length },
               { id: 'women', label: '👩 Women', count: countWomen },
               { id: 'men', label: '👤 Men', count: countMen },
+              { id: 'boys', label: '👦 Boys', count: countBoys },
+              { id: 'girls', label: '👧 Girls', count: countGirls },
               { id: 'kids', label: '🧒 Kids', count: countKids },
               { id: 'unisex', label: '🌐 Unisex', count: countUnisex }
             ].map(tab => (
@@ -1043,22 +1103,11 @@ export default function AdminProductsPage() {
                   onChange={(e) => setCategoryFilter(e.target.value)}
                 >
                   <option value="all">📁 Filter by Category: All ({products.length})</option>
-                  {mainCategoriesList.map(main => {
-                    const subcats = getSubcategories(main.id);
-                    const mainCount = getCategoryProductCount(main.id);
-                    return (
-                      <React.Fragment key={main.id}>
-                        <option value={main.id} style={{ fontWeight: 700 }}>
-                          📂 {main.name} ({mainCount})
-                        </option>
-                        {subcats.map(sub => (
-                          <option key={sub.id} value={sub.id}>
-                            &nbsp;&nbsp;&nbsp;&nbsp;↳ {sub.name} ({getCategoryProductCount(sub.id)})
-                          </option>
-                        ))}
-                      </React.Fragment>
-                    );
-                  })}
+                  {categoryOptions.map(({ cat, depth }) => (
+                    <option key={cat.id} value={cat.id} style={depth === 0 ? { fontWeight: 700 } : undefined}>
+                      {depth === 0 ? '📂 ' : `${'\u00A0\u00A0'.repeat(depth)}↳ `}{cat.name} ({getCategoryProductCount(cat.id)})
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1429,9 +1478,11 @@ export default function AdminProductsPage() {
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add New Product'}
-        maxWidth="860px"
+        maxWidth="80vw"
+        maxHeight="80vh"
+        height="80vh"
       >
-        <form onSubmit={handleSubmit} style={{ maxHeight: '78vh', overflowY: 'auto', paddingRight: '8px' }}>
+        <form onSubmit={handleSubmit} style={{ paddingRight: '8px' }}>
           {/* Basic Details */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
             <div className="form-group">
@@ -1482,17 +1533,21 @@ export default function AdminProductsPage() {
                 }}
               >
                 <option value="">-- Select Category --</option>
-                {categories.filter(c => !c.parent_id).map(mainCat => {
-                  const subCats = categories.filter(sub => sub.parent_id === mainCat.id);
-                  return (
-                    <React.Fragment key={mainCat.id}>
-                      <option value={mainCat.id} style={{ fontWeight: 600 }}>{mainCat.name} ({mainCat.gender || 'all'})</option>
-                      {subCats.map(sub => (
-                        <option key={sub.id} value={sub.id}>&nbsp;&nbsp;↳ {sub.name} ({sub.gender || 'all'})</option>
-                      ))}
-                    </React.Fragment>
-                  );
-                })}
+                {categoryOptions.map(({ cat, depth }) => (
+                  <option
+                    key={cat.id}
+                    value={cat.id}
+                    style={
+                      depth === 0
+                        ? { fontWeight: 700 }
+                        : depth >= 2
+                        ? { fontStyle: 'italic' }
+                        : { fontWeight: 400, fontStyle: 'normal' }
+                    }
+                  >
+                    {depth > 0 ? `${'\u00A0\u00A0'.repeat(depth)}↳ ` : ''}{cat.name} ({cat.gender || 'all'})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1505,6 +1560,8 @@ export default function AdminProductsPage() {
               >
                 <option value="women">👩 Women</option>
                 <option value="men">👤 Men</option>
+                <option value="boys">👦 Boys</option>
+                <option value="girls">👧 Girls</option>
                 <option value="kids">🧒 Kids</option>
                 <option value="all">🌐 All / Unisex</option>
               </select>

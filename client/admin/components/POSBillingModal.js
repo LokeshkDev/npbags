@@ -1688,7 +1688,7 @@ export function POSBillingModal() {
                 }}
                 title="View active held bills (up to 15 slots) [Shortcut F6]"
               >
-                <span>📋 HELD BILLS [F6]</span>
+                <span>RECALL [F6]</span>
                 <span
                   style={{
                     background: heldBills.length > 0 ? '#b45309' : '#64748b',
@@ -3588,13 +3588,13 @@ export function POSBillingModal() {
             </div>
 
             <div style={{ padding: '6px 22px 10px', display: 'flex', justifyContent: 'flex-end', background: '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
-              <Link
+              <a
                 href="/salespersons"
                 target="_blank"
                 style={{ fontSize: '11px', fontWeight: 800, color: '#065935', textDecoration: 'none' }}
               >
                 📊 Open Full Sales Staff Reports &rarr;
-              </Link>
+              </a>
             </div>
 
             {/* Add New Staff Form */}

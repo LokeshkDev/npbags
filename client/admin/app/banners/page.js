@@ -136,8 +136,18 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
                 padding: '2px 8px',
                 borderRadius: '4px',
                 textTransform: 'uppercase',
-                background: category.gender === 'women' ? '#fce7f3' : category.gender === 'men' ? '#e0f2fe' : category.gender === 'kids' ? '#fef3c7' : '#f1f5f9',
-                color: category.gender === 'women' ? '#9d174d' : category.gender === 'men' ? '#0369a1' : category.gender === 'kids' ? '#b45309' : '#475569'
+                background: category.gender === 'women' ? '#fce7f3'
+                  : category.gender === 'men' ? '#e0f2fe'
+                  : category.gender === 'boys' ? '#dbeafe'
+                  : category.gender === 'girls' ? '#fce7f3'
+                  : category.gender === 'kids' ? '#fef3c7'
+                  : '#f1f5f9',
+                color: category.gender === 'women' ? '#9d174d'
+                  : category.gender === 'men' ? '#0369a1'
+                  : category.gender === 'boys' ? '#1d4ed8'
+                  : category.gender === 'girls' ? '#be185d'
+                  : category.gender === 'kids' ? '#b45309'
+                  : '#475569'
               }}
             >
               {category.gender || 'All'}
@@ -877,7 +887,7 @@ export default function AdminBannersPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '22px' }}>
                 {/* Gender Tabs */}
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  {['all', 'women', 'men', 'kids'].map(g => (
+                  {['all', 'women', 'men', 'boys', 'girls', 'kids'].map(g => (
                     <button
                       key={g}
                       type="button"
@@ -1002,6 +1012,8 @@ export default function AdminBannersPage() {
                       >
                         <option value="women">👩 Women</option>
                         <option value="men">👤 Men</option>
+                        <option value="boys">👦 Boys</option>
+                        <option value="girls">👧 Girls</option>
                         <option value="kids">🧒 Kids</option>
                         <option value="all">🌐 All / Unisex</option>
                       </select>
@@ -1115,6 +1127,22 @@ export default function AdminBannersPage() {
                   route="/mens"
                   currentData={pageBanners.mens}
                   currentUrl={pageBanners.mens}
+                  onSave={handleSavePageBanner}
+                />
+                <PageBannerItem
+                  pageKey="boys"
+                  title="Boys' Department Banner"
+                  route="/boys"
+                  currentData={pageBanners.boys}
+                  currentUrl={pageBanners.boys}
+                  onSave={handleSavePageBanner}
+                />
+                <PageBannerItem
+                  pageKey="girls"
+                  title="Girls' Department Banner"
+                  route="/girls"
+                  currentData={pageBanners.girls}
+                  currentUrl={pageBanners.girls}
                   onSave={handleSavePageBanner}
                 />
                 <PageBannerItem

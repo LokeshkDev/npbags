@@ -43,7 +43,7 @@ export function DepartmentHubContent({
 
         if (pb) {
           const pbContent = pb.content || pb;
-          const deptKey = gender === 'women' ? 'womens' : gender === 'men' ? 'mens' : 'kids';
+          const deptKey = gender === 'women' ? 'womens' : gender === 'men' ? 'mens' : gender === 'boys' ? 'boys' : gender === 'girls' ? 'girls' : 'kids';
           const currentDept = pbContent[deptKey];
           if (currentDept) {
             setPageBannerData(currentDept);
@@ -179,7 +179,7 @@ export function DepartmentHubContent({
     return list;
   }, [products, sortBy]);
 
-  const departmentBasePath = `/${gender === 'women' ? 'womens' : gender === 'men' ? 'mens' : 'kids'}`;
+  const departmentBasePath = `/${gender === 'women' ? 'womens' : gender === 'men' ? 'mens' : gender === 'boys' ? 'boys' : gender === 'girls' ? 'girls' : 'kids'}`;
 
   const handleSelectCategory = (slug) => {
     router.push(`${departmentBasePath}?category=${encodeURIComponent(slug)}`);
@@ -194,6 +194,12 @@ export function DepartmentHubContent({
     if (gender === 'kids') {
       return 'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?auto=format&fit=crop&w=800&q=80';
     }
+    if (gender === 'boys') {
+      return 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=800&q=80';
+    }
+    if (gender === 'girls') {
+      return 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=800&q=80';
+    }
     if (gender === 'men') {
       return 'https://images.unsplash.com/photo-1627123424574-724758594e93?auto=format&fit=crop&w=800&q=80';
     }
@@ -203,6 +209,8 @@ export function DepartmentHubContent({
   const genderThemeColor = useMemo(() => {
     if (gender === 'women') return '#be185d';
     if (gender === 'men') return '#0369a1';
+    if (gender === 'boys') return '#1d4ed8';
+    if (gender === 'girls') return '#db2777';
     return '#b45309';
   }, [gender]);
 

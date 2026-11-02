@@ -90,6 +90,8 @@ export function SiteFooter({ data }) {
               <ul className="footer-links">
                 <li><Link href="/shop?category=Womens">Women</Link></li>
                 <li><Link href="/shop?category=Mens">Men</Link></li>
+                <li><Link href="/boys">Boys</Link></li>
+                <li><Link href="/girls">Girls</Link></li>
                 <li><Link href="/shop?category=Kids">Kids</Link></li>
                 <li><Link href="/shop?category=Accessories">Accessories</Link></li>
                 <li><Link href="/shop?category=Everyday+essentials">Bags &amp; Handbags</Link></li>

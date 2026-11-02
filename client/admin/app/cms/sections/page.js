@@ -263,7 +263,12 @@ const defaultHeaderNavItems = [
 // ---------------------------------------------------------------------------
 function buildCategoryLink(cat) {
   const gender = (cat.gender || 'all').toLowerCase();
-  const base = gender === 'women' ? '/womens' : gender === 'men' ? '/mens' : gender === 'kids' ? '/kids' : '/shop';
+  const base = gender === 'women' ? '/womens'
+    : gender === 'men' ? '/mens'
+    : gender === 'boys' ? '/boys'
+    : gender === 'girls' ? '/girls'
+    : gender === 'kids' ? '/kids'
+    : '/shop';
   return `${base}?category=${cat.slug}`;
 }
 
@@ -272,6 +277,8 @@ function categoryGenderIcon(cat) {
   const gender = (cat.gender || 'all').toLowerCase();
   if (gender === 'women') return '👩';
   if (gender === 'men') return '👤';
+  if (gender === 'boys') return '👦';
+  if (gender === 'girls') return '👧';
   if (gender === 'kids') return '🧒';
   return '🌐';
 }
@@ -2304,6 +2311,22 @@ export default function AdminCMSSectionsPage() {
                                   title="Set URL to /mens"
                                 >
                                   👤 Men
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateNavItem([idx], 'url', '/boys')}
+                                  style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Set URL to /boys"
+                                >
+                                  👦 Boys
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateNavItem([idx], 'url', '/girls')}
+                                  style={{ fontSize: '10px', background: '#fce7f3', color: '#be185d', border: 'none', padding: '3px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Set URL to /girls"
+                                >
+                                  👧 Girls
                                 </button>
                                 <button
                                   type="button"

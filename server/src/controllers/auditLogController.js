@@ -3,7 +3,8 @@ const { query } = require('../config/db');
 // GET /api/audit-logs
 async function getAuditLogs(req, res) {
   try {
-    const { action, entity_type, search, startDate, endDate, limit = 100, page = 1 } = req.query;
+    const { action, entity_type, entity, search, startDate, endDate, limit = 100, page = 1 } = req.query;
+    const entityFilter = entity_type || entity;
 
     let sql = 'SELECT * FROM audit_logs WHERE 1=1';
     const params = [];
@@ -13,9 +14,9 @@ async function getAuditLogs(req, res) {
       params.push(action);
     }
 
-    if (entity_type && entity_type !== 'all') {
+    if (entityFilter && entityFilter !== 'all') {
       sql += ' AND entity_type = ?';
-      params.push(entity_type);
+      params.push(entityFilter);
     }
 
     if (search && search.trim()) {
@@ -50,6 +51,7 @@ async function getAuditLogs(req, res) {
       total,
       page: parseInt(page, 10) || 1,
       limit: numLimit,
+      totalPages: Math.max(1, Math.ceil(total / numLimit)),
       logs
     });
   } catch (err) {
