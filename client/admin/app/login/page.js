@@ -111,10 +111,6 @@ export default function AdminLoginPage() {
             <span>{loading ? 'Authenticating...' : 'Sign In to Dashboard'}</span>
           </button>
         </form>
-
-        <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--muted)' }}>
-          Default Credentials: <code>admin@npgrand.com</code> / <code>admin123</code>
-        </div>
       </div>
     </div>
   );
