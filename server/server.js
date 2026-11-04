@@ -19,6 +19,7 @@ const bannerRoutes = require('./src/routes/bannerRoutes');
 const blogRoutes = require('./src/routes/blogRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
 const barcodeRoutes = require('./src/routes/barcodeRoutes');
+const branchRoutes = require('./src/routes/branchRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
 const { getStoreSettings } = require('./src/controllers/settingsController');
 
@@ -139,6 +140,7 @@ app.use('/api/banners', bannerRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/barcodes', barcodeRoutes);
+app.use('/api/admin/branches', branchRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Error handlers

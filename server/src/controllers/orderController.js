@@ -634,6 +634,16 @@ async function getAllOrdersAdmin(req, res, next) {
       sql += ` AND COALESCE(is_accountable, 1) = 1`;
     }
 
+    // Branch scoping: Branch staff see only their branch; Super Admin can filter by branch_id
+    const effectiveBranchId = (req.user && req.user.role !== 'admin')
+      ? req.user.branch_id
+      : (req.query.branch_id ? parseInt(req.query.branch_id, 10) : null);
+
+    if (effectiveBranchId) {
+      sql += ` AND branch_id = ?`;
+      params.push(effectiveBranchId);
+    }
+
     if (status && status !== 'all') {
       sql += ` AND order_status = ?`;
       params.push(status);
@@ -676,7 +686,26 @@ async function getAllOrdersAdmin(req, res, next) {
       order.customer_email = cleanCustomerEmail(order.customer_email);
     }
 
-    const countResult = await query(`SELECT COUNT(*) AS total FROM orders`);
+    let countSql = `SELECT COUNT(*) AS total FROM orders WHERE 1=1`;
+    const countParams = [];
+    if (is_accountable === '0' || is_accountable === 0) {
+      countSql += ` AND is_accountable = 0`;
+    } else if (is_accountable !== 'all') {
+      countSql += ` AND COALESCE(is_accountable, 1) = 1`;
+    }
+    if (status && status !== 'all') {
+      countSql += ` AND order_status = ?`;
+      countParams.push(status);
+    }
+    if (search) {
+      countSql += ` AND (order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ? OR customer_phone LIKE ?)`;
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (effectiveBranchId) {
+      countSql += ` AND branch_id = ?`;
+      countParams.push(effectiveBranchId);
+    }
+    const countResult = await query(countSql, countParams);
     const total = countResult[0] ? countResult[0].total : orders.length;
 
     return sendSuccess(res, {
@@ -757,7 +786,15 @@ async function createPOSOrder(req, res, next) {
       shippingState: 'Tamil Nadu'
     });
 
-    await ensureCustomItemsAsProducts(taxSummary.items);
+    const branch_id = (req.user && req.user.branch_id)
+      ? req.user.branch_id
+      : (req.body.branch_id ? parseInt(req.body.branch_id, 10) : null);
+
+    // Only auto-save custom items as permanent products in catalog for Main Store (not for regional branches)
+    const isMainStore = !branch_id || parseInt(branch_id, 10) === 1;
+    if (isMainStore) {
+      await ensureCustomItemsAsProducts(taxSummary.items);
+    }
 
     const order_number = await generateNextPosOrderNumber();
     const grandTotal = taxSummary.grandTotal;
@@ -807,8 +844,8 @@ async function createPOSOrder(req, res, next) {
         order_type, is_accountable, received_amount, balance_amount, gst_rate, is_gst_inclusive,
         taxable_amount, cgst_amount, sgst_amount, igst_amount,
         sales_person_id, sales_person_name, discount_type, discount_value,
-        points_redeemed, points_discount, points_earned
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, ?, 18.00, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        points_redeemed, points_discount, points_earned, branch_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?, ?, 'paid', 'delivered', ?, 'pos', ?, ?, ?, 18.00, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         order_number,
         customerUserId || (req.user ? req.user.id : null),
@@ -834,7 +871,8 @@ async function createPOSOrder(req, res, next) {
         parseFloat(discount_value) || parseFloat(discount_amount) || 0,
         points_redeemed,
         points_discount,
-        points_earned
+        points_earned,
+        branch_id
       ]
     );
 
@@ -877,6 +915,25 @@ async function createPOSOrder(req, res, next) {
 
     // 3. Deduct stock from product_variants and products tables
     await deductInventoryForOrder(taxSummary.items, order_number, { query });
+
+    // Deduct stock from branch_stocks if order is tied to a specific branch
+    if (branch_id) {
+      for (const item of taxSummary.items) {
+        const pId = item.product_id || item.id;
+        if (pId) {
+          try {
+            await query(
+              `UPDATE branch_stocks
+               SET stock = GREATEST(0, stock - ?)
+               WHERE branch_id = ? AND product_id = ?`,
+              [Number(item.quantity) || 1, branch_id, String(pId)]
+            );
+          } catch (e) {
+            console.warn('[POS] Branch stock deduction warning:', e.message);
+          }
+        }
+      }
+    }
 
     // 4. Log POS sale in audit logs
     try {
@@ -1049,7 +1106,13 @@ async function updatePOSOrderItems(req, res, next) {
       shippingState: 'Tamil Nadu'
     });
 
-    await ensureCustomItemsAsProducts(taxSummary.items);
+    const editBranchId = (req.user && req.user.branch_id)
+      ? req.user.branch_id
+      : (req.body.branch_id || order.branch_id);
+    const isMainStore = !editBranchId || parseInt(editBranchId, 10) === 1;
+    if (isMainStore) {
+      await ensureCustomItemsAsProducts(taxSummary.items);
+    }
 
     const grandTotal = taxSummary.grandTotal;
 

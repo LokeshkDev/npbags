@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { usePOSModal } from '../lib/pos-modal-context';
+import { useAdminAuth } from '../lib/auth';
 import useScannerInput from '../hooks/useScannerInput';
 import {
   lookupBarcode,
@@ -161,6 +162,7 @@ function findExactProductMatch(allProducts, query) {
 
 export function POSBillingModal() {
   const { isPOSOpen, closePOS, editingOrder, setEditingOrder } = usePOSModal();
+  const { adminUser } = useAdminAuth();
 
   const [cart, setCart] = useState([]);
   const [searchInput, setSearchInput] = useState('');
@@ -275,6 +277,35 @@ export function POSBillingModal() {
   const rowContainerRef = useRef(null);
   const draftRecoveryRef = useRef(false);
 
+  // Inline Custom Item Entry in table footer
+  const [isCustomEntryMode, setIsCustomEntryMode] = useState(false);
+  const customItemNameRef = useRef(null);
+  const customItemMrpRef = useRef(null);
+  const customItemPriceRef = useRef(null);
+  const customItemQtyRef = useRef(null);
+
+  const openCustomEntryMode = (initialName = '') => {
+    setIsCustomEntryMode(true);
+    setCustomItem({ name: initialName || rowInput.trim() || '', mrp: '', price: '', quantity: 1 });
+    setTimeout(() => {
+      if (initialName) {
+        customItemPriceRef.current?.focus();
+        customItemPriceRef.current?.select();
+      } else {
+        customItemNameRef.current?.focus();
+        customItemNameRef.current?.select();
+      }
+    }, 60);
+  };
+
+  const closeCustomEntryMode = () => {
+    setIsCustomEntryMode(false);
+    setTimeout(() => {
+      rowInputRef.current?.focus();
+      rowInputRef.current?.select();
+    }, 60);
+  };
+
   // Load sales staff members
   const loadSalesStaff = () => {
     getAdminSalespersons()
@@ -299,7 +330,7 @@ export function POSBillingModal() {
 
   // Load catalog products for POS search & autocomplete
   const loadCatalogProducts = () => {
-    getAdminProducts({ limit: 500, status: 'all' })
+    getAdminProducts({ limit: 500, status: 'all', branch_id: adminUser?.branch_id || undefined })
       .then(res => {
         const list = res?.products || res?.data?.products || (Array.isArray(res) ? res : []);
         if (Array.isArray(list) && list.length > 0) {
@@ -315,7 +346,7 @@ export function POSBillingModal() {
     const term = String(query || '').trim();
     if (term.length < 2) return [];
     try {
-      const res = await getAdminProducts({ search: term, limit: 25, status: 'all' });
+      const res = await getAdminProducts({ search: term, limit: 25, status: 'all', branch_id: adminUser?.branch_id || undefined });
       const list = res?.products || res?.data?.products || (Array.isArray(res) ? res : []);
       return Array.isArray(list) ? list : [];
     } catch (err) {
@@ -610,6 +641,8 @@ export function POSBillingModal() {
             barcode_short_name: item.barcode_short_name || item.product_name,
             price: Number(item.price) || 0,
             regular_price: Number(item.regular_price) || Number(item.price) || 0,
+            mrp: Number(item.mrp) || Number(item.regular_price) || Number(item.price) || 0,
+            gst_rate: Number(item.gst_rate) || 18,
             hsn_code: item.hsn_code || '4202',
             image: item.image,
             is_custom: Boolean(item.is_custom) || String(item.product_id || '').startsWith('custom-'),
@@ -623,16 +656,22 @@ export function POSBillingModal() {
 
     showToast(`Added: ${item.product_name} [${item.barcode || 'ITEM'}]`, 'success', 2200);
 
-    // Auto-advance focus to Sales Person field; pressing Enter then advances to Qty, then Enter advances to Next Product
+    // Auto-advance focus to Sales Person field; pressing Enter then advances to Price, then Qty, then Next Product
     setTimeout(() => {
       const staffEl = document.getElementById(`pos-item-staff-${targetIdx}`);
       if (staffEl) {
         staffEl.focus();
       } else {
-        const qtyEl = document.getElementById(`pos-item-qty-${targetIdx}`);
-        if (qtyEl) {
-          qtyEl.focus();
-          qtyEl.select();
+        const priceEl = document.getElementById(`pos-item-price-${targetIdx}`);
+        if (priceEl) {
+          priceEl.focus();
+          priceEl.select();
+        } else {
+          const qtyEl = document.getElementById(`pos-item-qty-${targetIdx}`);
+          if (qtyEl) {
+            qtyEl.focus();
+            qtyEl.select();
+          }
         }
       }
     }, 60);
@@ -642,7 +681,8 @@ export function POSBillingModal() {
   const handleAddCustomProduct = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!customItem.name.trim()) {
-      alert('Please enter a product name.');
+      showToast('Please enter an item name / description', 'error');
+      customItemNameRef.current?.focus();
       return;
     }
 
@@ -650,7 +690,8 @@ export function POSBillingModal() {
     const sellingPriceNum = parseFloat(customItem.price) || (mrpNum > 0 ? mrpNum : 0);
 
     if (sellingPriceNum <= 0) {
-      alert('Please enter a valid selling price or MRP.');
+      showToast('Please enter a valid selling price or MRP', 'error');
+      customItemPriceRef.current?.focus();
       return;
     }
 
@@ -670,9 +711,11 @@ export function POSBillingModal() {
     };
 
     handleAddItemToCart(newItem);
+    showToast(`✓ Added custom item: "${customItem.name.trim()}" (₹${sellingPriceNum})`, 'success');
     setIsCustomModalOpen(false);
     setCustomItem({ name: '', mrp: '', price: '', quantity: 1 });
-    setTimeout(() => rowInputRef.current?.focus(), 100);
+    // Keep focus ready for next item
+    setTimeout(() => customItemNameRef.current?.focus(), 80);
   };
 
   // Staff Quick-Add Handler
@@ -764,7 +807,7 @@ export function POSBillingModal() {
     setShowSuggestions(false);
     setShowRowSuggestions(false);
     try {
-      const res = await lookupBarcode(scannedCode.trim());
+      const res = await lookupBarcode(scannedCode.trim(), adminUser?.branch_id || null);
       if (res) {
         handleAddItemToCart(res);
         setSearchInput('');
@@ -836,6 +879,8 @@ export function POSBillingModal() {
       barcode_short_name: prod.barcode_short_name || prod.name,
       price: Number(price) || 0,
       regular_price: Number(prod.price) || Number(price) || 0,
+      mrp: Number(prod.mrp) || Number(prod.price) || Number(price) || 0,
+      gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
       variant: variant || null,
@@ -885,19 +930,19 @@ export function POSBillingModal() {
     // Fallback: barcode lookup handles exact barcodes beyond the loaded product catalog
     setSearching(true);
     try {
-      const res = await lookupBarcode(q);
+      const res = await lookupBarcode(q, adminUser?.branch_id || null);
       if (res) {
         handleAddItemToCart(res);
         setRowInput('');
         setShowRowSuggestions(false);
         setRowHighlightedIndex(-1);
       } else {
-        showToast(`No product found for "${q}"`, 'error');
-        setTimeout(() => rowInputRef.current?.focus(), 0);
+        openCustomEntryMode(q);
+        showToast(`"${q}" not in catalog — enter price to add as custom item`, 'info', 3000);
       }
     } catch (err) {
-      showToast(`No product found for "${q}"`, 'error');
-      setTimeout(() => rowInputRef.current?.focus(), 0);
+      openCustomEntryMode(q);
+      showToast(`"${q}" not in catalog — enter price to add as custom item`, 'info', 3000);
     } finally {
       setSearching(false);
     }
@@ -934,6 +979,8 @@ export function POSBillingModal() {
       barcode_short_name: prod.barcode_short_name || prod.name,
       price: Number(price) || 0,
       regular_price: Number(prod.price) || Number(price) || 0,
+      mrp: Number(prod.mrp) || Number(prod.price) || Number(price) || 0,
+      gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
       variant: variant || null,
@@ -1266,6 +1313,7 @@ export function POSBillingModal() {
         customer_name: customerName.trim() || 'Walk-in Customer',
         customer_phone: customerPhone.trim(),
         customer_email: cleanCustomerEmail(customerEmail),
+        branch_id: adminUser?.branch_id || null,
         payment_method: paymentMethod,
         is_accountable: isAccountable ? 1 : 0,
         discount_amount: cartFinancials.discountAmount,
@@ -1459,8 +1507,11 @@ export function POSBillingModal() {
         });
       } else if (e.key === 'F7') {
         e.preventDefault();
-        setCustomItem({ name: rowInput.trim() || '', mrp: '', price: '', quantity: 1 });
-        setIsCustomModalOpen(true);
+        if (isCustomEntryMode) {
+          closeCustomEntryMode();
+        } else {
+          openCustomEntryMode(rowInput.trim());
+        }
       } else if (e.key === 'F8') {
         e.preventDefault();
         if (cart.length > 0 && !holdingBill) {
@@ -1472,6 +1523,10 @@ export function POSBillingModal() {
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
+        if (isCustomEntryMode) {
+          closeCustomEntryMode();
+          return;
+        }
         if (isHeldModalOpen) {
           setIsHeldModalOpen(false);
           return;
@@ -1825,9 +1880,6 @@ export function POSBillingModal() {
             <div style={{ fontSize: '15px', fontWeight: 900, color: '#f8fafc', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               NP GRAND SHOPPING — POS BILLING COUNTER
             </div>
-            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-              OMNICHANNEL STORE RETAIL BILLING | {storeSettings.address}
-            </div>
           </div>
           {editingOrder ? (
             <span
@@ -1856,6 +1908,21 @@ export function POSBillingModal() {
               }}
             >
               ACTIVE REGISTER
+            </span>
+          )}
+          {adminUser?.branch_name && (
+            <span
+              style={{
+                padding: '3px 9px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontWeight: 800,
+                background: '#047857',
+                color: '#ffffff',
+                letterSpacing: '0.02em'
+              }}
+            >
+              🏢 {adminUser.branch_name}
             </span>
           )}
         </div>
@@ -1966,13 +2033,16 @@ export function POSBillingModal() {
                 <button
                   type="button"
                   onClick={() => {
-                    setCustomItem({ name: rowInput.trim() || '', mrp: '', price: '', quantity: 1 });
-                    setIsCustomModalOpen(true);
+                    if (isCustomEntryMode) {
+                      closeCustomEntryMode();
+                    } else {
+                      openCustomEntryMode(rowInput.trim());
+                    }
                   }}
                   style={{
                     padding: '10px 16px',
                     borderRadius: '8px',
-                    background: posTheme.btnCustomBg,
+                    background: isCustomEntryMode ? '#065935' : posTheme.btnCustomBg,
                     color: '#ffffff',
                     border: posTheme.btnCustomBorder,
                     fontSize: '13px',
@@ -1986,7 +2056,7 @@ export function POSBillingModal() {
                   }}
                   title="Add miscellaneous or custom unlisted product [Shortcut F7]"
                 >
-                  <span>+ ADD CUSTOM ITEM [F7]</span>
+                  <span>{isCustomEntryMode ? '✕ CLOSE CUSTOM ITEM [F7]' : '+ ADD CUSTOM ITEM [F7]'}</span>
                 </button>
 
                 <button
@@ -2437,7 +2507,8 @@ export function POSBillingModal() {
                     <th style={{ padding: '10px 14px' }}>#</th>
                     <th style={{ padding: '10px 14px' }}>PRODUCT &amp; BARCODE</th>
                     <th style={{ padding: '10px 14px' }}>STAFF</th>
-                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>PRICE / MRP</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>MRP</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>SELLING PRICE</th>
                     <th style={{ padding: '10px 14px', textAlign: 'center' }}>QTY</th>
                     <th style={{ padding: '10px 14px', textAlign: 'right' }}>TAX (18%)</th>
                     <th style={{ padding: '10px 14px', textAlign: 'right' }}>TOTAL</th>
@@ -2447,14 +2518,16 @@ export function POSBillingModal() {
                 <tbody>
                   {cart.length === 0 && (
                     <tr>
-                      <td colSpan={8} style={{ padding: '28px 16px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
+                      <td colSpan={9} style={{ padding: '28px 16px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
                         No items yet — type a product name or scan a barcode in the row below, then press <strong>Enter</strong> to add it.
                       </td>
                     </tr>
                   )}
                   {cart.map((item, idx) => {
+                    const gstRate = Number(item.gst_rate) || 18;
+                    const unitRate = Math.round((item.price / (1 + (gstRate / 100))) * 100) / 100;
                     const lineTotal = item.price * item.quantity;
-                    const lineTaxable = Math.round((lineTotal / 1.18) * 100) / 100;
+                    const lineTaxable = Math.round((lineTotal / (1 + (gstRate / 100))) * 100) / 100;
                     const lineTax = Math.round((lineTotal - lineTaxable) * 100) / 100;
 
                     return (
@@ -2498,10 +2571,16 @@ export function POSBillingModal() {
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                const qtyInput = document.getElementById(`pos-item-qty-${idx}`);
-                                if (qtyInput) {
-                                  qtyInput.focus();
-                                  qtyInput.select();
+                                const priceInput = document.getElementById(`pos-item-price-${idx}`);
+                                if (priceInput) {
+                                  priceInput.focus();
+                                  priceInput.select();
+                                } else {
+                                  const qtyInput = document.getElementById(`pos-item-qty-${idx}`);
+                                  if (qtyInput) {
+                                    qtyInput.focus();
+                                    qtyInput.select();
+                                  }
                                 }
                               }
                             }}
@@ -2515,7 +2594,7 @@ export function POSBillingModal() {
                               color: '#334155',
                               maxWidth: '120px'
                             }}
-                            title="Sales Person [Press Enter to jump to Quantity]"
+                            title="Sales Person [Press Enter to jump to Selling Price]"
                           >
                             <option value="">Default ({salespersons.find(s => String(s.id) === String(selectedSalespersonId))?.name || 'Counter'})</option>
                             {salespersons.map(sp => (
@@ -2523,12 +2602,24 @@ export function POSBillingModal() {
                             ))}
                           </select>
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
+                        {/* Rate / MRP Column: Actual Product MRP from catalog */}
+                        <td style={{ padding: '12px 14px', textAlign: 'right', verticalAlign: 'middle' }}>
+                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '13.5px' }}>
+                            ₹{Number(item.mrp || item.regular_price || item.price || 0).toLocaleString('en-IN')}
+                          </div>
+                          <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>
+                            Product MRP
+                          </div>
+                        </td>
+                        {/* Selling Price Column: Bill-specific Selling Price (Editable only for this POS bill) */}
+                        <td style={{ padding: '12px 14px', textAlign: 'right', verticalAlign: 'middle' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                            <span style={{ color: '#64748b', fontSize: '12px' }}>₹</span>
+                            <span style={{ color: '#065935', fontSize: '13px', fontWeight: 900 }}>₹</span>
                             <input
+                              id={`pos-item-price-${idx}`}
                               type="number"
                               min="0"
+                              step="any"
                               value={item.price}
                               onChange={(e) => updateItemField(idx, 'price', Math.max(0, parseFloat(e.target.value) || 0))}
                               onKeyDown={(e) => {
@@ -2542,23 +2633,23 @@ export function POSBillingModal() {
                                 }
                               }}
                               style={{
-                                width: '72px',
-                                padding: '4px 6px',
-                                borderRadius: '4px',
-                                border: '1px solid #cbd5e1',
+                                width: '78px',
+                                padding: '5px 6px',
+                                borderRadius: '5px',
+                                border: '1.5px solid #065935',
                                 textAlign: 'right',
-                                fontSize: '13px',
+                                fontSize: '13.5px',
                                 fontWeight: 800,
                                 color: '#0f172a',
-                                background: '#ffffff'
+                                background: '#f0fdf4',
+                                outline: 'none'
                               }}
+                              title="Bill Selling Price (editable for this bill only — does not modify catalog price) [Press Enter to jump to Quantity]"
                             />
                           </div>
-                          {((item.mrp && item.mrp > item.price) || (item.regular_price && item.regular_price > item.price)) && (
-                            <div style={{ fontSize: '11px', color: '#94a3b8', textDecoration: 'line-through' }}>
-                              MRP ₹{Number(item.mrp || item.regular_price).toLocaleString('en-IN')}
-                            </div>
-                          )}
+                          <div style={{ fontSize: '9.5px', color: '#065935', fontWeight: 800, marginTop: '2px' }}>
+                            Bill Price
+                          </div>
                         </td>
                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
@@ -2656,126 +2747,337 @@ export function POSBillingModal() {
                   })}
                 </tbody>
                 <tfoot>
-                  <tr style={{ background: '#ecfdf5', borderTop: '2px solid #065935' }}>
-                    <td style={{ padding: '10px 14px', color: '#065935', fontWeight: 900, fontSize: '15px' }}>+</td>
-                    <td colSpan={7} style={{ padding: '8px 14px' }}>
-                      <form onSubmit={handleRowSubmit} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <div ref={rowContainerRef} style={{ position: 'relative', flex: 1 }}>
+                  {isCustomEntryMode ? (
+                    <tr style={{ background: '#f0fdf4', borderTop: '2px solid #065935' }}>
+                      <td style={{ padding: '10px 14px', color: '#065935', fontWeight: 900, fontSize: '14px' }}>
+                        ✦
+                      </td>
+                      <td colSpan={8} style={{ padding: '10px 14px' }}>
+                        <form onSubmit={handleAddCustomProduct} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 900, color: '#065935', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            CUSTOM ITEM:
+                          </span>
+
+                          {/* Item Name / Description */}
                           <input
-                            ref={rowInputRef}
+                            ref={customItemNameRef}
                             type="text"
-                            value={rowInput}
-                            onChange={(e) => {
-                              setRowInput(e.target.value);
-                              setShowRowSuggestions(true);
-                              setRowHighlightedIndex(-1);
-                            }}
-                            onFocus={() => setShowRowSuggestions(true)}
+                            required
+                            placeholder="Item Name / Description *"
+                            value={customItem.name}
+                            onChange={(e) => setCustomItem(prev => ({ ...prev, name: e.target.value }))}
                             onKeyDown={(e) => {
-                              if (e.key === 'ArrowDown') {
+                              if (e.key === 'Escape') {
                                 e.preventDefault();
-                                if (!showRowSuggestions && rowMatches.length > 0) setShowRowSuggestions(true);
-                                setRowHighlightedIndex(prev => Math.min(prev + 1, rowMatches.length - 1));
-                              } else if (e.key === 'ArrowUp') {
+                                closeCustomEntryMode();
+                              } else if (e.key === 'Enter') {
                                 e.preventDefault();
-                                setRowHighlightedIndex(prev => Math.max(prev - 1, -1));
-                              } else if (e.key === 'Escape') {
-                                setShowRowSuggestions(false);
+                                customItemPriceRef.current?.focus();
+                                customItemPriceRef.current?.select();
                               }
                             }}
-                            placeholder="Type product name or scan barcode, press Enter to add next row..."
                             style={{
-                              width: '100%',
-                              padding: '9px 12px',
+                              flex: '2 1 180px',
+                              minWidth: '150px',
+                              padding: '8px 12px',
                               borderRadius: '6px',
                               border: '1.5px solid #065935',
                               fontSize: '13px',
-                              fontWeight: 600,
-                              background: '#ffffff',
-                              color: '#0f172a',
-                              outline: 'none'
+                              fontWeight: 700,
+                              outline: 'none',
+                              background: '#ffffff'
                             }}
                           />
-                          {showRowSuggestions && rowInput.trim() && rowMatches.length > 0 && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: 'calc(100% + 4px)',
-                                left: 0,
-                                right: 0,
-                                background: '#ffffff',
-                                border: '2px solid #065935',
-                                borderRadius: '8px',
-                                boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
-                                maxHeight: '280px',
-                                overflowY: 'auto',
-                                zIndex: 200
+
+                          {/* MRP */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>MRP ₹</span>
+                            <input
+                              ref={customItemMrpRef}
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1299"
+                              value={customItem.mrp}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setCustomItem(prev => ({
+                                  ...prev,
+                                  mrp: v,
+                                  price: (prev.price === '' || prev.price === prev.mrp) ? v : prev.price
+                                }));
                               }}
-                            >
-                              {rowMatches.map((match, sIdx) => {
-                                const p = match.product;
-                                const v = match.matchedVariant;
-                                const displayPrice = v && v.price ? v.price : (p.sale_price > 0 ? p.sale_price : p.price);
-                                const bc = v?.barcode || p.barcode || `NP-${p.id}`;
-                                return (
-                                  <div
-                                    key={`row-${p.id}-${v?.id || 'main'}-${sIdx}`}
-                                    onClick={() => {
-                                      handlePickSuggestion(p, v);
-                                      setRowInput('');
-                                      setShowRowSuggestions(false);
-                                      setRowHighlightedIndex(-1);
-                                      setTimeout(() => rowInputRef.current?.focus(), 0);
-                                    }}
-                                    onMouseEnter={() => setRowHighlightedIndex(sIdx)}
-                                    style={{
-                                      padding: '8px 12px',
-                                      borderBottom: '1px solid #f1f5f9',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      background: sIdx === rowHighlightedIndex ? '#ecfdf5' : '#ffffff'
-                                    }}
-                                  >
-                                    <div>
-                                      <div style={{ fontWeight: 800, fontSize: '12.5px', color: '#0f172a' }}>
-                                        {p.name} {v ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  closeCustomEntryMode();
+                                } else if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  customItemPriceRef.current?.focus();
+                                  customItemPriceRef.current?.select();
+                                }
+                              }}
+                              style={{
+                                width: '88px',
+                                padding: '8px 8px',
+                                borderRadius: '6px',
+                                border: '1.5px solid #cbd5e1',
+                                fontSize: '13px',
+                                fontWeight: 700,
+                                textAlign: 'right',
+                                outline: 'none',
+                                background: '#ffffff'
+                              }}
+                            />
+                          </div>
+
+                          {/* Selling Price */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 900, color: '#065935' }}>PRICE ₹*</span>
+                            <input
+                              ref={customItemPriceRef}
+                              type="number"
+                              step="any"
+                              min="0.01"
+                              required
+                              placeholder="e.g. 999"
+                              value={customItem.price}
+                              onChange={(e) => setCustomItem(prev => ({ ...prev, price: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  closeCustomEntryMode();
+                                } else if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  customItemQtyRef.current?.focus();
+                                  customItemQtyRef.current?.select();
+                                }
+                              }}
+                              style={{
+                                width: '92px',
+                                padding: '8px 8px',
+                                borderRadius: '6px',
+                                border: '2px solid #065935',
+                                fontSize: '13px',
+                                fontWeight: 900,
+                                color: '#065935',
+                                textAlign: 'right',
+                                outline: 'none',
+                                background: '#ffffff'
+                              }}
+                            />
+                          </div>
+
+                          {/* Quantity */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>QTY</span>
+                            <input
+                              ref={customItemQtyRef}
+                              type="number"
+                              min="1"
+                              value={customItem.quantity}
+                              onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  closeCustomEntryMode();
+                                }
+                              }}
+                              style={{
+                                width: '55px',
+                                padding: '8px 6px',
+                                borderRadius: '6px',
+                                border: '1.5px solid #cbd5e1',
+                                fontSize: '13px',
+                                fontWeight: 800,
+                                textAlign: 'center',
+                                outline: 'none',
+                                background: '#ffffff'
+                              }}
+                            />
+                          </div>
+
+                          {/* Submit */}
+                          <button
+                            type="submit"
+                            style={{
+                              padding: '8px 16px',
+                              borderRadius: '6px',
+                              background: '#065935',
+                              color: '#ffffff',
+                              border: 'none',
+                              fontSize: '12px',
+                              fontWeight: 900,
+                              cursor: 'pointer',
+                              letterSpacing: '0.02em',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            + ADD TO BILL [ENTER]
+                          </button>
+
+                          {/* Cancel */}
+                          <button
+                            type="button"
+                            onClick={closeCustomEntryMode}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              background: '#ffffff',
+                              color: '#64748b',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Cancel custom mode and return to barcode/product search [ESC]"
+                          >
+                            ✕ CANCEL [ESC]
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr style={{ background: '#ecfdf5', borderTop: '2px solid #065935' }}>
+                      <td style={{ padding: '10px 14px', color: '#065935', fontWeight: 900, fontSize: '15px' }}>+</td>
+                      <td colSpan={8} style={{ padding: '8px 14px' }}>
+                        <form onSubmit={handleRowSubmit} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <div ref={rowContainerRef} style={{ position: 'relative', flex: 1 }}>
+                            <input
+                              ref={rowInputRef}
+                              type="text"
+                              value={rowInput}
+                              onChange={(e) => {
+                                setRowInput(e.target.value);
+                                setShowRowSuggestions(true);
+                                setRowHighlightedIndex(-1);
+                              }}
+                              onFocus={() => setShowRowSuggestions(true)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (!showRowSuggestions && rowMatches.length > 0) setShowRowSuggestions(true);
+                                  setRowHighlightedIndex(prev => Math.min(prev + 1, rowMatches.length - 1));
+                                } else if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  setRowHighlightedIndex(prev => Math.max(prev - 1, -1));
+                                } else if (e.key === 'Escape') {
+                                  setShowRowSuggestions(false);
+                                }
+                              }}
+                              placeholder="Type product name or scan barcode, press Enter to add next row..."
+                              style={{
+                                width: '100%',
+                                padding: '9px 12px',
+                                borderRadius: '6px',
+                                border: '1.5px solid #065935',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                outline: 'none'
+                              }}
+                            />
+                            {showRowSuggestions && rowInput.trim() && rowMatches.length > 0 && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 'calc(100% + 4px)',
+                                  left: 0,
+                                  right: 0,
+                                  background: '#ffffff',
+                                  border: '2px solid #065935',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+                                  maxHeight: '280px',
+                                  overflowY: 'auto',
+                                  zIndex: 200
+                                }}
+                              >
+                                {rowMatches.map((match, sIdx) => {
+                                  const p = match.product;
+                                  const v = match.matchedVariant;
+                                  const displayPrice = v && v.price ? v.price : (p.sale_price > 0 ? p.sale_price : p.price);
+                                  const bc = v?.barcode || p.barcode || `NP-${p.id}`;
+                                  return (
+                                    <div
+                                      key={`row-${p.id}-${v?.id || 'main'}-${sIdx}`}
+                                      onClick={() => {
+                                        handlePickSuggestion(p, v);
+                                        setRowInput('');
+                                        setShowRowSuggestions(false);
+                                        setRowHighlightedIndex(-1);
+                                        setTimeout(() => rowInputRef.current?.focus(), 0);
+                                      }}
+                                      onMouseEnter={() => setRowHighlightedIndex(sIdx)}
+                                      style={{
+                                        padding: '8px 12px',
+                                        borderBottom: '1px solid #f1f5f9',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        background: sIdx === rowHighlightedIndex ? '#ecfdf5' : '#ffffff'
+                                      }}
+                                    >
+                                      <div>
+                                        <div style={{ fontWeight: 800, fontSize: '12.5px', color: '#0f172a' }}>
+                                          {p.name} {v ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                                        </div>
+                                        <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                                          <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {v?.stock_quantity ?? p.stock_quantity ?? 50}
+                                        </div>
                                       </div>
-                                      <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
-                                        <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {v?.stock_quantity ?? p.stock_quantity ?? 50}
+                                      <div style={{ fontWeight: 900, fontSize: '13px', color: '#0f172a' }}>
+                                        ₹{Number(displayPrice).toLocaleString('en-IN')}
                                       </div>
                                     </div>
-                                    <div style={{ fontWeight: 900, fontSize: '13px', color: '#0f172a' }}>
-                                      ₹{Number(displayPrice).toLocaleString('en-IN')}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={searching}
-                          style={{
-                            padding: '9px 16px',
-                            borderRadius: '6px',
-                            background: '#065935',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontSize: '12px',
-                            fontWeight: 800,
-                            letterSpacing: '0.03em',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {searching ? 'ADDING...' : 'ADD ROW [ENTER]'}
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={searching}
+                            style={{
+                              padding: '9px 16px',
+                              borderRadius: '6px',
+                              background: '#065935',
+                              color: '#ffffff',
+                              border: 'none',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              letterSpacing: '0.03em',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {searching ? 'ADDING...' : 'ADD ROW [ENTER]'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openCustomEntryMode(rowInput.trim())}
+                            style={{
+                              padding: '9px 14px',
+                              borderRadius: '6px',
+                              background: '#f8fafc',
+                              color: '#065935',
+                              border: '1.5px solid #065935',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Switch to inline custom item entry [F7]"
+                          >
+                            + CUSTOM ITEM [F7]
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
                 </tfoot>
               </table>
           </div>
@@ -3450,162 +3752,7 @@ export function POSBillingModal() {
         </div>
       )}
 
-      {/* 3. CUSTOM PRODUCT MODAL POPUP (Icon-Free) */}
-      {isCustomModalOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.75)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100001,
-            padding: '20px'
-          }}
-        >
-          <div
-            style={{
-              background: '#ffffff',
-              borderRadius: '12px',
-              padding: '24px',
-              maxWidth: '460px',
-              width: '100%',
-              boxShadow: '0 20px 50px rgba(0,0,0,0.3)'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-              <div style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>
-                ADD CUSTOM IN-STORE PRODUCT
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCustomModalOpen(false)}
-                style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '12px' }}
-              >
-                [CANCEL]
-              </button>
-            </div>
 
-            <form onSubmit={handleAddCustomProduct}>
-              <div style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
-                  ITEM NAME / DESCRIPTION <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Leather Handbag, Custom Gift Box, Shoulder Strap"
-                  value={customItem.name}
-                  onChange={(e) => setCustomItem(prev => ({ ...prev, name: e.target.value }))}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddCustomProduct(e);
-                    }
-                  }}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13.5px' }}
-                  autoFocus
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
-                    MRP (₹)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="e.g. 1299"
-                    value={customItem.mrp}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setCustomItem(prev => ({
-                        ...prev,
-                        mrp: v,
-                        price: (prev.price === '' || prev.price === prev.mrp) ? v : prev.price
-                      }));
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCustomProduct(e);
-                      }
-                    }}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13.5px' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#065935', marginBottom: '4px' }}>
-                    SELLING PRICE (₹) <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    required
-                    placeholder="e.g. 999"
-                    value={customItem.price}
-                    onChange={(e) => setCustomItem(prev => ({ ...prev, price: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCustomProduct(e);
-                      }
-                    }}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #065935', fontSize: '13.5px', fontWeight: 800, color: '#065935' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
-                    QUANTITY <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={customItem.quantity}
-                    onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCustomProduct(e);
-                      }
-                    }}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '13.5px', fontWeight: 700 }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ fontSize: '12px', color: '#64748b', background: '#f8fafc', padding: '9px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '14px' }}>💡</span>
-                <span>Press <strong>[ENTER]</strong> in any box or click <strong>ADD TO BILL</strong> to immediately add the item.</span>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsCustomModalOpen(false)}
-                  style={{ padding: '9px 16px', borderRadius: '6px', background: '#f1f5f9', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  CANCEL [ESC]
-                </button>
-                <button
-                  type="submit"
-                  style={{ padding: '9px 22px', borderRadius: '6px', background: '#065935', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <span>+ ADD TO BILL [ENTER]</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* 4. ORDER SUCCESS & LIVE THERMAL RECEIPT PREVIEW / SETTINGS MODAL */}
       {completedOrder && (

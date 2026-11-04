@@ -164,7 +164,12 @@ async function getAdminStats(req, res, next) {
 // Comprehensive Executive Analytics with Filterable Timeframes & Online/POS Breakdown
 async function getDashboardAnalytics(req, res, next) {
   try {
-    const { period = 'monthly', startDate, endDate } = req.query;
+    const { period = 'monthly', startDate, endDate, branch_id: queryBranchId } = req.query;
+
+    // Check branch scoping: Branch staff are locked to their branch; Super Admin can filter via query param
+    const effectiveBranchId = (req.user && req.user.role !== 'admin')
+      ? req.user.branch_id
+      : (queryBranchId && queryBranchId !== 'all' ? parseInt(queryBranchId, 10) : null);
 
     // 1. Determine Date Range Condition
     let dateCondition = '';
@@ -186,9 +191,17 @@ async function getDashboardAnalytics(req, res, next) {
       dateCondition = `o.created_at >= CURDATE() - INTERVAL 30 DAY`;
     }
 
-    const whereClause = `WHERE o.order_status != 'cancelled' AND COALESCE(o.is_accountable, 1) = 1 AND ${dateCondition}`;
+    let branchCondition = '';
+    if (effectiveBranchId) {
+      branchCondition = ` AND o.branch_id = ?`;
+      dateParams.push(effectiveBranchId);
+    }
+
+    const whereClause = `WHERE o.order_status != 'cancelled' AND COALESCE(o.is_accountable, 1) = 1 AND ${dateCondition}${branchCondition}`;
 
     // 2. Today's Dedicated Sales & Register Metrics (Always Today 00:00 to 23:59)
+    const todayBranchSql = effectiveBranchId ? `AND branch_id = ?` : ``;
+    const todayParams = effectiveBranchId ? [effectiveBranchId] : [];
     const todayRows = await query(`
       SELECT
         COUNT(id) AS today_orders_total,
@@ -201,7 +214,8 @@ async function getDashboardAnalytics(req, res, next) {
         COALESCE(SUM(CASE WHEN LOWER(COALESCE(order_type, '')) = 'pos' AND LOWER(COALESCE(payment_method, '')) = 'upi' THEN total_amount ELSE 0 END), 0) AS today_pos_upi
       FROM orders
       WHERE order_status != 'cancelled' AND COALESCE(is_accountable, 1) = 1 AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
-    `);
+      ${todayBranchSql}
+    `, todayParams);
     const todayData = todayRows[0] || {};
 
     // 3. Period Total Metrics (Online vs Walk-in POS Breakdown)
@@ -308,22 +322,188 @@ async function getDashboardAnalytics(req, res, next) {
       LIMIT 5
     `, dateParams);
 
-    // 7. Inventory Health Snapshot
-    const activeProductsRes = await query(`SELECT COUNT(id) AS total_active FROM products WHERE is_active = TRUE`);
-    const lowStockRes = await query(`SELECT COUNT(DISTINCT product_id) AS count FROM product_variants WHERE stock_quantity <= 10`);
-    const outOfStockRes = await query(`SELECT COUNT(DISTINCT product_id) AS count FROM product_variants WHERE stock_quantity <= 0`);
+    // 7. Inventory Health Snapshot (Branch-specific stock if branch scoped, otherwise global warehouse)
+    let activeProductsCount = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
 
-    // 8. Recent Combined Feed (Online Orders & POS Bills) - Accountable (Pakka) Only
+    if (effectiveBranchId) {
+      const activeRes = await query(`SELECT COUNT(*) AS total_active FROM branch_stocks WHERE branch_id = ? AND is_active = 1`, [effectiveBranchId]);
+      const lowStockRes = await query(`SELECT COUNT(*) AS count FROM branch_stocks WHERE branch_id = ? AND stock <= low_stock_threshold AND stock > 0 AND is_active = 1`, [effectiveBranchId]);
+      const outOfStockRes = await query(`SELECT COUNT(*) AS count FROM branch_stocks WHERE branch_id = ? AND stock <= 0 AND is_active = 1`, [effectiveBranchId]);
+
+      activeProductsCount = activeRes[0]?.total_active || 0;
+      lowStockCount = lowStockRes[0]?.count || 0;
+      outOfStockCount = outOfStockRes[0]?.count || 0;
+    } else {
+      const activeProductsRes = await query(`SELECT COUNT(id) AS total_active FROM products WHERE is_active = TRUE`);
+      const lowStockRes = await query(`SELECT COUNT(DISTINCT product_id) AS count FROM product_variants WHERE stock_quantity <= 10`);
+      const outOfStockRes = await query(`SELECT COUNT(DISTINCT product_id) AS count FROM product_variants WHERE stock_quantity <= 0`);
+
+      activeProductsCount = activeProductsRes[0]?.total_active || 0;
+      lowStockCount = lowStockRes[0]?.count || 0;
+      outOfStockCount = outOfStockRes[0]?.count || 0;
+    }
+
+    // 8. Recent Combined Feed (Online Orders & POS Bills) - Filtered by branch if scoped
+    const recentBranchSql = effectiveBranchId ? `AND branch_id = ?` : ``;
+    const recentParams = effectiveBranchId ? [effectiveBranchId] : [];
     const recentFeed = await query(`
-      SELECT id, order_number, customer_name, customer_phone, total_amount, payment_method, order_status, order_type, created_at
+      SELECT id, order_number, customer_name, customer_phone, total_amount, payment_method, order_status, order_type, branch_id, created_at
       FROM orders
-      WHERE COALESCE(is_accountable, 1) = 1
+      WHERE COALESCE(is_accountable, 1) = 1 ${recentBranchSql}
       ORDER BY created_at DESC
       LIMIT 8
-    `);
+    `, recentParams);
+
+    // Active Branch Info (if scoped)
+    let activeBranchInfo = null;
+    if (effectiveBranchId) {
+      const bRows = await query('SELECT id, name, code FROM branches WHERE id = ?', [effectiveBranchId]);
+      if (bRows.length > 0) activeBranchInfo = bRows[0];
+    }
+
+    // 9. Products Moved / Allocated to Branch with Sold & Remaining Quantities
+    let movedProducts = [];
+    let todayMovedProducts = [];
+    let branchSoldItems = [];
+
+    const stockSelect = `
+      bs.id, bs.branch_id, bs.product_id, bs.stock AS remaining_qty, bs.stock, bs.low_stock_threshold, bs.updated_at, bs.is_active,
+      b.name AS branch_name, b.code AS branch_code,
+      p.name AS product_name, p.price, p.sale_price, p.mrp, p.barcode_short_name,
+      (SELECT image_url FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image,
+      c.name AS category_name,
+      COALESCE((
+        SELECT SUM(oi.quantity)
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.branch_id = bs.branch_id
+          AND o.order_status != 'cancelled'
+          AND (oi.product_id = bs.product_id OR oi.product_name = p.name)
+      ), 0) AS sold_qty,
+      COALESCE((
+        SELECT SUM(oi.total)
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.branch_id = bs.branch_id
+          AND o.order_status != 'cancelled'
+          AND (oi.product_id = bs.product_id OR oi.product_name = p.name)
+      ), 0) AS sold_revenue
+    `;
+
+    if (effectiveBranchId) {
+      movedProducts = await query(`
+        SELECT ${stockSelect}
+        FROM branch_stocks bs
+        JOIN branches b ON bs.branch_id = b.id
+        JOIN products p ON bs.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE bs.branch_id = ?
+        ORDER BY bs.updated_at DESC
+        LIMIT 50
+      `, [effectiveBranchId]);
+
+      todayMovedProducts = await query(`
+        SELECT ${stockSelect}
+        FROM branch_stocks bs
+        JOIN branches b ON bs.branch_id = b.id
+        JOIN products p ON bs.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE bs.branch_id = ? AND DATE(bs.updated_at) = CURDATE()
+        ORDER BY bs.updated_at DESC
+      `, [effectiveBranchId]);
+
+      branchSoldItems = await query(`
+        SELECT oi.product_id, oi.product_name,
+               SUM(oi.quantity) AS sold_qty,
+               SUM(oi.total) AS total_revenue,
+               MAX(o.created_at) AS last_sold_at,
+               COALESCE(bs.stock, 0) AS remaining_qty,
+               (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image,
+               p.price, p.mrp
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        LEFT JOIN products p ON oi.product_id = p.id
+        LEFT JOIN branch_stocks bs ON bs.branch_id = o.branch_id AND bs.product_id = oi.product_id
+        WHERE o.branch_id = ? AND o.order_status != 'cancelled'
+        GROUP BY oi.product_id, oi.product_name, bs.stock, p.price, p.mrp
+        ORDER BY sold_qty DESC
+        LIMIT 50
+      `, [effectiveBranchId]);
+    } else {
+      movedProducts = await query(`
+        SELECT ${stockSelect}
+        FROM branch_stocks bs
+        JOIN branches b ON bs.branch_id = b.id
+        JOIN products p ON bs.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        ORDER BY bs.updated_at DESC
+        LIMIT 50
+      `);
+
+      todayMovedProducts = await query(`
+        SELECT ${stockSelect}
+        FROM branch_stocks bs
+        JOIN branches b ON bs.branch_id = b.id
+        JOIN products p ON bs.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE DATE(bs.updated_at) = CURDATE()
+        ORDER BY bs.updated_at DESC
+      `);
+
+      branchSoldItems = await query(`
+        SELECT oi.product_id, oi.product_name, o.branch_id,
+               b.name AS branch_name, b.code AS branch_code,
+               SUM(oi.quantity) AS sold_qty,
+               SUM(oi.total) AS total_revenue,
+               MAX(o.created_at) AS last_sold_at,
+               COALESCE(bs.stock, 0) AS remaining_qty,
+               (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image,
+               p.price, p.mrp
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        LEFT JOIN branches b ON o.branch_id = b.id
+        LEFT JOIN products p ON oi.product_id = p.id
+        LEFT JOIN branch_stocks bs ON bs.branch_id = o.branch_id AND bs.product_id = oi.product_id
+        WHERE o.branch_id IS NOT NULL AND o.order_status != 'cancelled'
+        GROUP BY oi.product_id, oi.product_name, o.branch_id, b.name, b.code, bs.stock, p.price, p.mrp
+        ORDER BY sold_qty DESC
+        LIMIT 50
+      `);
+    }
+
+    // Format remaining and total allocated numbers
+    movedProducts = movedProducts.map(p => ({
+      ...p,
+      remaining_qty: parseInt(p.stock, 10) || 0,
+      sold_qty: parseInt(p.sold_qty, 10) || 0,
+      total_allocated: (parseInt(p.stock, 10) || 0) + (parseInt(p.sold_qty, 10) || 0)
+    }));
+
+    todayMovedProducts = todayMovedProducts.map(p => ({
+      ...p,
+      remaining_qty: parseInt(p.stock, 10) || 0,
+      sold_qty: parseInt(p.sold_qty, 10) || 0,
+      total_allocated: (parseInt(p.stock, 10) || 0) + (parseInt(p.sold_qty, 10) || 0)
+    }));
+
+    const totalAllocatedUnits = movedProducts.reduce((sum, p) => sum + (p.total_allocated || 0), 0);
+    const totalRemainingUnits = movedProducts.reduce((sum, p) => sum + (p.remaining_qty || 0), 0);
+    const totalSoldUnits = movedProducts.reduce((sum, p) => sum + (p.sold_qty || 0), 0);
 
     return sendSuccess(res, {
       period,
+      branch_id: effectiveBranchId,
+      active_branch: activeBranchInfo,
+      moved_products: movedProducts,
+      today_moved_products: todayMovedProducts,
+      branch_sold_items: branchSoldItems,
+      branch_inventory_summary: {
+        total_allocated_units: totalAllocatedUnits,
+        total_remaining_units: totalRemainingUnits,
+        total_sold_units: totalSoldUnits
+      },
       today: {
         total_sales: parseFloat(todayData.today_sales_total) || 0,
         total_orders: parseInt(todayData.today_orders_total, 10) || 0,
@@ -365,9 +545,9 @@ async function getDashboardAnalytics(req, res, next) {
         revenue: parseFloat(p.total_revenue)
       })),
       inventory_health: {
-        total_active_products: parseInt(activeProductsRes[0]?.total_active || 0, 10),
-        low_stock_count: parseInt(lowStockRes[0]?.count || 0, 10),
-        out_of_stock_count: parseInt(outOfStockRes[0]?.count || 0, 10)
+        total_active_products: parseInt(activeProductsCount, 10),
+        low_stock_count: parseInt(lowStockCount, 10),
+        out_of_stock_count: parseInt(outOfStockCount, 10)
       },
       recent_feed: recentFeed
     });

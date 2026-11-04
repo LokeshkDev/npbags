@@ -86,6 +86,17 @@ async function lookupBarcode(req, res, next) {
     }
 
     const code = rawCode.trim();
+    const branch_id = req.query.branch_id || (req.user && req.user.role !== 'admin' ? req.user.branch_id : null);
+
+    const getBranchStock = async (productId) => {
+      if (!branch_id || !productId) return null;
+      try {
+        const rows = await query('SELECT stock FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1', [branch_id, productId]);
+        return rows.length > 0 ? rows[0].stock : 0;
+      } catch (err) {
+        return null;
+      }
+    };
 
     // 1. Direct barcode match in product_barcodes
     const barcodeRows = await query(
@@ -116,6 +127,9 @@ async function lookupBarcode(req, res, next) {
 
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
+      const branchStockVal = await getBranchStock(row.product_id);
+      const effectiveStock = branchStockVal !== null ? branchStockVal : (row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 50);
+
       return sendSuccess(res, {
         found_by: 'barcode',
         barcode: row.barcode,
@@ -140,9 +154,9 @@ async function lookupBarcode(req, res, next) {
           color: row.color_name,
           color_hex: row.color_hex,
           size: row.size_name,
-          stock: row.stock_quantity
+          stock: branchStockVal !== null ? branchStockVal : row.stock_quantity
         } : null,
-        stock_quantity: row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 50
+        stock_quantity: effectiveStock
       });
     }
 
@@ -165,6 +179,9 @@ async function lookupBarcode(req, res, next) {
       );
       const displayImage = row.image_url || imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
+
+      const branchStockVal = await getBranchStock(row.product_id);
+      const effectiveStock = branchStockVal !== null ? branchStockVal : (row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 50);
 
       return sendSuccess(res, {
         found_by: 'sku',
@@ -189,9 +206,9 @@ async function lookupBarcode(req, res, next) {
           color: row.color_name,
           color_hex: row.color_hex,
           size: row.size_name,
-          stock: row.stock_quantity
+          stock: branchStockVal !== null ? branchStockVal : row.stock_quantity
         },
-        stock_quantity: row.stock_quantity
+        stock_quantity: effectiveStock
       });
     }
 
@@ -214,6 +231,8 @@ async function lookupBarcode(req, res, next) {
       const displayImage = imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
       const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
       const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
+      const branchStockVal = await getBranchStock(p.id);
+      const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock || 50);
 
       return sendSuccess(res, {
         found_by: 'product',
@@ -224,12 +243,16 @@ async function lookupBarcode(req, res, next) {
         product_name: p.name,
         slug: p.slug,
         barcode_short_name: p.barcode_short_name || p.name,
+        barcode_sequence: null,
+        mrp: p.mrp !== null && p.mrp !== undefined ? parseFloat(p.mrp) : null,
+        purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? parseFloat(p.purchase_price) : null,
+        purchased_rate: p.purchased_rate || (p.purchase_price !== null && p.purchase_price !== undefined ? String(parseFloat(p.purchase_price)) : null),
         price: effectivePrice,
         regular_price: parseFloat(p.price),
         hsn_code: p.hsn_code || '4202',
         image: displayImage,
         variant: null,
-        stock_quantity: p.stock || 50
+        stock_quantity: effectiveStock
       });
     }
 
@@ -254,6 +277,8 @@ async function lookupBarcode(req, res, next) {
         const displayImage = imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
         const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
         const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
+        const branchStockVal = await getBranchStock(p.id);
+        const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock || 50);
 
         return sendSuccess(res, {
           found_by: 'name_match',
@@ -273,7 +298,7 @@ async function lookupBarcode(req, res, next) {
           hsn_code: p.hsn_code || '4202',
           image: displayImage,
           variant: null,
-          stock_quantity: p.stock || 50
+          stock_quantity: effectiveStock
         });
       }
     }

@@ -18,13 +18,28 @@ async function authenticate(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, env.jwt.secret);
-    const users = await query('SELECT id, name, email, role, phone FROM users WHERE id = ?', [decoded.id]);
+    const users = await query(
+      `SELECT u.id, u.name, u.email, u.role, u.branch_id, u.allowed_menus, u.phone,
+              b.name AS branch_name, b.code AS branch_code
+       FROM users u
+       LEFT JOIN branches b ON u.branch_id = b.id
+       WHERE u.id = ?`,
+      [decoded.id]
+    );
 
     if (!users || users.length === 0) {
       return sendError(res, 'User no longer exists.', 401);
     }
 
-    req.user = users[0];
+    const u = users[0];
+    if (u.allowed_menus && typeof u.allowed_menus === 'string') {
+      try {
+        u.allowed_menus = JSON.parse(u.allowed_menus);
+      } catch (e) {
+        u.allowed_menus = null;
+      }
+    }
+    req.user = u;
     next();
   } catch (error) {
     return sendError(res, 'Invalid or expired token.', 401);
@@ -42,9 +57,24 @@ async function optionalAuth(req, res, next) {
   if (token) {
     try {
       const decoded = jwt.verify(token, env.jwt.secret);
-      const users = await query('SELECT id, name, email, role, phone FROM users WHERE id = ?', [decoded.id]);
+      const users = await query(
+        `SELECT u.id, u.name, u.email, u.role, u.branch_id, u.allowed_menus, u.phone,
+                b.name AS branch_name, b.code AS branch_code
+         FROM users u
+         LEFT JOIN branches b ON u.branch_id = b.id
+         WHERE u.id = ?`,
+        [decoded.id]
+      );
       if (users && users.length > 0) {
-        req.user = users[0];
+        const u = users[0];
+        if (u.allowed_menus && typeof u.allowed_menus === 'string') {
+          try {
+            u.allowed_menus = JSON.parse(u.allowed_menus);
+          } catch (e) {
+            u.allowed_menus = null;
+          }
+        }
+        req.user = u;
       }
     } catch (e) {
       // Ignore token decode failure on optional auth

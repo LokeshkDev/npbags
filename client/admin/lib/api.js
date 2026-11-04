@@ -364,8 +364,9 @@ export async function generateProductBarcodes(productId) {
   });
 }
 
-export async function lookupBarcode(code) {
-  return adminFetch(`/admin/barcodes/lookup?code=${encodeURIComponent(code)}`);
+export async function lookupBarcode(code, branchId = null) {
+  const branchParam = branchId ? `&branch_id=${encodeURIComponent(branchId)}` : '';
+  return adminFetch(`/admin/barcodes/lookup?code=${encodeURIComponent(code)}${branchParam}`);
 }
 
 export async function deactivateBarcode(id) {
@@ -590,6 +591,86 @@ export async function getAdminProductAgingAlerts(params = {}) {
   const query = new URLSearchParams(params).toString();
   return adminFetch(`/admin/dashboard/aging${query ? '?' + query : ''}`);
 }
+
+// Branches & Multi-Branch Access Control
+export async function getAdminBranches() {
+  return adminFetch('/admin/branches');
+}
+
+export async function getAdminBranchById(id) {
+  return adminFetch(`/admin/branches/${id}`);
+}
+
+export async function createAdminBranch(data) {
+  return adminFetch('/admin/branches', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminBranch(id, data) {
+  return adminFetch(`/admin/branches/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminBranch(id) {
+  return adminFetch(`/admin/branches/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getAdminBranchUsers() {
+  return adminFetch('/admin/branches/users');
+}
+
+export async function createAdminBranchUser(data) {
+  return adminFetch('/admin/branches/users', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminBranchUser(id, data) {
+  return adminFetch(`/admin/branches/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminBranchUser(id) {
+  return adminFetch(`/admin/branches/users/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+// Branch Stock & Product/Category Push Distribution
+export async function getAdminBranchStocks(branchId) {
+  return adminFetch(`/admin/branches/${branchId}/stocks`);
+}
+
+export async function pushAdminBranchProducts(branchId, data) {
+  return adminFetch(`/admin/branches/${branchId}/push-products`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function pushAdminBranchCategory(branchId, data) {
+  return adminFetch(`/admin/branches/${branchId}/push-category`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminBranchProductStock(branchId, productId, data) {
+  return adminFetch(`/admin/branches/${branchId}/stocks/${productId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
 
 
 

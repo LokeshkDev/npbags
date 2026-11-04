@@ -107,7 +107,15 @@ export function Topbar({ title }) {
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--brand-green)' }} />
             <Icon name="user" size={16} />
             <span style={{ fontWeight: 600 }}>{adminUser?.name || 'Administrator'}</span>
-            <span className="badge badge-info" style={{ fontSize: '10px' }}>Admin</span>
+            <span className="badge badge-info" style={{ fontSize: '10px' }}>
+              {adminUser?.role === 'admin' ? 'Super Admin' : (adminUser?.role === 'branch_admin' ? 'Branch Admin' : 'Branch Staff')}
+            </span>
+            {adminUser?.branch_name && (
+              <span style={{ fontSize: '11px', fontWeight: 800, background: '#065935', color: '#ffffff', padding: '3px 9px', borderRadius: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <span>🏢</span>
+                <span>{adminUser.branch_name}</span>
+              </span>
+            )}
           </div>
 
           <button

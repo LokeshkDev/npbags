@@ -83,22 +83,34 @@ async function getAllProducts(req, res, next) {
       is_active,
       channel,
       is_online,
-      include_inactive
+      include_inactive,
+      branch_id: queryBranchId
     } = req.query;
 
+    const branch_id = queryBranchId || (req.user && req.user.role !== 'admin' ? req.user.branch_id : null);
+    const params = [];
+
+    let branchSelect = '';
+    let branchJoin = '';
+    if (branch_id) {
+      branchSelect = `, COALESCE(bs.stock, 0) AS branch_stock, bs.low_stock_threshold AS branch_low_stock_threshold`;
+      branchJoin = ` LEFT JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ?`;
+      params.push(branch_id);
+    }
+
     let sql = `
-      SELECT p.*,
+      SELECT p.*${branchSelect},
              (SELECT barcode FROM product_barcodes WHERE product_id = p.id AND is_primary = 1 AND status = 'active' LIMIT 1) AS barcode,
              c.name AS category_name, c.slug AS category_slug, c.parent_id,
              parent.slug AS parent_category_slug, parent.name AS parent_category_name,
              v.name AS vendor_name, v.company_name AS vendor_company_name
       FROM products p
+      ${branchJoin}
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN categories parent ON c.parent_id = parent.id
       LEFT JOIN vendors v ON p.vendor_id = v.id
       WHERE 1=1
     `;
-    const params = [];
 
     // Status filter: Active vs Inactive (Admin can view all or filter, Storefront views active)
     if (status === 'inactive' || is_active === '0' || is_active === 'false') {
@@ -274,6 +286,15 @@ async function getAllProducts(req, res, next) {
           prod.features = JSON.parse(prod.features);
         } catch (e) {
           prod.features = [];
+        }
+      }
+
+      // If branch context is provided, override stock with branch_stock
+      if (branch_id) {
+        prod.warehouse_stock = prod.stock;
+        prod.stock = prod.branch_stock !== undefined ? prod.branch_stock : 0;
+        if (prod.branch_low_stock_threshold) {
+          prod.low_stock_threshold = prod.branch_low_stock_threshold;
         }
       }
     }

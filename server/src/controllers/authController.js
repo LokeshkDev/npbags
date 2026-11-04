@@ -88,23 +88,42 @@ async function adminLogin(req, res, next) {
       return sendError(res, 'Email and password are required.', 400);
     }
 
-    const users = await query('SELECT * FROM users WHERE email = ? AND role = "admin"', [email.toLowerCase().trim()]);
+    const users = await query(
+      `SELECT u.*, b.name AS branch_name, b.code AS branch_code
+       FROM users u
+       LEFT JOIN branches b ON u.branch_id = b.id
+       WHERE u.email = ? AND u.role IN ('admin', 'branch_admin', 'branch_staff')`,
+      [email.toLowerCase().trim()]
+    );
     if (users.length === 0) {
-      return sendError(res, 'Invalid admin credentials.', 401);
+      return sendError(res, 'Invalid admin or branch credentials.', 401);
     }
 
     const user = users[0];
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return sendError(res, 'Invalid admin credentials.', 401);
+      return sendError(res, 'Invalid admin or branch credentials.', 401);
     }
 
     const token = generateToken(user);
+    let allowedMenus = null;
+    if (user.allowed_menus) {
+      try {
+        allowedMenus = typeof user.allowed_menus === 'string' ? JSON.parse(user.allowed_menus) : user.allowed_menus;
+      } catch (e) {
+        allowedMenus = null;
+      }
+    }
+
     const safeUser = {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
+      branch_id: user.branch_id || null,
+      branch_name: user.branch_name || (user.role === 'admin' ? 'NP Grand Main Store' : 'Main Branch'),
+      branch_code: user.branch_code || (user.role === 'admin' ? 'MAIN' : 'MAIN'),
+      allowed_menus: allowedMenus,
       phone: user.phone
     };
 

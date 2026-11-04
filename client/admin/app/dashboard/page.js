@@ -6,10 +6,17 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Icon } from '../../components/Icons';
 import { usePOSModal } from '../../lib/pos-modal-context';
-import { getAdminDashboardAnalytics, getAdminProductAgingAlerts } from '../../lib/api';
+import { useAdminAuth } from '../../lib/auth';
+import { getAdminDashboardAnalytics, getAdminProductAgingAlerts, getAdminBranches } from '../../lib/api';
 
 export default function AdminDashboardPage() {
   const { openPOS } = usePOSModal();
+  const { adminUser } = useAdminAuth();
+  const isSuperAdmin = !adminUser || adminUser.role === 'admin';
+
+  // Branch isolation state
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('all');
 
   // Timeframe filter state: 'today' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
   const [period, setPeriod] = useState('monthly');
@@ -18,6 +25,7 @@ export default function AdminDashboardPage() {
   const [chartMetric, setChartMetric] = useState('revenue'); // 'revenue' | 'orders'
   const [loading, setLoading] = useState(true);
   const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [movedViewMode, setMovedViewMode] = useState('today'); // 'today' | 'all'
 
   // Aging alerts state (Products in stock > 60 days)
   const [agingData, setAgingData] = useState({
@@ -67,8 +75,25 @@ export default function AdminDashboardPage() {
       low_stock_count: 0,
       out_of_stock_count: 0
     },
-    recent_feed: []
+    recent_feed: [],
+    moved_products: [],
+    today_moved_products: [],
+    branch_sold_items: [],
+    branch_inventory_summary: null
   });
+
+  // Fetch available branches for Super Admin switch
+  useEffect(() => {
+    if (isSuperAdmin) {
+      getAdminBranches()
+        .then(res => {
+          if (res && Array.isArray(res.branches)) {
+            setBranches(res.branches);
+          }
+        })
+        .catch(console.warn);
+    }
+  }, [isSuperAdmin]);
 
   // Fetch telemetry from backend
   const fetchAnalytics = useCallback(() => {
@@ -77,6 +102,9 @@ export default function AdminDashboardPage() {
     if (period === 'custom' && startDate && endDate) {
       params.startDate = startDate;
       params.endDate = endDate;
+    }
+    if (isSuperAdmin && selectedBranchId && selectedBranchId !== 'all') {
+      params.branch_id = selectedBranchId;
     }
 
     getAdminDashboardAnalytics(params)
@@ -91,6 +119,10 @@ export default function AdminDashboardPage() {
             payment_methods: Array.isArray(res.payment_methods) ? res.payment_methods : [],
             top_products: Array.isArray(res.top_products) ? res.top_products : [],
             recent_feed: Array.isArray(res.recent_feed) ? res.recent_feed : [],
+            moved_products: Array.isArray(res.moved_products) ? res.moved_products : [],
+            today_moved_products: Array.isArray(res.today_moved_products) ? res.today_moved_products : [],
+            branch_sold_items: Array.isArray(res.branch_sold_items) ? res.branch_sold_items : [],
+            branch_inventory_summary: res.branch_inventory_summary || null,
             inventory_health: { ...(prev.inventory_health || {}), ...(res.inventory_health || {}) }
           }));
         }
@@ -99,7 +131,7 @@ export default function AdminDashboardPage() {
         console.error('Failed to load dashboard analytics:', err);
       })
       .finally(() => setLoading(false));
-  }, [period, startDate, endDate]);
+  }, [period, startDate, endDate, isSuperAdmin, selectedBranchId]);
 
   const fetchAgingAlerts = useCallback(() => {
     setLoadingAging(true);
@@ -148,6 +180,17 @@ export default function AdminDashboardPage() {
   const topProducts = useMemo(() => Array.isArray(data?.top_products) ? data.top_products : [], [data?.top_products]);
   const paymentMethods = useMemo(() => Array.isArray(data?.payment_methods) ? data.payment_methods : [], [data?.payment_methods]);
   const recentFeed = useMemo(() => Array.isArray(data?.recent_feed) ? data.recent_feed : [], [data?.recent_feed]);
+  const movedProducts = useMemo(() => Array.isArray(data?.moved_products) ? data.moved_products : [], [data?.moved_products]);
+  const todayMovedProducts = useMemo(() => Array.isArray(data?.today_moved_products) ? data.today_moved_products : [], [data?.today_moved_products]);
+  const branchSoldItems = useMemo(() => Array.isArray(data?.branch_sold_items) ? data.branch_sold_items : [], [data?.branch_sold_items]);
+
+  const branchSummary = useMemo(() => {
+    return data?.branch_inventory_summary || {
+      total_allocated_units: movedProducts.reduce((sum, p) => sum + (p.total_allocated || (p.stock || 0) + (p.sold_qty || 0)), 0),
+      total_sold_units: movedProducts.reduce((sum, p) => sum + (p.sold_qty || 0), 0),
+      total_remaining_units: movedProducts.reduce((sum, p) => sum + (p.remaining_qty ?? p.stock ?? 0), 0)
+    };
+  }, [data?.branch_inventory_summary, movedProducts]);
 
   const agingProductsList = useMemo(() => {
     if (!agingData) return [];
@@ -241,6 +284,39 @@ export default function AdminDashboardPage() {
 
             {/* Quick Actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {/* Branch Selector for Super Admin / Branch Badge for Staff */}
+              {!isSuperAdmin ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '8px', background: '#ecfdf5', border: '1.5px solid #059669', color: '#065935', fontSize: '12px', fontWeight: 800 }}>
+                  <span>🏢</span>
+                  <span>{adminUser?.branch_name || 'Manali Branch'} Store Analytics (Isolated)</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#475569' }}>BRANCH:</label>
+                  <select
+                    value={selectedBranchId}
+                    onChange={(e) => setSelectedBranchId(e.target.value)}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '7px',
+                      border: '1.5px solid #065935',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      color: '#065935',
+                      background: '#f0fdf4',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                    title="Select Branch to view isolated analytics"
+                  >
+                    <option value="all">🏢 All Branches (Executive Combined)</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id}>🏢 {b.name} [{b.code}]</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={() => openPOS()}
@@ -1167,7 +1243,345 @@ export default function AdminDashboardPage() {
             )}
           </div>
 
-          {/* 7. LIVE UNIFIED RECENT TRANSACTIONS FEED (Online Orders + POS Bills) */}
+          {/* 7. BRANCH PRODUCTS MOVED / ALLOCATED INVENTORY & ITEMS SOLD */}
+          <div style={{ background: '#ffffff', borderRadius: '14px', border: '1.5px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 6px rgba(0,0,0,0.03)', marginBottom: '26px' }}>
+            <div style={{ padding: '16px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                    📦 Products Moved to Branch ({data.active_branch ? data.active_branch.name : (selectedBranchId !== 'all' ? 'Branch' : 'All Branches')})
+                  </h3>
+                  <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: movedViewMode === 'today' ? '#ecfdf5' : '#f1f5f9', color: movedViewMode === 'today' ? '#065935' : '#475569', border: '1px solid #cbd5e1' }}>
+                    {movedViewMode === 'today' ? `${todayMovedProducts.length} moved today` : movedViewMode === 'sold' ? `${branchSoldItems.length} sold item(s)` : `${movedProducts.length} allocated item(s)`}
+                  </span>
+                  <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#065935', background: '#dcfce7', padding: '2px 7px', borderRadius: '4px' }}>
+                    📅 {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
+                  {movedViewMode === 'today'
+                    ? `Stock transfers pushed from Central Store today (${new Date().toLocaleDateString('en-IN')}).`
+                    : movedViewMode === 'sold'
+                    ? `Live record of items sold and remaining branch quantities.`
+                    : `Full allocated inventory breakdown: Total Allocated, Items Sold, and Remaining Stock.`}
+                </div>
+              </div>
+
+              {/* View Mode Toggle: Moved Today vs Allocated vs Sold Items */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setMovedViewMode('today')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: movedViewMode === 'today' ? '#065935' : 'transparent',
+                      color: movedViewMode === 'today' ? '#ffffff' : '#475569',
+                      fontSize: '11.5px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: movedViewMode === 'today' ? '0 1px 3px rgba(6, 89, 53, 0.25)' : 'none'
+                    }}
+                  >
+                    🔥 Moved Today ({todayMovedProducts.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMovedViewMode('all')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: movedViewMode === 'all' ? '#065935' : 'transparent',
+                      color: movedViewMode === 'all' ? '#ffffff' : '#475569',
+                      fontSize: '11.5px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: movedViewMode === 'all' ? '0 1px 3px rgba(6, 89, 53, 0.25)' : 'none'
+                    }}
+                  >
+                    📦 Allocated vs Sold vs Remaining ({movedProducts.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMovedViewMode('sold')}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: movedViewMode === 'sold' ? '#065935' : 'transparent',
+                      color: movedViewMode === 'sold' ? '#ffffff' : '#475569',
+                      fontSize: '11.5px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: movedViewMode === 'sold' ? '0 1px 3px rgba(6, 89, 53, 0.25)' : 'none'
+                    }}
+                  >
+                    🛒 Items Sold at Branch ({branchSoldItems.length})
+                  </button>
+                </div>
+
+                <Link href="/branches" className="admin-btn admin-btn-primary" style={{ fontSize: '11.5px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🚀 Push More Products</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Live Branch Inventory KPI Mini Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', padding: '12px 22px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>TOTAL ALLOCATED TO BRANCH</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: '#0f172a', marginTop: '2px' }}>
+                  {branchSummary.total_allocated_units} <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>units</span>
+                </div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#6d28d9' }}>ITEMS SOLD AT BRANCH</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: '#7c3aed', marginTop: '2px' }}>
+                  {branchSummary.total_sold_units} <span style={{ fontSize: '11.5px', color: '#6d28d9', fontWeight: 600 }}>units sold</span>
+                </div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#065935' }}>REMAINING IN STOCK</div>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: '#065935', marginTop: '2px' }}>
+                  {branchSummary.total_remaining_units} <span style={{ fontSize: '11.5px', color: '#065935', fontWeight: 600 }}>units available</span>
+                </div>
+              </div>
+            </div>
+
+            {/* TAB CONTENT A & B: ALLOCATED / MOVED PRODUCTS */}
+            {movedViewMode !== 'sold' ? (
+              <table className="admin-table" style={{ width: '100%', margin: 0, fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800 }}>
+                    <th style={{ padding: '10px 18px' }}>#</th>
+                    <th style={{ padding: '10px 18px' }}>PRODUCT &amp; BARCODE</th>
+                    <th style={{ padding: '10px 18px' }}>CATEGORY</th>
+                    {(!selectedBranchId || selectedBranchId === 'all') && (
+                      <th style={{ padding: '10px 18px' }}>TARGET BRANCH</th>
+                    )}
+                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>MRP / PRICE</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>TOTAL ALLOCATED</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>ITEMS SOLD</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>REMAINING QTY</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>STATUS</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>{movedViewMode === 'today' ? 'TIME MOVED TODAY' : 'LAST UPDATED'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(movedViewMode === 'today' ? todayMovedProducts : movedProducts).length === 0 ? (
+                    <tr>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', fontSize: '13px' }}>
+                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>{movedViewMode === 'today' ? '🚚' : '📦'}</div>
+                        <div style={{ fontWeight: 800, color: '#334155' }}>
+                          {movedViewMode === 'today'
+                            ? `No products transferred or moved to this branch today (${new Date().toLocaleDateString('en-IN')}).`
+                            : 'No products pushed or moved to this branch yet.'}
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '4px' }}>
+                          Use <strong>Push More Products</strong> above to allocate items from Central Warehouse.
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    (movedViewMode === 'today' ? todayMovedProducts : movedProducts).map((p, idx) => {
+                      const remaining = p.remaining_qty ?? p.stock ?? 0;
+                      const sold = p.sold_qty ?? 0;
+                      const totalAllocated = p.total_allocated ?? (remaining + sold);
+                      const isLow = remaining <= p.low_stock_threshold;
+                      const isOut = remaining <= 0;
+                      const updatedDate = p.updated_at ? new Date(p.updated_at) : null;
+                      const isToday = updatedDate && (new Date().toDateString() === updatedDate.toDateString());
+
+                      return (
+                        <tr key={p.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 18px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
+                          <td style={{ padding: '12px 18px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {p.image ? (
+                                <img
+                                  src={p.image}
+                                  alt={p.product_name}
+                                  style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '5px', border: '1px solid #e2e8f0' }}
+                                />
+                              ) : (
+                                <div style={{ width: '32px', height: '32px', borderRadius: '5px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px' }}>
+                                  📦
+                                </div>
+                              )}
+                              <div>
+                                <div style={{ fontWeight: 800, color: '#0f172a' }}>{p.product_name}</div>
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                  {p.barcode_short_name || p.product_id}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 18px', color: '#64748b', fontWeight: 600 }}>
+                            {p.category_name || 'General'}
+                          </td>
+                          {(!selectedBranchId || selectedBranchId === 'all') && (
+                            <td style={{ padding: '12px 18px' }}>
+                              <span style={{ fontWeight: 800, color: '#065935', fontSize: '11.5px', background: '#f0fdf4', padding: '3px 8px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
+                                🏢 {p.branch_name || p.branch_code || 'Branch'}
+                              </span>
+                            </td>
+                          )}
+                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
+                            ₹{Number(p.sale_price > 0 ? p.sale_price : p.price || 0).toLocaleString('en-IN')}
+                          </td>
+                          {/* Total Allocated Column */}
+                          <td style={{ padding: '12px 18px', textAlign: 'center', fontWeight: 700, color: '#334155' }}>
+                            {totalAllocated} units
+                          </td>
+                          {/* Items Sold Column */}
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            {sold > 0 ? (
+                              <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: '12px', fontWeight: 800, fontSize: '11.5px', background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }}>
+                                {sold} sold
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 600 }}>0 sold</span>
+                            )}
+                          </td>
+                          {/* Remaining Qty Column */}
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '3px 10px',
+                                borderRadius: '12px',
+                                fontWeight: 800,
+                                fontSize: '12px',
+                                background: isOut ? '#fef2f2' : isLow ? '#fffbeb' : '#ecfdf5',
+                                color: isOut ? '#dc2626' : isLow ? '#b45309' : '#065935'
+                              }}
+                            >
+                              {remaining} remaining
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            <span
+                              style={{
+                                fontSize: '10.5px',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: isOut ? '#fef2f2' : isLow ? '#fef3c7' : '#dcfce7',
+                                color: isOut ? '#b91c1c' : isLow ? '#92400e' : '#15803d'
+                              }}
+                            >
+                              {isOut ? 'OUT OF STOCK' : isLow ? 'LOW STOCK' : 'IN STOCK'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right', fontSize: '11.5px', color: '#475569' }}>
+                            {isToday ? (
+                              <span style={{ fontWeight: 800, color: '#065935', background: '#dcfce7', padding: '2px 7px', borderRadius: '4px' }}>
+                                Today {updatedDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            ) : (
+                              updatedDate ? updatedDate.toLocaleDateString('en-IN') : 'Recently'
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              /* TAB CONTENT C: ALL ITEMS SOLD AT BRANCH TABLE */
+              <table className="admin-table" style={{ width: '100%', margin: 0, fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800 }}>
+                    <th style={{ padding: '10px 18px' }}>#</th>
+                    <th style={{ padding: '10px 18px' }}>SOLD PRODUCT</th>
+                    {(!selectedBranchId || selectedBranchId === 'all') && (
+                      <th style={{ padding: '10px 18px' }}>BRANCH</th>
+                    )}
+                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>PRICE</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>QUANTITY SOLD</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>TOTAL SALES (₹)</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>REMAINING IN STOCK</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>LAST ORDER DATE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {branchSoldItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', fontSize: '13px' }}>
+                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>🛒</div>
+                        <div style={{ fontWeight: 800, color: '#334155' }}>
+                          No sales recorded at this branch yet.
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '4px' }}>
+                          Launch POS Billing register to record in-store transactions.
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    branchSoldItems.map((item, sIdx) => {
+                      const lastSoldDate = item.last_sold_at ? new Date(item.last_sold_at) : null;
+                      return (
+                        <tr key={`${item.product_id}-${sIdx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 18px', color: '#94a3b8', fontWeight: 600 }}>{sIdx + 1}</td>
+                          <td style={{ padding: '12px 18px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {item.image ? (
+                                <img
+                                  src={item.image}
+                                  alt={item.product_name}
+                                  style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '5px', border: '1px solid #e2e8f0' }}
+                                />
+                              ) : (
+                                <div style={{ width: '32px', height: '32px', borderRadius: '5px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px' }}>
+                                  🛍️
+                                </div>
+                              )}
+                              <div>
+                                <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>ID: {item.product_id}</div>
+                              </div>
+                            </div>
+                          </td>
+                          {(!selectedBranchId || selectedBranchId === 'all') && (
+                            <td style={{ padding: '12px 18px' }}>
+                              <span style={{ fontWeight: 800, color: '#065935', fontSize: '11.5px', background: '#f0fdf4', padding: '3px 8px', borderRadius: '4px' }}>
+                                🏢 {item.branch_name || item.branch_code || 'Branch'}
+                              </span>
+                            </td>
+                          )}
+                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
+                            ₹{Number(item.price || 0).toLocaleString('en-IN')}
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            <span style={{ padding: '3px 10px', borderRadius: '12px', fontWeight: 900, fontSize: '12px', background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }}>
+                              {item.sold_qty} sold
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 900, color: '#065935' }}>
+                            ₹{Number(item.total_revenue || 0).toLocaleString('en-IN')}
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            <span style={{ padding: '3px 10px', borderRadius: '12px', fontWeight: 800, fontSize: '12px', background: (item.remaining_qty || 0) > 0 ? '#ecfdf5' : '#fef2f2', color: (item.remaining_qty || 0) > 0 ? '#065935' : '#dc2626' }}>
+                              {item.remaining_qty || 0} units left
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right', fontSize: '11.5px', color: '#64748b' }}>
+                            {lastSoldDate ? lastSoldDate.toLocaleDateString('en-IN') : 'Recent'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* 8. LIVE UNIFIED RECENT TRANSACTIONS FEED (Online Orders + POS Bills) */}
           <div style={{ background: '#ffffff', borderRadius: '14px', border: '1.5px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 6px rgba(0,0,0,0.03)' }}>
             <div style={{ padding: '16px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>

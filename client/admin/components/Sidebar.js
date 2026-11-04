@@ -5,40 +5,65 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon } from './Icons';
 import { useSidebar } from '../lib/sidebar-context';
+import { useAdminAuth } from '../lib/auth';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const { adminUser } = useAdminAuth();
   const [isHovered, setIsHovered] = React.useState(false);
 
   // Default collapsed; expands smoothly on hover when collapsed
   const effectiveCollapsed = isCollapsed && !isHovered;
   const isHoverExpanded = isCollapsed && isHovered;
 
-  const navLinks = [
-    { label: 'Dashboard', href: '/dashboard', icon: 'home' },
-    { label: 'Products', href: '/products', icon: 'bag' },
-    { label: 'Categories', href: '/categories', icon: 'grid' },
-    { label: 'Orders', href: '/orders', icon: 'order' },
-    { title: 'POS & Inventory' },
-    { label: 'POS Billing Counter', href: '/pos', icon: 'pos' },
-    { label: 'Barcode Lookup', href: '/barcodes', icon: 'barcode' },
-    { label: 'Stock & Inventory', href: '/inventory', icon: 'package' },
-    { label: 'Sales Staff & Reports', href: '/salespersons', icon: 'user' },
-    { label: 'Vendors & Suppliers', href: '/vendors', icon: 'vendor' },
-    { label: 'Audit & Activity Logs', href: '/audit-logs', icon: 'history' },
-    { title: 'CMS & Storefront' },
-    { label: 'Homepage Sections', href: '/cms/sections', icon: 'cms' },
-    { label: 'Header Navigation', href: '/cms/sections?tab=main_navigation', icon: 'menu' },
-    { label: 'Delivery Rules', href: '/cms/delivery', icon: 'delivery' },
-    { label: 'Category Page Banners', href: '/banners', icon: 'banner' },
-    { label: 'Coupons', href: '/coupons', icon: 'coupon' },
-    { label: 'Articles & Blogs', href: '/blogs', icon: 'blog' },
-    { title: 'Customers & CRM' },
-    { label: 'Customers', href: '/customers', icon: 'user' },
-    { label: 'Inquiries & Forms', href: '/messages', icon: 'mail' },
-    { label: 'Store Settings', href: '/settings', icon: 'settings' }
+  const navItems = [
+    { key: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: 'home' },
+    { key: 'products', label: 'Products', href: '/products', icon: 'bag' },
+    { key: 'categories', label: 'Categories', href: '/categories', icon: 'grid' },
+    { key: 'orders', label: 'Orders', href: '/orders', icon: 'order' },
+    { title: 'POS & Inventory', sectionKey: 'pos_inventory' },
+    { key: 'pos', label: 'POS Billing Counter', href: '/pos', icon: 'pos' },
+    { key: 'barcodes', label: 'Barcode Lookup', href: '/barcodes', icon: 'barcode' },
+    { key: 'inventory', label: 'Stock & Inventory', href: '/inventory', icon: 'package' },
+    { key: 'salespersons', label: 'Sales Staff & Reports', href: '/salespersons', icon: 'user' },
+    { key: 'vendors', label: 'Vendors & Suppliers', href: '/vendors', icon: 'vendor' },
+    { key: 'audit_logs', label: 'Audit & Activity Logs', href: '/audit-logs', icon: 'history' },
+    { title: 'CMS & Storefront', sectionKey: 'cms' },
+    { key: 'cms', label: 'Homepage Sections', href: '/cms/sections', icon: 'cms' },
+    { key: 'cms_nav', label: 'Header Navigation', href: '/cms/sections?tab=main_navigation', icon: 'menu' },
+    { key: 'delivery', label: 'Delivery Rules', href: '/cms/delivery', icon: 'delivery' },
+    { key: 'banners', label: 'Category Page Banners', href: '/banners', icon: 'banner' },
+    { key: 'coupons', label: 'Coupons', href: '/coupons', icon: 'coupon' },
+    { key: 'blogs', label: 'Articles & Blogs', href: '/blogs', icon: 'blog' },
+    { title: 'Customers & CRM', sectionKey: 'crm' },
+    { key: 'customers', label: 'Customers', href: '/customers', icon: 'user' },
+    { key: 'messages', label: 'Inquiries & Forms', href: '/messages', icon: 'mail' },
+    { title: 'Multi-Branch & System', sectionKey: 'system' },
+    { key: 'branches', label: 'Branches & Access', href: '/branches', icon: 'settings', superAdminOnly: true },
+    { key: 'settings', label: 'Store Settings', href: '/settings', icon: 'settings', superAdminOnly: true }
   ];
+
+  // Role and allowed menu filtering for restricted branch staff
+  const isSuperAdmin = !adminUser || adminUser.role === 'admin';
+  const allowedSet = new Set(Array.isArray(adminUser?.allowed_menus) ? adminUser.allowed_menus : []);
+
+  const visibleNavLinks = navItems.filter(item => {
+    if (item.title) return true;
+    if (isSuperAdmin) return true;
+    if (item.superAdminOnly) return false;
+    return allowedSet.has(item.key);
+  });
+
+  // Strip empty section headers
+  const finalNavLinks = visibleNavLinks.filter((item, idx, arr) => {
+    if (!item.title) return true;
+    for (let i = idx + 1; i < arr.length; i++) {
+      if (arr[i].title) break;
+      if (!arr[i].title) return true;
+    }
+    return false;
+  });
 
   return (
     <div
@@ -70,9 +95,16 @@ export function Sidebar() {
           <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
             <img src="/assets/brand-logo.png" alt="NP Grand Admin" className="admin-sidebar__logo" />
             {!effectiveCollapsed && (
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#fff', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Admin Panel
-              </span>
+              <div>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#fff', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap', display: 'block' }}>
+                  Admin Panel
+                </span>
+                {adminUser?.branch_name && (
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#34d399', whiteSpace: 'nowrap', display: 'block' }}>
+                    🏢 {adminUser.branch_name}
+                  </span>
+                )}
+              </div>
             )}
           </Link>
           <button
@@ -88,7 +120,7 @@ export function Sidebar() {
         </div>
 
         <nav className="admin-sidebar__nav">
-          {navLinks.map((item, i) => {
+          {finalNavLinks.map((item, i) => {
             if (item.title) {
               if (effectiveCollapsed) return <div key={i} className="admin-nav-divider" />;
               return (
