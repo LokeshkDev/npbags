@@ -15,8 +15,9 @@ function normalizeDepartmentGender(value) {
 
 async function getAllCategories(req, res, next) {
   try {
-    const { gender } = req.query;
-    let whereClause = 'WHERE c.is_active = TRUE';
+    const { gender, include_inactive } = req.query;
+    const includeInactive = include_inactive === '1' || include_inactive === 'true';
+    let whereClause = includeInactive ? 'WHERE 1=1' : 'WHERE c.is_active = TRUE';
     const params = [];
 
     if (gender && gender !== 'all') {

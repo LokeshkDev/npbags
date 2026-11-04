@@ -265,12 +265,12 @@ export default function AdminCategoriesPage() {
   // Visual level styling so a direct child is clearly distinct from deeper sub-items
   const getCategoryLevelStyle = (depth) => {
     if (depth === 0) {
-      return { label: 'CHILD', badgeBg: '#e0f2fe', badgeColor: '#0369a1', accent: '#38bdf8', rowBg: '#ffffff', indent: '#0284c7' };
+      return { label: 'CHILD', badgeBg: '#bfdbfe', badgeColor: '#1e40af', accent: '#2563eb', rowBg: '#dbeafe', indent: '#1d4ed8' };
     }
     if (depth === 1) {
-      return { label: 'SUB-ITEM', badgeBg: '#f3e8ff', badgeColor: '#7e22ce', accent: '#a855f7', rowBg: '#faf5ff', indent: '#7e22ce' };
+      return { label: 'SUB-ITEM', badgeBg: '#d8b4fe', badgeColor: '#6b21a8', accent: '#7e22ce', rowBg: '#e9d5ff', indent: '#6b21a8' };
     }
-    return { label: `SUB-ITEM L${depth + 2}`, badgeBg: '#fef3c7', badgeColor: '#b45309', accent: '#f59e0b', rowBg: '#fffbeb', indent: '#b45309' };
+    return { label: `SUB-ITEM L${depth + 2}`, badgeBg: '#fbbf24', badgeColor: '#78350f', accent: '#d97706', rowBg: '#fde68a', indent: '#92400e' };
   };
 
   // Department counts

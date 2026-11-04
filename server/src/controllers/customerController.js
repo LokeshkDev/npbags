@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
 const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
+const { cleanCustomerEmail } = require('../utils/customerHelper');
 
 /**
  * Get all customers with search and order statistics
@@ -84,7 +86,7 @@ async function getCustomerByIdAdmin(req, res, next) {
         if (!itemsByOrderId[it.order_id]) itemsByOrderId[it.order_id] = [];
         itemsByOrderId[it.order_id].push({
           ...it,
-          image: it.product_image || '/assets/bestsellers/best-handbag.png'
+          image: it.product_image || DEFAULT_PRODUCT_IMAGE
         });
       }
     }
@@ -235,6 +237,11 @@ async function resetCustomerPasswordAdmin(req, res, next) {
   }
 }
 
+function withoutDefaultEmail(customer) {
+  if (!customer) return customer;
+  return { ...customer, email: cleanCustomerEmail(customer.email) };
+}
+
 /**
  * Fast lookup customer by phone number for POS auto-population
  */
@@ -254,7 +261,7 @@ async function lookupCustomerByPhone(req, res, next) {
     );
 
     if (users.length > 0) {
-      return sendSuccess(res, users[0], 'Customer found in users');
+      return sendSuccess(res, withoutDefaultEmail(users[0]), 'Customer found in users');
     }
 
     // 2. Check orders table for past walk-in or POS billing
@@ -268,7 +275,7 @@ async function lookupCustomerByPhone(req, res, next) {
     );
 
     if (orderCustomer.length > 0) {
-      return sendSuccess(res, orderCustomer[0], 'Customer found in orders');
+      return sendSuccess(res, withoutDefaultEmail(orderCustomer[0]), 'Customer found in orders');
     }
 
     return sendSuccess(res, null, 'No customer found');

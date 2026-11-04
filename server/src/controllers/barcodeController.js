@@ -9,6 +9,7 @@ const {
   generateBarcodeSVG,
   generateProductBarcodes
 } = require('../utils/barcode');
+const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
 
 // Admin: Get all barcodes assigned to a product (primary + variants)
 async function getProductBarcodes(req, res, next) {
@@ -110,7 +111,7 @@ async function lookupBarcode(req, res, next) {
           `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
           [row.product_id]
         );
-        displayImage = imgs[0]?.image_url || '/assets/bestsellers/best-handbag.png';
+        displayImage = imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
       }
 
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
@@ -162,7 +163,7 @@ async function lookupBarcode(req, res, next) {
         `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
         [row.product_id]
       );
-      const displayImage = row.image_url || imgs[0]?.image_url || '/assets/bestsellers/best-handbag.png';
+      const displayImage = row.image_url || imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
       return sendSuccess(res, {
@@ -210,7 +211,7 @@ async function lookupBarcode(req, res, next) {
         `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
         [p.id]
       );
-      const displayImage = imgs[0]?.image_url || '/assets/bestsellers/best-handbag.png';
+      const displayImage = imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
       const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
       const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
 
@@ -250,7 +251,7 @@ async function lookupBarcode(req, res, next) {
           `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
           [p.id]
         );
-        const displayImage = imgs[0]?.image_url || '/assets/bestsellers/best-handbag.png';
+        const displayImage = imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
         const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
         const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
 

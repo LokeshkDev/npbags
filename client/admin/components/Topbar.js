@@ -16,8 +16,7 @@ export function Topbar({ title }) {
   const [thermalSettings, setThermalSettings] = useState({
     paperWidth: '80mm', // '80mm' | '58mm'
     copies: 1, // 1 | 2
-    density: '300bol', // '300bol' | 'standard'
-    autoPrint: false
+    density: '300bol' // '300bol' | 'standard'
   });
 
   // Load saved thermal settings from localStorage
@@ -292,22 +291,6 @@ export function Topbar({ title }) {
                 {thermalSettings.density === '300bol'
                   ? '✓ Enforces solid #000000 pure black with 300 bold density for sharp thermal burns without faded halftones.'
                   : 'Standard thermal printhead density.'}
-              </div>
-            </div>
-
-            {/* Auto-Print on Billing Complete Toggle */}
-            <div style={{ marginBottom: '22px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 800, color: '#0f172a' }}>
-                <input
-                  type="checkbox"
-                  checked={thermalSettings.autoPrint}
-                  onChange={(e) => setThermalSettings(prev => ({ ...prev, autoPrint: e.target.checked }))}
-                  style={{ width: '16px', height: '16px', accentColor: '#065935', cursor: 'pointer' }}
-                />
-                <span>Auto-Launch Print Dialog on Order Complete</span>
-              </label>
-              <div style={{ fontSize: '11px', color: '#64748b', marginLeft: '26px', marginTop: '3px' }}>
-                When enabled, the thermal print window opens instantly when a sale is billed.
               </div>
             </div>
 

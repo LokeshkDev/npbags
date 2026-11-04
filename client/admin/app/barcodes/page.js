@@ -542,7 +542,7 @@ export default function AdminBarcodesPage() {
                 <div style={{ background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '18px' }}>
                   <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
                     <img
-                      src={lookupResult.image || '/assets/bestsellers/best-handbag.png'}
+                      src={lookupResult.image || '/assets/brand-logo.png'}
                       alt=""
                       style={{ width: '80px', height: '80px', borderRadius: '8px', objectFit: 'cover', background: '#ffffff', border: '1px solid #e2e8f0' }}
                     />

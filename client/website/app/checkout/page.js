@@ -5,7 +5,44 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart } from '../../lib/cart-context';
 import { useAuth } from '../../lib/auth-context';
-import { createOrder, validateCoupon, getUserAddresses, saveUserAddress } from '../../lib/api';
+import {
+  createOrder,
+  createRazorpayPayment,
+  verifyRazorpayPayment,
+  cancelRazorpayPayment,
+  validateCoupon,
+  getUserAddresses,
+  saveUserAddress
+} from '../../lib/api';
+
+const RAZORPAY_SCRIPT_URL = 'https://checkout.razorpay.com/v1/checkout.js';
+
+function loadRazorpayCheckout() {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      reject(new Error('Razorpay checkout is only available in the browser.'));
+      return;
+    }
+    if (window.Razorpay) {
+      resolve();
+      return;
+    }
+
+    const existing = document.querySelector(`script[src="${RAZORPAY_SCRIPT_URL}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('Unable to load Razorpay checkout. Please check your connection.')));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = RAZORPAY_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Unable to load Razorpay checkout. Please check your connection.'));
+    document.body.appendChild(script);
+  });
+}
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -275,6 +312,72 @@ export default function CheckoutPage() {
         coupon_code: appliedCoupon,
         notes: formData.notes
       };
+
+      if (formData.payment_method === 'card') {
+        await loadRazorpayCheckout();
+        const payment = await createRazorpayPayment(orderPayload, token);
+
+        let paymentHandled = false;
+        const razorpayCheckout = new window.Razorpay({
+          key: payment.razorpay_key_id,
+          amount: payment.amount,
+          currency: payment.currency || 'INR',
+          order_id: payment.razorpay_order_id,
+          name: 'NPGrand',
+          description: `Order ${payment.order_number}`,
+          image: '/assets/brand-logo.png',
+          prefill: payment.prefill || {
+            name: formData.name,
+            email: formData.email,
+            contact: formData.phone
+          },
+          notes: {
+            order_number: payment.order_number
+          },
+          theme: {
+            color: '#065935'
+          },
+          handler: async (response) => {
+            paymentHandled = true;
+            try {
+              await verifyRazorpayPayment({
+                ...response,
+                order_number: payment.order_number
+              }, token);
+              clearCart();
+              router.push(`/order-success?order=${encodeURIComponent(payment.order_number)}`);
+            } catch (verifyError) {
+              setOrderError(verifyError.message || 'Payment verification failed. Please contact support with your order number.');
+              setIsSubmitting(false);
+              router.push(`/order-success?order=${encodeURIComponent(payment.order_number)}&status=failed`);
+            }
+          },
+          modal: {
+            ondismiss: async () => {
+              if (paymentHandled) return;
+              try {
+                await cancelRazorpayPayment(payment.order_number, token, 'Payment window dismissed');
+                setOrderError('Payment was cancelled. Your order has not been confirmed.');
+              } catch (cancelError) {
+                setOrderError('Payment was not completed. Please check your orders or try again.');
+              }
+              setIsSubmitting(false);
+            }
+          }
+        });
+
+        razorpayCheckout.on('payment.failed', () => {
+          setOrderError('Payment failed. Please try again with another payment method.');
+        });
+
+        try {
+          razorpayCheckout.open();
+        } catch (openError) {
+          await cancelRazorpayPayment(payment.order_number, token, 'Unable to open payment window').catch(() => {});
+          throw openError;
+        }
+        return;
+      }
 
       const res = await createOrder(orderPayload, token);
       clearCart();
@@ -614,9 +717,9 @@ export default function CheckoutPage() {
               {cart.map((item, i) => (
                 <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                   <img
-                    src={item.image || item.primary_image || '/assets/bestsellers/best-handbag.png'}
+                    src={item.image || item.primary_image || '/assets/brand-logo.png'}
                     alt={item.name}
-                    onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                    onError={(e) => { e.currentTarget.src = '/assets/brand-logo.png'; }}
                     style={{ width: '56px', height: '64px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #e5e2db', background: '#f8f8f8', flexShrink: 0 }}
                   />
                   <div style={{ flex: 1, fontSize: '13px' }}>
@@ -685,7 +788,11 @@ export default function CheckoutPage() {
               disabled={isSubmitting}
               style={{ width: '100%', marginTop: '24px', padding: '16px' }}
             >
-              {isSubmitting ? 'Placing Order...' : `Place Order · ₹${totalAmount.toFixed(2)}`}
+              {isSubmitting
+                ? (formData.payment_method === 'card' ? 'Opening Secure Payment...' : 'Placing Order...')
+                : (formData.payment_method === 'card'
+                  ? `Pay Online · ₹${totalAmount.toFixed(2)}`
+                  : `Place Order · ₹${totalAmount.toFixed(2)}`)}
             </button>
           </div>
         </form>

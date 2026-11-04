@@ -299,8 +299,10 @@ export default function AdminOrdersPage() {
         sku: null,
         hsn_code: '4202',
         price: price,
+        mrp: price,
         quantity: 1,
-        image_url: '/assets/bestsellers/best-handbag.png',
+        image_url: '/assets/brand-logo.png',
+        is_custom: true,
         variant_info: 'Custom Item'
       }
     ]);
@@ -649,9 +651,9 @@ export default function AdminOrdersPage() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               {o.items && o.items[0] && (
                                 <img
-                                  src={o.items[0].image_url || o.items[0].image || '/assets/bestsellers/best-handbag.png'}
+                                  src={o.items[0].image_url || o.items[0].image || '/assets/brand-logo.png'}
                                   alt=""
-                                  onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                                  onError={(e) => { e.currentTarget.src = '/assets/brand-logo.png'; }}
                                   style={{ width: '38px', height: '46px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--line)', background: '#f5f5f5', flexShrink: 0 }}
                                 />
                               )}
@@ -887,9 +889,9 @@ export default function AdminOrdersPage() {
                 <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid var(--line)', borderRadius: '8px', background: '#ffffff', gap: '14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <img
-                      src={item.image_url || item.image || '/assets/bestsellers/best-handbag.png'}
+                      src={item.image_url || item.image || '/assets/brand-logo.png'}
                       alt={item.product_name}
-                      onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                      onError={(e) => { e.currentTarget.src = '/assets/brand-logo.png'; }}
                       style={{ width: '44px', height: '52px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--line)', background: '#f9f9f9', flexShrink: 0 }}
                     />
                     <div>

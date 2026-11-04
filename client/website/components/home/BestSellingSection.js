@@ -11,7 +11,7 @@ export function BestSellingSection({ products: apiProducts = [] }) {
 
   const products = (Array.isArray(apiProducts) && apiProducts.length > 0)
     ? apiProducts.map((p, idx) => {
-        const rawImg = p.primary_image || (p.images && p.images[0]) || p.image || '/assets/bestsellers/best-handbag.png';
+        const rawImg = p.primary_image || (p.images && p.images[0]) || p.image || '/assets/brand-logo.png';
         const ratingVal = p.rating ? Number(p.rating).toFixed(1) : '4.8';
         return {
           id: p.id,

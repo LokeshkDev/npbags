@@ -1,6 +1,13 @@
 const bcrypt = require('bcryptjs');
 const { query } = require('../config/db');
 
+function cleanCustomerEmail(email) {
+  const value = String(email || '').trim();
+  if (!value) return '';
+  if (/^walkin@/i.test(value) || /@pos\.npgrand\.com$/i.test(value)) return '';
+  return value;
+}
+
 /**
  * Finds an existing customer or creates a new customer in the `users` table
  * during in-store POS billing or hold operations.
@@ -105,6 +112,7 @@ async function findOrCreateCustomer({ name, phone, email }) {
 }
 
 module.exports = {
-  findOrCreateCustomer
+  findOrCreateCustomer,
+  cleanCustomerEmail
 };
 

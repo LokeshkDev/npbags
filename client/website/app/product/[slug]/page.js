@@ -49,7 +49,7 @@ export default function ProductDetailPage({ params }) {
       setProduct(p);
       const firstColor = p.colors && p.colors[0];
       const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
-      const defaultImg = p.primary_image || firstColorImg || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '';
+      const defaultImg = p.primary_image || firstColorImg || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '/assets/brand-logo.png';
       setActiveImage(defaultImg);
       setSelectedColor(firstColor ? firstColor.name : '');
       const validSizes = (p.sizes || []).filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size');
@@ -421,7 +421,7 @@ export default function ProductDetailPage({ params }) {
                 alt={product.name}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
-                  e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                  e.currentTarget.src = '/assets/brand-logo.png';
                 }}
                 onClick={() => setIsLightboxOpen(true)}
                 title="Click to open zoom popup"
@@ -459,7 +459,7 @@ export default function ProductDetailPage({ params }) {
                       alt={`${product.name} preview ${i + 1}`}
                       onError={(e) => {
                         e.currentTarget.onerror = null;
-                        e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                        e.currentTarget.src = '/assets/brand-logo.png';
                       }}
                     />
                   </button>
@@ -871,7 +871,7 @@ export default function ProductDetailPage({ params }) {
                 draggable={false}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
-                  e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                  e.currentTarget.src = '/assets/brand-logo.png';
                 }}
               />
             </div>
@@ -903,7 +903,7 @@ export default function ProductDetailPage({ params }) {
                       alt={`${product.name} thumbnail ${i + 1}`}
                       onError={(e) => {
                         e.currentTarget.onerror = null;
-                        e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                        e.currentTarget.src = '/assets/brand-logo.png';
                       }}
                     />
                   </button>

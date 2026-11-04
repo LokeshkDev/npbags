@@ -672,9 +672,9 @@ function AccountContent() {
                               <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', paddingBottom: idx !== (order.items.length - 1) ? '12px' : 0, borderBottom: idx !== (order.items.length - 1) ? '1px dashed #eee' : 'none' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                                   <img
-                                    src={item.image_url || item.image || '/assets/bestsellers/best-handbag.png'}
+                                    src={item.image_url || item.image || '/assets/brand-logo.png'}
                                     alt={item.product_name || item.name}
-                                    onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                                    onError={(e) => { e.currentTarget.src = '/assets/brand-logo.png'; }}
                                     style={{ width: '48px', height: '56px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ebe6df', background: '#f5f5f5', flexShrink: 0 }}
                                   />
                                   <div>

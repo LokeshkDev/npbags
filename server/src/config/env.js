@@ -22,6 +22,10 @@ module.exports = {
     adminUrl: process.env.ADMIN_URL || 'http://localhost:3001',
     allowedOrigins: process.env.ALLOWED_ORIGINS || ''
   },
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || ''
+  },
   baseUrl: process.env.BASE_URL || 'http://localhost:5000'
 };
 

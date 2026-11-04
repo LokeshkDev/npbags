@@ -72,7 +72,7 @@ export async function getAdminProducts(params = {}) {
 }
 
 export async function getAdminProductById(id) {
-  return adminFetch(`/products/${id}`);
+  return adminFetch(`/admin/products/${id}`);
 }
 
 
@@ -130,7 +130,7 @@ export async function uploadProductGalleryImage(productId, formData) {
 
 // Categories
 export async function getAdminCategories() {
-  return adminFetch('/categories');
+  return adminFetch('/categories?include_inactive=1');
 }
 
 export async function createAdminCategory(formData) {

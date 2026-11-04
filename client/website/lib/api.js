@@ -65,6 +65,40 @@ export async function createOrder(orderData, token = null) {
   });
 }
 
+export async function createRazorpayPayment(orderData, token = null) {
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return safeFetch('/orders/razorpay/create', {
+    method: 'POST',
+    body: JSON.stringify(orderData),
+    headers
+  });
+}
+
+export async function verifyRazorpayPayment(paymentData, token = null) {
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return safeFetch('/orders/razorpay/verify', {
+    method: 'POST',
+    body: JSON.stringify(paymentData),
+    headers
+  });
+}
+
+export async function cancelRazorpayPayment(orderNumber, token = null, reason = 'Payment cancelled by customer') {
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return safeFetch('/orders/razorpay/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ order_number: orderNumber, reason }),
+    headers
+  });
+}
+
+export async function getOrderDetails(identifier) {
+  return safeFetch(`/orders/${encodeURIComponent(identifier)}`);
+}
+
 export async function validateCoupon(code, subtotal) {
   return safeFetch('/orders/validate-coupon', {
     method: 'POST',

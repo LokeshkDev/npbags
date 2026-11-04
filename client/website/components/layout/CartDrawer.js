@@ -79,9 +79,9 @@ export function CartDrawer() {
             cart.map((item, i) => (
               <div className="cart-line" key={`${item.id}-${item.size}-${item.color}-${i}`}>
                 <img
-                  src={item.image || '/assets/bestsellers/best-handbag.png'}
+                  src={item.image || '/assets/brand-logo.png'}
                   alt={item.name}
-                  onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                  onError={(e) => { e.currentTarget.src = '/assets/brand-logo.png'; }}
                   style={{ width: '68px', height: '82px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ebe6df', background: '#f8f8f8', flexShrink: 0 }}
                 />
                 <div>

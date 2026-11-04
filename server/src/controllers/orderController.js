@@ -1,8 +1,13 @@
+const crypto = require('crypto');
+const slugify = require('slugify');
+const Razorpay = require('razorpay');
+const env = require('../config/env');
 const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { deductInventoryForOrder, restoreInventoryForOrder } = require('../utils/inventory');
 const { calculateOrderTax } = require('../utils/gst');
-const { findOrCreateCustomer } = require('../utils/customerHelper');
+const { findOrCreateCustomer, cleanCustomerEmail } = require('../utils/customerHelper');
+const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
 
 // Generate daily sequential POS bill numbers: NP-YYYYMMDD-0001, 0002, ...
 async function generateNextPosOrderNumber() {
@@ -21,150 +26,464 @@ async function generateNextPosOrderNumber() {
   return `${prefix}${String(nextSeq).padStart(4, '0')}`;
 }
 
-async function createOrder(req, res, next) {
-  try {
-    const {
-      customer_name,
-      customer_email,
-      customer_phone,
-      shipping_address,
-      items,
-      payment_method = 'cod',
-      coupon_code,
-      notes
-    } = req.body;
+async function getOrCreateUncategorizedCategory() {
+  await query(
+    `INSERT INTO categories (parent_id, slug, name, description, display_order, gender, is_active)
+     VALUES (NULL, 'uncategorized', 'Uncategorized', 'Products created from POS custom billing items', 9999, 'none', FALSE)
+     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`
+  );
+  const rows = await query(`SELECT id FROM categories WHERE slug = 'uncategorized' LIMIT 1`);
+  return rows[0]?.id || null;
+}
 
-    if (!customer_name || !customer_email || !customer_phone || !shipping_address) {
-      return sendError(res, 'Customer contact and shipping address are required.', 400);
+async function generateUniqueProductSlug(name) {
+  const fallback = `custom-item-${Date.now()}`;
+  const base = (slugify(String(name || fallback), { lower: true, strict: true }) || fallback).slice(0, 150);
+  let slug = base;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const existing = await query(`SELECT id FROM products WHERE id = ? OR slug = ? LIMIT 1`, [slug, slug]);
+    if (existing.length === 0) return slug;
+    slug = `${base}-${Date.now().toString().slice(-6)}${attempt > 0 ? `-${attempt}` : ''}`;
+  }
+
+  return `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+async function createCustomProductFromOrderItem(item, categoryId) {
+  const name = String(item.product_name || item.name || 'Custom item').trim().slice(0, 255) || 'Custom item';
+  const sellingPrice = Number(item.price) || 0;
+  const requestedMrp = Number(item.mrp || item.regular_price || item.price) || sellingPrice;
+  const listPrice = Math.max(requestedMrp, sellingPrice);
+  const salePrice = sellingPrice < listPrice ? sellingPrice : 0;
+  const gstRate = Number(item.gst_rate || item.gstRate) || 18;
+  const hsnCode = item.hsn_code || '4202';
+  const id = await generateUniqueProductSlug(name);
+
+  await query(
+    `INSERT INTO products (
+       id, slug, name, category_id, gender, price, sale_price, badge, tagline,
+       description, features, is_featured, is_new_arrival, is_best_selling,
+       is_active, is_online, barcode_short_name, mrp, gst_type, gst_rate, stock, hsn_code
+     ) VALUES (?, ?, ?, ?, 'none', ?, ?, NULL, 'POS custom item', ?, ?, 0, 0, 0, 1, 0, ?, ?, 'inclusive', ?, 0, ?)`,
+    [
+      id,
+      id,
+      name,
+      categoryId,
+      listPrice,
+      salePrice,
+      'Product created from POS custom billing',
+      JSON.stringify([]),
+      name,
+      listPrice,
+      gstRate,
+      hsnCode
+    ]
+  );
+
+  return id;
+}
+
+async function ensureCustomItemsAsProducts(items) {
+  if (!Array.isArray(items) || items.length === 0) return items;
+
+  const customItems = items.filter(item => (
+    item.is_custom ||
+    !item.product_id ||
+    String(item.product_id).startsWith('custom-')
+  ));
+  if (customItems.length === 0) return items;
+
+  const categoryId = await getOrCreateUncategorizedCategory();
+
+  for (const item of customItems) {
+    const productId = await createCustomProductFromOrderItem(item, categoryId);
+    item.product_id = productId;
+    item.id = productId;
+    item.is_custom = false;
+  }
+
+  return items;
+}
+
+async function buildOrderDraft({
+  customer_name,
+  customer_email,
+  customer_phone,
+  shipping_address,
+  items,
+  payment_method = 'cod',
+  coupon_code,
+  notes,
+  userId = null
+}) {
+  if (!customer_name || !customer_email || !customer_phone || !shipping_address) {
+    const error = new Error('Customer contact and shipping address are required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    const error = new Error('Order must contain at least one item.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // 1. Calculate subtotal
+  let subtotal = 0;
+  const validatedItems = [];
+
+  for (const item of items) {
+    const prods = await query(`SELECT id, name, price, sale_price FROM products WHERE id = ?`, [item.id || item.product_id]);
+    if (prods.length === 0) {
+      const error = new Error(`Product not found: ${item.name || item.id}`);
+      error.statusCode = 400;
+      throw error;
+    }
+    const prod = prods[0];
+    const itemPrice = prod.sale_price > 0 ? parseFloat(prod.sale_price) : parseFloat(prod.price);
+    const qty = parseInt(item.qty || item.quantity, 10) || 1;
+    const itemTotal = itemPrice * qty;
+
+    // Always query true primary image from product_images table in DB
+    const imgs = await query(
+      `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1`,
+      [prod.id]
+    );
+    const dbPrimaryImg = imgs.length > 0 && imgs[0].image_url ? imgs[0].image_url : null;
+
+    // Only preserve item.image if it's a real specific image, not a generic fallback
+    let primaryImg = null;
+    const isFallbackImage = item.image && typeof item.image === 'string' &&
+      (item.image.includes('best-handbag.png') || item.image.includes('brand-logo.png'));
+    if (item.image && typeof item.image === 'string' && !isFallbackImage && item.image.trim() !== '') {
+      primaryImg = item.image.trim();
+    } else {
+      primaryImg = dbPrimaryImg;
+    }
+    if (!primaryImg) {
+      primaryImg = dbPrimaryImg || DEFAULT_PRODUCT_IMAGE;
     }
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return sendError(res, 'Order must contain at least one item.', 400);
-    }
+    subtotal += itemTotal;
+    validatedItems.push({
+      product_id: prod.id,
+      product_name: prod.name,
+      variant_info: item.variant_info || (item.size ? `${item.color || ''} · ${item.size}` : item.color || null),
+      price: itemPrice,
+      quantity: qty,
+      total: itemTotal,
+      image_url: primaryImg
+    });
+  }
 
-    // 1. Calculate subtotal
-    let subtotal = 0;
-    const validatedItems = [];
+  // 2. Fetch delivery settings for shipping fee
+  const deliveryRows = await query(`SELECT * FROM delivery_settings WHERE id = 1`);
+  const delivery = deliveryRows[0] || { free_delivery_threshold: 499.00, standard_shipping_fee: 49.00 };
 
-    for (const item of items) {
-      const prods = await query(`SELECT id, name, price, sale_price FROM products WHERE id = ?`, [item.id || item.product_id]);
-      if (prods.length === 0) {
-        return sendError(res, `Product not found: ${item.name || item.id}`, 400);
-      }
-      const prod = prods[0];
-      const itemPrice = prod.sale_price > 0 ? parseFloat(prod.sale_price) : parseFloat(prod.price);
-      const qty = parseInt(item.qty || item.quantity, 10) || 1;
-      const itemTotal = itemPrice * qty;
+  const shipping_fee = subtotal >= parseFloat(delivery.free_delivery_threshold) ? 0.00 : parseFloat(delivery.standard_shipping_fee);
 
-      // Always query true primary image from product_images table in DB
-      const imgs = await query(
-        `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1`,
-        [prod.id]
-      );
-      const dbPrimaryImg = imgs.length > 0 && imgs[0].image_url ? imgs[0].image_url : null;
+  // 3. Check coupon if provided
+  let discount = 0.00;
+  if (coupon_code) {
+    const coupons = await query(
+      `SELECT * FROM coupons WHERE UPPER(code) = UPPER(?) AND is_active = TRUE`,
+      [coupon_code.trim()]
+    );
 
-      // Only preserve item.image if it's a real specific variant image (and not a fallback to best-handbag.png)
-      let primaryImg = null;
-      if (item.image && typeof item.image === 'string' && !item.image.includes('best-handbag.png') && item.image.trim() !== '') {
-        primaryImg = item.image.trim();
-      } else {
-        primaryImg = dbPrimaryImg;
-      }
-      if (!primaryImg) {
-        primaryImg = dbPrimaryImg || '/assets/bestsellers/best-handbag.png';
-      }
-
-      subtotal += itemTotal;
-      validatedItems.push({
-        product_id: prod.id,
-        product_name: prod.name,
-        variant_info: item.variant_info || (item.size ? `${item.color || ''} · ${item.size}` : item.color || null),
-        price: itemPrice,
-        quantity: qty,
-        total: itemTotal,
-        image_url: primaryImg
-      });
-    }
-
-    // 2. Fetch delivery settings for shipping fee
-    const deliveryRows = await query(`SELECT * FROM delivery_settings WHERE id = 1`);
-    const delivery = deliveryRows[0] || { free_delivery_threshold: 499.00, standard_shipping_fee: 49.00 };
-
-    let shipping_fee = subtotal >= parseFloat(delivery.free_delivery_threshold) ? 0.00 : parseFloat(delivery.standard_shipping_fee);
-
-    // 3. Check coupon if provided
-    let discount = 0.00;
-    if (coupon_code) {
-      const coupons = await query(
-        `SELECT * FROM coupons WHERE UPPER(code) = UPPER(?) AND is_active = TRUE`,
-        [coupon_code.trim()]
-      );
-
-      if (coupons.length > 0) {
-        const c = coupons[0];
-        if (subtotal >= parseFloat(c.min_order_amount)) {
-          if (c.discount_type === 'percentage') {
-            discount = (subtotal * parseFloat(c.discount_value)) / 100;
-            if (c.max_discount && discount > parseFloat(c.max_discount)) {
-              discount = parseFloat(c.max_discount);
-            }
-          } else {
-            discount = parseFloat(c.discount_value);
+    if (coupons.length > 0) {
+      const c = coupons[0];
+      if (subtotal >= parseFloat(c.min_order_amount)) {
+        if (c.discount_type === 'percentage') {
+          discount = (subtotal * parseFloat(c.discount_value)) / 100;
+          if (c.max_discount && discount > parseFloat(c.max_discount)) {
+            discount = parseFloat(c.max_discount);
           }
+        } else {
+          discount = parseFloat(c.discount_value);
         }
       }
     }
+  }
 
-    const total_amount = Math.max(0, subtotal - discount + shipping_fee);
+  const total_amount = Math.max(0, subtotal - discount + shipping_fee);
 
-    // Generate readable order number: NP-20261014-XXXX
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const order_number = `NP-${dateStr}-${randomSuffix}`;
+  // Generate readable order number: NP-20261014-XXXX
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+  const order_number = `NP-${dateStr}-${randomSuffix}`;
 
-    const userId = req.user ? req.user.id : null;
+  return {
+    order_number,
+    userId,
+    customer_name,
+    customer_email: String(customer_email).toLowerCase().trim(),
+    customer_phone,
+    shipping_address: typeof shipping_address === 'string' ? shipping_address : JSON.stringify(shipping_address),
+    subtotal,
+    discount,
+    shipping_fee,
+    total_amount,
+    payment_method,
+    notes: notes || null,
+    validatedItems
+  };
+}
 
-    const orderResult = await query(
-      `INSERT INTO orders (order_number, user_id, customer_name, customer_email, customer_phone, shipping_address, subtotal, discount, shipping_fee, total_amount, payment_method, payment_status, order_status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?)`,
-      [
-        order_number,
-        userId,
-        customer_name,
-        customer_email.toLowerCase().trim(),
-        customer_phone,
-        typeof shipping_address === 'string' ? shipping_address : JSON.stringify(shipping_address),
-        subtotal,
-        discount,
-        shipping_fee,
-        total_amount,
-        payment_method,
-        notes || null
-      ]
+async function persistOrder(draft) {
+  const orderResult = await query(
+    `INSERT INTO orders (order_number, user_id, customer_name, customer_email, customer_phone, shipping_address, subtotal, discount, shipping_fee, total_amount, payment_method, payment_status, order_status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?)`,
+    [
+      draft.order_number,
+      draft.userId,
+      draft.customer_name,
+      draft.customer_email,
+      draft.customer_phone,
+      draft.shipping_address,
+      draft.subtotal,
+      draft.discount,
+      draft.shipping_fee,
+      draft.total_amount,
+      draft.payment_method,
+      draft.notes
+    ]
+  );
+
+  const orderId = orderResult.insertId;
+
+  // Insert order items
+  for (const vItem of draft.validatedItems) {
+    await query(
+      `INSERT INTO order_items (order_id, product_id, product_name, variant_info, price, quantity, total, image_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orderId, vItem.product_id, vItem.product_name, vItem.variant_info, vItem.price, vItem.quantity, vItem.total, vItem.image_url]
     );
+  }
 
-    const orderId = orderResult.insertId;
+  // Automatically deduct inventory for online order and log transaction
+  await deductInventoryForOrder(draft.validatedItems, draft.order_number, { query });
 
-    // Insert order items
-    for (const vItem of validatedItems) {
-      await query(
-        `INSERT INTO order_items (order_id, product_id, product_name, variant_info, price, quantity, total, image_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [orderId, vItem.product_id, vItem.product_name, vItem.variant_info, vItem.price, vItem.quantity, vItem.total, vItem.image_url]
-      );
+  return {
+    order_id: orderId,
+    order_number: draft.order_number,
+    total_amount: draft.total_amount,
+    subtotal: draft.subtotal,
+    discount: draft.discount,
+    shipping_fee: draft.shipping_fee
+  };
+}
+
+async function createOrder(req, res, next) {
+  try {
+    const draft = await buildOrderDraft({
+      ...req.body,
+      payment_method: req.body.payment_method || 'cod',
+      userId: req.user ? req.user.id : null
+    });
+    const order = await persistOrder(draft);
+
+    return sendSuccess(res, order, 'Order placed successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+function getRazorpayClient() {
+  if (!env.razorpay.keyId || !env.razorpay.keySecret) {
+    const error = new Error('Razorpay is not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to the server environment.');
+    error.statusCode = 503;
+    throw error;
+  }
+  return new Razorpay({
+    key_id: env.razorpay.keyId,
+    key_secret: env.razorpay.keySecret
+  });
+}
+
+function isValidRazorpaySignature(orderId, paymentId, signature) {
+  const expected = crypto
+    .createHmac('sha256', env.razorpay.keySecret)
+    .update(`${orderId}|${paymentId}`)
+    .digest('hex');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  const providedBuffer = Buffer.from(String(signature || ''), 'utf8');
+  return expectedBuffer.length === providedBuffer.length && crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+async function createRazorpayPayment(req, res, next) {
+  try {
+    const client = getRazorpayClient();
+    const draft = await buildOrderDraft({
+      ...req.body,
+      payment_method: 'razorpay',
+      userId: req.user ? req.user.id : null
+    });
+
+    const amountInPaise = Math.round(Number(draft.total_amount) * 100);
+    if (!Number.isFinite(amountInPaise) || amountInPaise < 100) {
+      return sendError(res, 'Order amount must be at least ₹1 to pay online.', 400);
     }
 
-    // Automatically deduct inventory for online order and log transaction
-    await deductInventoryForOrder(validatedItems, order_number, { query });
+    const razorpayOrder = await client.orders.create({
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt: draft.order_number,
+      payment_capture: 1,
+      notes: {
+        order_number: draft.order_number,
+        customer_name: String(draft.customer_name),
+        customer_email: draft.customer_email,
+        customer_phone: String(draft.customer_phone)
+      }
+    });
+
+    const order = await persistOrder(draft);
 
     return sendSuccess(res, {
-      order_id: orderId,
+      ...order,
+      razorpay_order_id: razorpayOrder.id,
+      razorpay_key_id: env.razorpay.keyId,
+      amount: razorpayOrder.amount,
+      currency: razorpayOrder.currency,
+      prefill: {
+        name: draft.customer_name,
+        email: draft.customer_email,
+        contact: draft.customer_phone
+      }
+    }, 'Razorpay order created successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function verifyRazorpayPayment(req, res, next) {
+  try {
+    const {
       order_number,
-      total_amount,
-      subtotal,
-      discount,
-      shipping_fee
-    }, 'Order placed successfully', 201);
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    } = req.body;
+
+    if (!order_number || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return sendError(res, 'Incomplete Razorpay payment verification details.', 400);
+    }
+
+    const client = getRazorpayClient();
+
+    if (!isValidRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
+      return sendError(res, 'Invalid Razorpay payment signature.', 400);
+    }
+
+    const orders = await query(`SELECT * FROM orders WHERE order_number = ? LIMIT 1`, [order_number]);
+    if (orders.length === 0) {
+      return sendError(res, 'Order not found.', 404);
+    }
+
+    const order = orders[0];
+    if (String(order.payment_method || '').toLowerCase() !== 'razorpay') {
+      return sendError(res, 'This order is not an online payment order.', 400);
+    }
+    if (order.order_status === 'cancelled') {
+      return sendError(res, 'This order has already been cancelled.', 400);
+    }
+    if (order.payment_status === 'paid') {
+      return sendSuccess(res, {
+        order_number: order.order_number,
+        payment_status: 'paid',
+        payment_id: razorpay_payment_id
+      }, 'Payment already verified');
+    }
+
+    const expectedAmount = Math.round(Number(order.total_amount) * 100);
+    const [razorpayOrder, razorpayPayment] = await Promise.all([
+      client.orders.fetch(razorpay_order_id),
+      client.payments.fetch(razorpay_payment_id)
+    ]);
+
+    if (
+      String(razorpayOrder.receipt || '') !== String(order.order_number) ||
+      Number(razorpayOrder.amount) !== expectedAmount
+    ) {
+      return sendError(res, 'Razorpay order details do not match this order.', 400);
+    }
+
+    if (
+      razorpayPayment.order_id !== razorpay_order_id ||
+      Number(razorpayPayment.amount) !== expectedAmount ||
+      !['authorized', 'captured'].includes(razorpayPayment.status)
+    ) {
+      return sendError(res, 'Razorpay payment was not successful.', 400);
+    }
+
+    const updateResult = await query(
+      `UPDATE orders
+       SET payment_status = 'paid',
+           order_status = 'paid',
+           notes = CONCAT(COALESCE(notes, ''), ?)
+       WHERE id = ? AND payment_status <> 'paid' AND order_status <> 'cancelled'`,
+      [`\nRazorpay Payment ID: ${razorpay_payment_id}`, order.id]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      return sendError(res, 'Order could not be marked as paid. Please contact support.', 409);
+    }
+
+    return sendSuccess(res, {
+      order_number: order.order_number,
+      payment_status: 'paid',
+      payment_id: razorpay_payment_id
+    }, 'Payment verified successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function cancelRazorpayPayment(req, res, next) {
+  try {
+    const { order_number, reason = 'Payment cancelled by customer' } = req.body;
+    if (!order_number) {
+      return sendError(res, 'Order number is required.', 400);
+    }
+
+    const orders = await query(`SELECT * FROM orders WHERE order_number = ? LIMIT 1`, [order_number]);
+    if (orders.length === 0) {
+      return sendError(res, 'Order not found.', 404);
+    }
+
+    const order = orders[0];
+    if (String(order.payment_method || '').toLowerCase() !== 'razorpay') {
+      return sendError(res, 'This order is not an online payment order.', 400);
+    }
+    if (order.payment_status === 'paid') {
+      return sendSuccess(res, {
+        order_number: order.order_number,
+        payment_status: 'paid',
+        order_status: order.order_status
+      }, 'Payment already completed');
+    }
+
+    const updateResult = await query(
+      `UPDATE orders
+       SET payment_status = 'failed',
+           order_status = 'cancelled',
+           notes = CONCAT(COALESCE(notes, ''), ?)
+       WHERE id = ? AND payment_status <> 'paid' AND order_status <> 'cancelled'`,
+      [`\nOnline payment cancelled: ${reason}`, order.id]
+    );
+
+    if (updateResult.affectedRows > 0) {
+      const items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
+      await restoreInventoryForOrder(items, `RAZORPAY-CANCEL-${order.order_number}`, { query });
+    }
+
+    return sendSuccess(res, {
+      order_number: order.order_number,
+      payment_status: 'failed',
+      order_status: 'cancelled'
+    }, 'Online payment cancelled');
   } catch (error) {
     next(error);
   }
@@ -192,11 +511,8 @@ async function getOrderDetails(req, res, next) {
     );
     order.items = items.map(it => {
       let finalImg = it.image_url;
-      if (!finalImg || finalImg.includes('best-handbag.png')) {
-        finalImg = it.db_primary_image || finalImg;
-      }
-      if (!finalImg) {
-        finalImg = it.db_primary_image || it.image_url || '/assets/bestsellers/best-handbag.png';
+      if (!finalImg || finalImg.includes('best-handbag.png') || finalImg.includes('brand-logo.png')) {
+        finalImg = it.db_primary_image || DEFAULT_PRODUCT_IMAGE;
       }
       return {
         ...it,
@@ -210,6 +526,7 @@ async function getOrderDetails(req, res, next) {
         order.shipping_address = JSON.parse(order.shipping_address);
       } catch (e) {}
     }
+    order.customer_email = cleanCustomerEmail(order.customer_email);
 
     return sendSuccess(res, order);
   } catch (error) {
@@ -234,11 +551,8 @@ async function getMyOrders(req, res, next) {
       );
       order.items = items.map(it => {
         let finalImg = it.image_url;
-        if (!finalImg || finalImg.includes('best-handbag.png')) {
-          finalImg = it.db_primary_image || finalImg;
-        }
-        if (!finalImg) {
-          finalImg = it.db_primary_image || it.image_url || '/assets/bestsellers/best-handbag.png';
+        if (!finalImg || finalImg.includes('best-handbag.png') || finalImg.includes('brand-logo.png')) {
+          finalImg = it.db_primary_image || DEFAULT_PRODUCT_IMAGE;
         }
         return {
           ...it,
@@ -347,11 +661,8 @@ async function getAllOrdersAdmin(req, res, next) {
       );
       order.items = items.map(it => {
         let finalImg = it.image_url;
-        if (!finalImg || finalImg.includes('best-handbag.png')) {
-          finalImg = it.db_primary_image || finalImg;
-        }
-        if (!finalImg) {
-          finalImg = it.db_primary_image || it.image_url || '/assets/bestsellers/best-handbag.png';
+        if (!finalImg || finalImg.includes('best-handbag.png') || finalImg.includes('brand-logo.png')) {
+          finalImg = it.db_primary_image || DEFAULT_PRODUCT_IMAGE;
         }
         return {
           ...it,
@@ -362,6 +673,7 @@ async function getAllOrdersAdmin(req, res, next) {
       if (typeof order.shipping_address === 'string') {
         try { order.shipping_address = JSON.parse(order.shipping_address); } catch (e) {}
       }
+      order.customer_email = cleanCustomerEmail(order.customer_email);
     }
 
     const countResult = await query(`SELECT COUNT(*) AS total FROM orders`);
@@ -445,6 +757,8 @@ async function createPOSOrder(req, res, next) {
       shippingState: 'Tamil Nadu'
     });
 
+    await ensureCustomItemsAsProducts(taxSummary.items);
+
     const order_number = await generateNextPosOrderNumber();
     const grandTotal = taxSummary.grandTotal;
 
@@ -499,7 +813,7 @@ async function createPOSOrder(req, res, next) {
         order_number,
         customerUserId || (req.user ? req.user.id : null),
         customer_name.trim() || 'Walk-in Customer',
-        customer_email.trim() || 'walkin@npgrandshopping.com',
+        customer_email.trim() || '',
         customer_phone.trim() || '',
         JSON.stringify({ address: 'In-Store POS Billing Counter', city: 'Chennai', state: 'Tamil Nadu' }),
         taxSummary.subtotal,
@@ -735,6 +1049,8 @@ async function updatePOSOrderItems(req, res, next) {
       shippingState: 'Tamil Nadu'
     });
 
+    await ensureCustomItemsAsProducts(taxSummary.items);
+
     const grandTotal = taxSummary.grandTotal;
 
     // 3. Delete old items and insert updated items
@@ -801,6 +1117,7 @@ async function updatePOSOrderItems(req, res, next) {
     // Fetch updated order and items
     const updatedOrder = (await query(`SELECT * FROM orders WHERE id = ?`, [id]))[0];
     updatedOrder.items = await query(`SELECT * FROM order_items WHERE order_id = ?`, [id]);
+    updatedOrder.customer_email = cleanCustomerEmail(updatedOrder.customer_email);
 
     return sendSuccess(res, updatedOrder, 'POS order items updated successfully');
   } catch (error) {
@@ -810,6 +1127,9 @@ async function updatePOSOrderItems(req, res, next) {
 
 module.exports = {
   createOrder,
+  createRazorpayPayment,
+  verifyRazorpayPayment,
+  cancelRazorpayPayment,
   getOrderDetails,
   getMyOrders,
   validateCoupon,

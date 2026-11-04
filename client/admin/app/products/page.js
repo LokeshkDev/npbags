@@ -1363,7 +1363,7 @@ export default function AdminProductsPage() {
                     </tr>
                   ) : (
                     filtered.map(p => {
-                      const img = p.primary_image || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '';
+                      const img = p.primary_image || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '/assets/brand-logo.png';
                       const totalStock = getProductStock(p);
                       return (
                         <tr key={p.id}>
@@ -1375,7 +1375,7 @@ export default function AdminProductsPage() {
                                 style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', background: '#f3f4f6' }}
                                 onError={(e) => {
                                   e.currentTarget.onerror = null;
-                                  e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                                  e.currentTarget.src = '/assets/brand-logo.png';
                                 }}
                               />
                               <div>
@@ -2400,7 +2400,7 @@ export default function AdminProductsPage() {
                             title={v.image_url}
                             onError={(e) => {
                               e.currentTarget.onerror = null;
-                              e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                              e.currentTarget.src = '/assets/brand-logo.png';
                             }}
                           />
                           <button
@@ -2501,7 +2501,7 @@ export default function AdminProductsPage() {
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         onError={(e) => {
                           e.currentTarget.onerror = null;
-                          e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                          e.currentTarget.src = '/assets/brand-logo.png';
                         }}
                       />
                       {img.is_primary ? (
@@ -2774,7 +2774,7 @@ export default function AdminProductsPage() {
           <div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
               <img
-                src={barcodePopupProduct.primary_image || barcodePopupProduct.image || barcodePopupProduct.gallery?.[0] || '/assets/bestsellers/best-handbag.png'}
+                src={barcodePopupProduct.primary_image || barcodePopupProduct.image || barcodePopupProduct.gallery?.[0] || '/assets/brand-logo.png'}
                 alt=""
                 style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff' }}
               />

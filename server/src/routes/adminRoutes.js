@@ -30,6 +30,7 @@ router.get('/stats', settingsController.getAdminStats);
 router.get('/stats/analytics', settingsController.getDashboardAnalytics);
 
 // Products
+router.get('/products/:id', productController.getProductByIdAdmin);
 router.get('/products/:id/purchase-rate-history', productController.getProductPurchaseRateHistory);
 router.post('/products', upload.array('images', 8), productController.createProduct);
 router.put('/products/:id', upload.array('images', 8), productController.updateProduct);

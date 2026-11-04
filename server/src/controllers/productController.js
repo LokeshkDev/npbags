@@ -2,6 +2,7 @@ const slugify = require('slugify');
 const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { processUploadedFile, deleteUploadedFile } = require('../middleware/upload');
+const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
 
 function normalizePurchaseRate(value) {
   if (value === undefined || value === null) return null;
@@ -175,8 +176,14 @@ async function getAllProducts(req, res, next) {
     }
 
     if (search) {
-      sql += ` AND (p.name LIKE ? OR p.tagline LIKE ? OR p.description LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      const term = `%${search}%`;
+      sql += ` AND (
+        p.name LIKE ? OR p.tagline LIKE ? OR p.description LIKE ?
+        OR p.barcode_short_name LIKE ? OR c.name LIKE ?
+        OR EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND pb.barcode LIKE ?)
+        OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.sku LIKE ?)
+      )`;
+      params.push(term, term, term, term, term, term, term);
     }
 
     // Sorting
@@ -231,6 +238,14 @@ async function getAllProducts(req, res, next) {
         }
       }
 
+      // Default brand image for products without any uploaded image
+      if (!prod.primary_image) {
+        prod.primary_image = DEFAULT_PRODUCT_IMAGE;
+        if (prod.images.length === 0) {
+          prod.images = [DEFAULT_PRODUCT_IMAGE];
+        }
+      }
+
       // Group colors for swatches
       const colorsMap = {};
       variants.forEach((v, vIdx) => {
@@ -282,15 +297,16 @@ async function getAllProducts(req, res, next) {
   }
 }
 
-async function getProductBySlugOrId(req, res, next) {
+async function getProductByIdentifier(req, res, next, { includeOffline = false } = {}) {
   try {
     const { identifier } = req.params;
+    const onlineFilter = includeOffline ? '' : ' AND (p.is_online = TRUE OR p.is_online IS NULL)';
 
     const rows = await query(
       `SELECT p.*, c.name AS category_name, c.slug AS category_slug
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
-       WHERE (p.id = ? OR p.slug = ?) AND p.is_active = TRUE`,
+       WHERE (p.id = ? OR p.slug = ?) AND p.is_active = TRUE${onlineFilter}`,
       [identifier, identifier]
     );
 
@@ -362,6 +378,10 @@ async function getProductBySlugOrId(req, res, next) {
     if (!product.primary_image && product.gallery.length > 0) {
       product.primary_image = product.gallery[0];
     }
+    if (!product.primary_image) {
+      product.primary_image = DEFAULT_PRODUCT_IMAGE;
+      product.gallery = [DEFAULT_PRODUCT_IMAGE];
+    }
 
     // Reviews
     const reviews = await query(
@@ -396,7 +416,7 @@ async function getProductBySlugOrId(req, res, next) {
         `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC LIMIT 1`,
         [rel.id]
       );
-      rel.image = relImgs.length > 0 ? relImgs[0].image_url : null;
+      rel.image = relImgs.length > 0 ? relImgs[0].image_url : DEFAULT_PRODUCT_IMAGE;
     }
     product.related_products = related;
 
@@ -404,6 +424,14 @@ async function getProductBySlugOrId(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+async function getProductBySlugOrId(req, res, next) {
+  return getProductByIdentifier(req, res, next, { includeOffline: false });
+}
+
+async function getProductByIdAdmin(req, res, next) {
+  return getProductByIdentifier(req, res, next, { includeOffline: true });
 }
 
 // Admin: Create product
@@ -1158,6 +1186,7 @@ async function getProductPurchaseRateHistory(req, res, next) {
 module.exports = {
   getAllProducts,
   getProductBySlugOrId,
+  getProductByIdAdmin,
   getProductPurchaseRateHistory,
   createProduct,
   updateProduct,

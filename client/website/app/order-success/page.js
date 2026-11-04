@@ -4,6 +4,7 @@ import React, { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Icon } from '../../components/common/Icons';
+import { getOrderDetails } from '../../lib/api';
 
 function OrderSuccessContent() {
   const searchParams = useSearchParams();
@@ -19,12 +20,9 @@ function OrderSuccessContent() {
       return;
     }
 
-    fetch(`http://localhost:5000/api/orders/${encodeURIComponent(orderNumber)}`)
-      .then(res => res.json())
+    getOrderDetails(orderNumber)
       .then(data => {
-        if (data && data.success && data.data) {
-          setOrder(data.data);
-        }
+        if (data) setOrder(data);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -145,9 +143,9 @@ function OrderSuccessContent() {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                       <img
-                        src={item.image_url || item.image || '/assets/bestsellers/best-handbag.png'}
+                        src={item.image_url || item.image || '/assets/brand-logo.png'}
                         alt={item.product_name}
-                        onError={(e) => { e.currentTarget.src = '/assets/bestsellers/best-handbag.png'; }}
+                        onError={(e) => { e.currentTarget.src = '/assets/brand-logo.png'; }}
                         style={{
                           width: '64px',
                           height: '76px',

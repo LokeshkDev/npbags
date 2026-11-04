@@ -23,49 +23,140 @@ import {
 
 const RECEIPT_STORE_NAME = 'NP Grand Shopping';
 const POS_DRAFT_KEY = 'npgrand_pos_active_bill_draft';
+const POS_STAFF_KEY = 'npgrand_pos_selected_staff';
+
+function cleanCustomerEmail(value) {
+  const email = String(value || '').trim();
+  if (!email) return '';
+  if (/^walkin@/i.test(email) || /@pos\.npgrand\.com$/i.test(email)) return '';
+  return email;
+}
+
+function readSavedSalespersonId() {
+  try {
+    const saved = window.localStorage.getItem(POS_STAFF_KEY);
+    return saved === null ? null : saved;
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveSalespersonId(id) {
+  try {
+    window.localStorage.setItem(POS_STAFF_KEY, id ? String(id) : '');
+  } catch (err) {
+    // ignore storage failures
+  }
+}
+
+function mergeProductLists(...lists) {
+  const byId = new Map();
+  lists.forEach(list => {
+    if (!Array.isArray(list)) return;
+    list.forEach(product => {
+      if (!product) return;
+      const key = String(product.id ?? product.slug ?? product.name ?? '');
+      if (key && !byId.has(key)) byId.set(key, product);
+    });
+  });
+  return Array.from(byId.values());
+}
+
+function scoreSearchValue(value, query, weight) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return 0;
+  if (text === query) return weight + 50;
+  if (text.startsWith(query)) return weight + 35;
+  if (text.split(/\s+/).some(word => word.startsWith(query))) return weight + 25;
+  if (text.includes(query)) return weight + 10;
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1 && tokens.every(token => text.includes(token))) return weight + 5;
+  return 0;
+}
+
+function findVariantMatch(product, query) {
+  if (!Array.isArray(product.variants)) return null;
+  let best = null;
+  let bestScore = 0;
+  product.variants.forEach(variant => {
+    const score = Math.max(
+      scoreSearchValue(variant.barcode, query, 190),
+      scoreSearchValue(variant.sku, query, 170),
+      scoreSearchValue(variant.color_name, query, 40),
+      scoreSearchValue(variant.size_name, query, 40)
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      best = variant;
+    }
+  });
+  return best;
+}
+
+function scoreProductMatch(product, query) {
+  const bestFieldScore = Math.max(
+    scoreSearchValue(product.barcode, query, 200),
+    scoreSearchValue(product.sku, query, 180),
+    scoreSearchValue(product.name, query, 160),
+    scoreSearchValue(product.barcode_short_name, query, 140),
+    scoreSearchValue(product.category_name, query, 50),
+    scoreSearchValue(product.slug, query, 30),
+    scoreSearchValue(product.id, query, 20)
+  );
+  const matchedVariant = findVariantMatch(product, query);
+  const variantScore = matchedVariant
+    ? Math.max(
+        scoreSearchValue(matchedVariant.barcode, query, 190),
+        scoreSearchValue(matchedVariant.sku, query, 170),
+        scoreSearchValue(matchedVariant.color_name, query, 40),
+        scoreSearchValue(matchedVariant.size_name, query, 40)
+      )
+    : 0;
+
+  return {
+    score: Math.max(bestFieldScore, variantScore),
+    matchedVariant: variantScore > 0 ? matchedVariant : null
+  };
+}
 
 function findProductMatches(allProducts, query, limit = 15) {
   if (!query || !query.trim()) {
-    return allProducts.slice(0, 8).map(p => ({ product: p, matchedVariant: null }));
+    return allProducts.slice(0, 8).map(p => ({ product: p, matchedVariant: null, score: 0 }));
   }
   const q = query.trim().toLowerCase();
   const matches = [];
 
   for (const p of allProducts) {
-    const pName = (p.name || '').toLowerCase();
-    const pBarcode = (p.barcode || '').toLowerCase();
-    const pShort = (p.barcode_short_name || '').toLowerCase();
-    const pCat = (p.category_name || '').toLowerCase();
-    const pSku = (p.sku || '').toLowerCase();
-    const pSlug = (p.slug || '').toLowerCase();
-    const pId = String(p.id || '').toLowerCase();
-
-    let matchedVariant = null;
-    if (Array.isArray(p.variants)) {
-      matchedVariant = p.variants.find(v =>
-        (v.sku && v.sku.toLowerCase().includes(q)) ||
-        (v.color_name && v.color_name.toLowerCase().includes(q)) ||
-        (v.size_name && v.size_name.toLowerCase().includes(q)) ||
-        (v.barcode && v.barcode.toLowerCase().includes(q))
-      );
+    const { score, matchedVariant } = scoreProductMatch(p, q);
+    if (score > 0) {
+      matches.push({ product: p, matchedVariant, score });
     }
-
-    if (
-      pName.includes(q) ||
-      pBarcode.includes(q) ||
-      pShort.includes(q) ||
-      pCat.includes(q) ||
-      pSku.includes(q) ||
-      pSlug.includes(q) ||
-      pId.includes(q) ||
-      matchedVariant
-    ) {
-      matches.push({ product: p, matchedVariant });
-    }
-
-    if (matches.length >= limit) break;
   }
-  return matches;
+
+  return matches
+    .sort((a, b) => b.score - a.score || String(a.product.name || '').localeCompare(String(b.product.name || '')))
+    .slice(0, limit);
+}
+
+function findExactProductMatch(allProducts, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return null;
+
+  for (const product of allProducts) {
+    if (String(product.barcode || '').toLowerCase() === q || String(product.sku || '').toLowerCase() === q) {
+      return { product, matchedVariant: null, score: 250 };
+    }
+    if (String(product.name || '').trim().toLowerCase() === q || String(product.barcode_short_name || '').trim().toLowerCase() === q) {
+      return { product, matchedVariant: null, score: 210 };
+    }
+    if (Array.isArray(product.variants)) {
+      const variant = product.variants.find(v =>
+        String(v.barcode || '').toLowerCase() === q || String(v.sku || '').toLowerCase() === q
+      );
+      if (variant) return { product, matchedVariant: variant, score: 200 };
+    }
+  }
+  return null;
 }
 
 export function POSBillingModal() {
@@ -78,6 +169,9 @@ export function POSBillingModal() {
 
   // Autocomplete suggestions
   const [allProducts, setAllProducts] = useState([]);
+  const [remoteSearchProducts, setRemoteSearchProducts] = useState([]);
+  const [remoteRowProducts, setRemoteRowProducts] = useState([]);
+  const [remoteModalProducts, setRemoteModalProducts] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
@@ -149,8 +243,7 @@ export function POSBillingModal() {
   const [thermalSettings, setThermalSettings] = useState({
     paperWidth: '80mm', // '80mm' | '58mm'
     copies: 1, // 1 | 2
-    density: '300bol', // '300bol' (Pure Black 300 DPI High-Density Bold) | 'standard'
-    autoPrint: false
+    density: '300bol' // '300bol' (Pure Black 300 DPI High-Density Bold) | 'standard'
   });
   const [storeSettings, setStoreSettings] = useState({
     store_name: 'NP Grand Shopping',
@@ -188,9 +281,17 @@ export function POSBillingModal() {
       .then(data => {
         if (Array.isArray(data)) {
           setSalespersons(data);
-          if (data.length > 0 && !selectedSalespersonId) {
-            setSelectedSalespersonId(String(data[0].id));
-          }
+          setSelectedSalespersonId(prev => {
+            if (data.length === 0) return prev;
+            const saved = readSavedSalespersonId();
+            if (saved === '') return '';
+            const preferred = saved !== null ? saved : prev;
+            const match = data.find(s => String(s.id) === String(preferred));
+            if (match) return String(match.id);
+            const fallback = String(data[0].id);
+            saveSalespersonId(fallback);
+            return fallback;
+          });
         }
       })
       .catch(() => {});
@@ -198,7 +299,7 @@ export function POSBillingModal() {
 
   // Load catalog products for POS search & autocomplete
   const loadCatalogProducts = () => {
-    getAdminProducts({ limit: 500 })
+    getAdminProducts({ limit: 500, status: 'all' })
       .then(res => {
         const list = res?.products || res?.data?.products || (Array.isArray(res) ? res : []);
         if (Array.isArray(list) && list.length > 0) {
@@ -208,6 +309,18 @@ export function POSBillingModal() {
       .catch(err => {
         console.warn('Could not load products for POS:', err);
       });
+  };
+
+  const fetchServerProductMatches = async (query) => {
+    const term = String(query || '').trim();
+    if (term.length < 2) return [];
+    try {
+      const res = await getAdminProducts({ search: term, limit: 25, status: 'all' });
+      const list = res?.products || res?.data?.products || (Array.isArray(res) ? res : []);
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      return [];
+    }
   };
 
   const loadHeldBillsData = async () => {
@@ -289,7 +402,7 @@ export function POSBillingModal() {
     if (editingOrder) {
       setCustomerName(editingOrder.customer_name || 'Walk-in Customer');
       setCustomerPhone(editingOrder.customer_phone || '');
-      setCustomerEmail(editingOrder.customer_email || '');
+      setCustomerEmail(cleanCustomerEmail(editingOrder.customer_email));
       setPaymentMethod(editingOrder.payment_method || 'Cash');
       setDiscountType(editingOrder.discount_type || 'flat');
       setDiscountInput(
@@ -298,7 +411,9 @@ export function POSBillingModal() {
           : (editingOrder.discount ? String(editingOrder.discount) : '')
       );
       if (editingOrder.sales_person_id) {
-        setSelectedSalespersonId(String(editingOrder.sales_person_id));
+        const staffId = String(editingOrder.sales_person_id);
+        setSelectedSalespersonId(staffId);
+        saveSalespersonId(staffId);
       }
       setReceivedAmount(editingOrder.received_amount ? String(editingOrder.received_amount) : '');
 
@@ -339,12 +454,6 @@ export function POSBillingModal() {
       })
       .catch(() => {});
 
-    getAdminProducts({ limit: 250 })
-      .then(res => {
-        const list = res?.products || res || [];
-        if (Array.isArray(list)) setAllProducts(list);
-      })
-      .catch(() => {});
   }, []);
 
   // Show status notification
@@ -355,16 +464,73 @@ export function POSBillingModal() {
     }, duration);
   };
 
+  useEffect(() => {
+    const term = searchInput.trim();
+    if (term.length < 2) {
+      setRemoteSearchProducts([]);
+      return undefined;
+    }
+    let active = true;
+    const timer = setTimeout(async () => {
+      const list = await fetchServerProductMatches(term);
+      if (active) setRemoteSearchProducts(list);
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchInput]);
+
+  useEffect(() => {
+    const term = rowInput.trim();
+    if (term.length < 2) {
+      setRemoteRowProducts([]);
+      return undefined;
+    }
+    let active = true;
+    const timer = setTimeout(async () => {
+      const list = await fetchServerProductMatches(term);
+      if (active) setRemoteRowProducts(list);
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [rowInput]);
+
+  useEffect(() => {
+    const term = searchModalQuery.trim();
+    if (!isSearchModalOpen || term.length < 2) {
+      setRemoteModalProducts([]);
+      return undefined;
+    }
+    let active = true;
+    const timer = setTimeout(async () => {
+      const list = await fetchServerProductMatches(term);
+      if (active) setRemoteModalProducts(list);
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchModalQuery, isSearchModalOpen]);
+
   // Autocomplete Suggestions computation (instant live trigger on typing or fast picks on focus)
-  const suggestions = useMemo(() => findProductMatches(allProducts, searchInput, 15), [allProducts, searchInput]);
+  const suggestions = useMemo(
+    () => findProductMatches(mergeProductLists(allProducts, remoteSearchProducts), searchInput, 15),
+    [allProducts, remoteSearchProducts, searchInput]
+  );
 
   // Inline table-row product search suggestions
-  const rowMatches = useMemo(() => findProductMatches(allProducts, rowInput, 8), [allProducts, rowInput]);
+  const rowMatches = useMemo(
+    () => findProductMatches(mergeProductLists(allProducts, remoteRowProducts), rowInput, 8),
+    [allProducts, remoteRowProducts, rowInput]
+  );
 
   // F2 popup product search results
   const searchModalMatches = useMemo(
-    () => findProductMatches(allProducts, searchModalQuery, 30),
-    [allProducts, searchModalQuery]
+    () => findProductMatches(mergeProductLists(allProducts, remoteModalProducts), searchModalQuery, 30),
+    [allProducts, remoteModalProducts, searchModalQuery]
   );
 
   // Click outside suggestions dropdown listener
@@ -390,7 +556,7 @@ export function POSBillingModal() {
         .then(cust => {
           if (cust && cust.name) {
             setCustomerName(cust.name);
-            if (cust.email) setCustomerEmail(cust.email);
+            setCustomerEmail(cleanCustomerEmail(cust.email));
             setCustomerFoundBadge(cust.name);
             const pts = Number(cust.np_points) || 0;
             setCustomerNpPoints(pts);
@@ -446,6 +612,7 @@ export function POSBillingModal() {
             regular_price: Number(item.regular_price) || Number(item.price) || 0,
             hsn_code: item.hsn_code || '4202',
             image: item.image,
+            is_custom: Boolean(item.is_custom) || String(item.product_id || '').startsWith('custom-'),
             variant: item.variant || null,
             quantity: Number(item.quantity) || 1,
             stock_quantity: item.stock_quantity !== undefined ? item.stock_quantity : 50
@@ -498,6 +665,7 @@ export function POSBillingModal() {
       mrp: effectiveMrp,
       regular_price: effectiveMrp,
       quantity: Math.max(1, parseInt(customItem.quantity, 10) || 1),
+      is_custom: true,
       variant: null
     };
 
@@ -529,7 +697,9 @@ export function POSBillingModal() {
       setNewStaffCommission('');
       loadSalesStaff();
       if (res && res.id) {
-        setSelectedSalespersonId(String(res.id));
+        const staffId = String(res.id);
+        setSelectedSalespersonId(staffId);
+        saveSalespersonId(staffId);
       }
       setIsStaffModalOpen(false);
     } catch (err) {
@@ -578,6 +748,7 @@ export function POSBillingModal() {
       showToast(`Sales staff "${staff.name}" deleted.`, 'info');
       if (selectedSalespersonId === String(staff.id)) {
         setSelectedSalespersonId('');
+        saveSalespersonId('');
       }
       loadSalesStaff();
     } catch (err) {
@@ -614,28 +785,37 @@ export function POSBillingModal() {
   useScannerInput(handleBarcodeScanned, { enabled: isPOSOpen && !completedOrder });
 
   // Manual search submit
-  const handleSearchSubmit = (e) => {
+  const handleSearchSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const q = searchInput.trim();
     if (!q) return;
 
-    // Prefer an exact barcode/SKU match so scanning always adds the right item
-    const lower = q.toLowerCase();
-    const exactProduct = allProducts.find(p =>
-      (p.barcode && String(p.barcode).toLowerCase() === lower) ||
-      (Array.isArray(p.variants) && p.variants.some(v => v.barcode && String(v.barcode).toLowerCase() === lower))
-    );
-    if (exactProduct) {
-      const exactVariant = Array.isArray(exactProduct.variants)
-        ? exactProduct.variants.find(v => v.barcode && String(v.barcode).toLowerCase() === lower) || null
-        : null;
-      handlePickSuggestion(exactProduct, exactVariant);
+    const localPool = mergeProductLists(allProducts, remoteSearchProducts);
+    const exactMatch = findExactProductMatch(localPool, q);
+    if (exactMatch) {
+      handlePickSuggestion(exactMatch.product, exactMatch.matchedVariant);
       return;
     }
 
+    if (highlightedIndex >= 0 && suggestions[highlightedIndex]?.product) {
+      handlePickSuggestion(suggestions[highlightedIndex].product, suggestions[highlightedIndex].matchedVariant);
+      return;
+    }
+
+    setSearching(true);
+    try {
+      const serverProducts = await fetchServerProductMatches(q);
+      const serverMatch = findExactProductMatch(serverProducts, q) || findProductMatches(serverProducts, q, 1)[0];
+      if (serverMatch?.product) {
+        handlePickSuggestion(serverMatch.product, serverMatch.matchedVariant);
+        return;
+      }
+    } finally {
+      setSearching(false);
+    }
+
     if (suggestions.length > 0) {
-      const pickIndex = highlightedIndex >= 0 ? highlightedIndex : 0;
-      const item = suggestions[pickIndex];
+      const item = suggestions[0];
       if (item && item.product) {
         handlePickSuggestion(item.product, item.matchedVariant);
         return;
@@ -676,21 +856,22 @@ export function POSBillingModal() {
       return;
     }
 
-    const lower = q.toLowerCase();
-    const exactProduct = allProducts.find(p =>
-      (p.barcode && String(p.barcode).toLowerCase() === lower) ||
-      (Array.isArray(p.variants) && p.variants.some(v => v.barcode && String(v.barcode).toLowerCase() === lower))
-    );
+    const localPool = mergeProductLists(allProducts, remoteRowProducts);
+    const exactMatch = findExactProductMatch(localPool, q);
+    let pick = exactMatch;
 
-    let pick = null;
-    if (exactProduct) {
-      const exactVariant = Array.isArray(exactProduct.variants)
-        ? exactProduct.variants.find(v => v.barcode && String(v.barcode).toLowerCase() === lower) || null
-        : null;
-      pick = { product: exactProduct, matchedVariant: exactVariant };
-    } else {
-      const pickIndex = rowHighlightedIndex >= 0 && rowMatches[rowHighlightedIndex] ? rowHighlightedIndex : 0;
-      pick = rowMatches[pickIndex] || null;
+    if (!pick && rowHighlightedIndex >= 0 && rowMatches[rowHighlightedIndex]?.product) {
+      pick = rowMatches[rowHighlightedIndex];
+    }
+
+    if (!pick) {
+      setSearching(true);
+      try {
+        const serverProducts = await fetchServerProductMatches(q);
+        pick = findExactProductMatch(serverProducts, q) || findProductMatches(serverProducts, q, 1)[0] || rowMatches[0] || null;
+      } finally {
+        setSearching(false);
+      }
     }
 
     if (pick && pick.product) {
@@ -701,7 +882,7 @@ export function POSBillingModal() {
       return;
     }
 
-    // Fallback: server-side lookup handles barcodes beyond the loaded page + name match
+    // Fallback: barcode lookup handles exact barcodes beyond the loaded product catalog
     setSearching(true);
     try {
       const res = await lookupBarcode(q);
@@ -807,7 +988,7 @@ export function POSBillingModal() {
     return {
       customer_name: customerName.trim() || 'Walk-in Customer',
       customer_phone: customerPhone.trim(),
-      customer_email: customerEmail.trim(),
+      customer_email: cleanCustomerEmail(customerEmail),
       items: cart,
       discount_type: discountType,
       discount_value: cartFinancials.discountValue,
@@ -976,14 +1157,18 @@ export function POSBillingModal() {
     }
     setCustomerName(bill.customer_name || 'Walk-in Customer');
     setCustomerPhone(bill.customer_phone || '');
-    setCustomerEmail(bill.customer_email || '');
+    setCustomerEmail(cleanCustomerEmail(bill.customer_email));
     setCustomerFoundBadge(null);
     setCustomerNpPoints(0);
     setRedeemPoints(0);
     setPaymentMethod(bill.payment_method || 'Cash');
     setDiscountType(bill.discount_type === 'percentage' || bill.discount_type === 'percent' ? 'percent' : 'flat');
     setDiscountInput(bill.discount_value !== undefined && bill.discount_value !== null ? String(bill.discount_value) : (bill.discount_amount ? String(bill.discount_amount) : ''));
-    if (bill.sales_person_id) setSelectedSalespersonId(String(bill.sales_person_id));
+    if (bill.sales_person_id) {
+      const staffId = String(bill.sales_person_id);
+      setSelectedSalespersonId(staffId);
+      saveSalespersonId(staffId);
+    }
     if (bill.is_accountable !== undefined && bill.is_accountable !== null) {
       setIsAccountable(Number(bill.is_accountable) !== 0);
     }
@@ -1080,7 +1265,7 @@ export function POSBillingModal() {
       const payload = {
         customer_name: customerName.trim() || 'Walk-in Customer',
         customer_phone: customerPhone.trim(),
-        customer_email: customerEmail.trim(),
+        customer_email: cleanCustomerEmail(customerEmail),
         payment_method: paymentMethod,
         is_accountable: isAccountable ? 1 : 0,
         discount_amount: cartFinancials.discountAmount,
@@ -1097,7 +1282,10 @@ export function POSBillingModal() {
             product_name: item.product_name,
             barcode: item.barcode,
             price: item.price,
+            mrp: item.mrp || item.regular_price || item.price,
             quantity: item.quantity,
+            hsn_code: item.hsn_code || '4202',
+            is_custom: Boolean(item.is_custom) || String(item.product_id || '').startsWith('custom-'),
             sku: item.variant?.sku || null,
             size: item.variant?.size || null,
             color: item.variant?.color || null,
@@ -1153,21 +1341,16 @@ export function POSBillingModal() {
 
       setCompletedOrder(orderObj);
       setCart([]);
+      setCustomerEmail(cleanCustomerEmail(customerEmail));
       setDiscountInput('');
       setReceivedAmount('');
+      loadCatalogProducts();
       try {
         window.localStorage.removeItem(POS_DRAFT_KEY);
       } catch (draftErr) {
         // ignore storage failures
       }
       if (setEditingOrder) setEditingOrder(null);
-
-      // If auto-print is enabled in fixed thermal settings, trigger print directly
-      if (thermalSettings.autoPrint) {
-        setTimeout(() => {
-          printThermalReceipt(orderObj, thermalSettings);
-        }, 250);
-      }
     } catch (err) {
       alert(`Checkout failed: ${err.message || 'Server error'}`);
     } finally {
@@ -1247,6 +1430,13 @@ export function POSBillingModal() {
         return;
       }
 
+      if (completedOrder && e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        printThermalReceipt(completedOrder, thermalSettings);
+        return;
+      }
+
       if (e.key === 'F2') {
         e.preventDefault();
         if (!isHeldModalOpen && !isCustomModalOpen && !isStaffModalOpen && !completedOrder) {
@@ -1307,10 +1497,10 @@ export function POSBillingModal() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, selectedHeldIndex, heldBills, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS]);
+  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, selectedHeldIndex, heldBills, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS, thermalSettings]);
 
   // Thermal Receipt Printing (Standard ESC/POS HTML) - Pure Solid Black #000000 with 300 Bold Density
-  const printThermalReceipt = (orderData, overrideSettings) => {
+  function printThermalReceipt(orderData, overrideSettings) {
     const order = orderData || completedOrder;
     if (!order) return;
 
@@ -1529,7 +1719,7 @@ export function POSBillingModal() {
         printWin.close();
       }, 400);
     }
-  };
+  }
 
   // WhatsApp invoice trigger
   const handleSendWhatsAppInvoice = (order) => {
@@ -1987,6 +2177,7 @@ export function POSBillingModal() {
                   onChange={(e) => {
                     const spId = e.target.value;
                     setSelectedSalespersonId(spId);
+                    saveSalespersonId(spId);
                     const spObj = salespersons.find(s => String(s.id) === String(spId));
                     setCart(prev => prev.map(item => ({
                       ...item,
@@ -2290,6 +2481,10 @@ export function POSBillingModal() {
                             onChange={(e) => {
                               const val = e.target.value;
                               const spObj = salespersons.find(s => String(s.id) === String(val));
+                              if (val) {
+                                setSelectedSalespersonId(val);
+                                saveSalespersonId(val);
+                              }
                               setCart(prev => {
                                 const copy = [...prev];
                                 copy[idx] = {
@@ -2897,7 +3092,7 @@ export function POSBillingModal() {
           >
             {isSubmitting
               ? (editingOrder ? 'UPDATING BILL...' : 'PROCESSING BILL...')
-              : (editingOrder ? `SAVE & UPDATE BILL [F4]` : 'COMPLETE SALE & PRINT [F4]')}
+              : (editingOrder ? `SAVE & UPDATE BILL [F4]` : 'COMPLETE SALE [F4]')}
           </button>
         </div>
       </div>
@@ -3904,7 +4099,9 @@ export function POSBillingModal() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedSalespersonId(String(staff.id));
+                                  const staffId = String(staff.id);
+                                  setSelectedSalespersonId(staffId);
+                                  saveSalespersonId(staffId);
                                   setIsStaffModalOpen(false);
                                   showToast(`Selected: ${staff.name}`, 'success');
                                 }}

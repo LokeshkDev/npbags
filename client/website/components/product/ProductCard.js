@@ -17,7 +17,7 @@ export function ProductCard({
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { openQuickView } = useQuickView();
 
-  const mainImg = product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || (product.colors && product.colors[0]?.img) || product.image || '/assets/bestsellers/best-handbag.png';
+  const mainImg = product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || (product.colors && product.colors[0]?.img) || product.image || '/assets/brand-logo.png';
   const price = typeof product.price === 'number' ? product.price : parseFloat(product.price || 0);
   const salePrice = typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0);
   const hasSale = salePrice > 0 && salePrice < price;
@@ -81,7 +81,7 @@ export function ProductCard({
               style={fullImage || isShop ? { objectFit: 'contain', width: '100%', height: '100%' } : undefined}
               onError={(e) => {
                 e.currentTarget.onerror = null;
-                e.currentTarget.src = '/assets/bestsellers/best-handbag.png';
+                e.currentTarget.src = '/assets/brand-logo.png';
               }}
             />
           ) : (
