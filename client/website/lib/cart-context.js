@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { getDeliverySettings } from './api';
 
 const CartContext = createContext(null);
 
@@ -21,12 +22,11 @@ export function CartProvider({ children }) {
       setCart([]);
     }
 
-    // Fetch delivery settings for free delivery threshold
-    fetch('http://localhost:5000/api/cms/delivery-settings')
-      .then(res => res.json())
+    // Fetch delivery settings for free delivery threshold (uses NEXT_PUBLIC_API_URL)
+    getDeliverySettings()
       .then(data => {
-        if (data && data.data && data.data.free_delivery_threshold) {
-          setFreeShippingThreshold(parseFloat(data.data.free_delivery_threshold));
+        if (data && data.free_delivery_threshold) {
+          setFreeShippingThreshold(parseFloat(data.free_delivery_threshold));
         }
       })
       .catch(() => {});

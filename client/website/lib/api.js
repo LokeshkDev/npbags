@@ -17,7 +17,9 @@ async function safeFetch(endpoint, options = {}, fallback = null) {
     if (!res.ok) {
       if (fallback !== null) return fallback;
       const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.message || `Request failed with status ${res.status}`);
+      const error = new Error(errorData.message || `Request failed with status ${res.status}`);
+      error.status = res.status;
+      throw error;
     }
 
     const data = await res.json();

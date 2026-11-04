@@ -5,30 +5,83 @@ import { loginUser, registerUser, getMyProfile } from './api';
 
 const AuthContext = createContext(null);
 
+function isTokenExpired(token) {
+  try {
+    const payload = JSON.parse(
+      atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))
+    );
+    return !!payload.exp && payload.exp * 1000 <= Date.now();
+  } catch (e) {
+    return false;
+  }
+}
+
+function clearStoredSession() {
+  try {
+    localStorage.removeItem('storefront_token');
+    localStorage.removeItem('storefront_user');
+  } catch (e) {}
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let savedToken = null;
+    let savedUser = null;
     try {
-      const savedToken = localStorage.getItem('storefront_token');
-      const savedUser = localStorage.getItem('storefront_user');
-      if (savedToken && savedUser) {
-        setToken(savedToken);
-        setUser(JSON.parse(savedUser));
-        // Verify with backend
-        getMyProfile(savedToken)
-          .then(data => {
-            if (data && data.user) {
-              setUser(data.user);
-              localStorage.setItem('storefront_user', JSON.stringify(data.user));
-            }
-          })
-          .catch(() => {});
-      }
+      savedToken = localStorage.getItem('storefront_token');
+      savedUser = localStorage.getItem('storefront_user');
     } catch (e) {}
-    setLoading(false);
+
+    if (!savedToken) {
+      setLoading(false);
+      return;
+    }
+
+    // Skip the network round-trip (and the resulting 401) for expired tokens.
+    if (isTokenExpired(savedToken)) {
+      clearStoredSession();
+      setToken(null);
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
+    let cachedUser = null;
+    try {
+      cachedUser = savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {}
+
+    // Verify the token BEFORE exposing the session, so protected pages
+    // don't fire authenticated requests with a stale/invalid token.
+    getMyProfile(savedToken)
+      .then(data => {
+        const profile = (data && data.user) || cachedUser;
+        setToken(savedToken);
+        setUser(profile);
+        if (profile) {
+          try {
+            localStorage.setItem('storefront_user', JSON.stringify(profile));
+          } catch (e) {}
+        }
+      })
+      .catch(error => {
+        if (error && (error.status === 401 || error.status === 403)) {
+          // Expired/invalid token – clear the stale session instead of
+          // repeatedly hitting protected endpoints that return 401.
+          clearStoredSession();
+          setToken(null);
+          setUser(null);
+        } else {
+          // Backend/network hiccup – keep the cached session usable.
+          setToken(savedToken);
+          setUser(cachedUser);
+        }
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const login = async (email, password) => {
