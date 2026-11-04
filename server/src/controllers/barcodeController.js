@@ -91,8 +91,10 @@ async function lookupBarcode(req, res, next) {
     const getBranchStock = async (productId) => {
       if (!branch_id || !productId) return null;
       try {
-        const rows = await query('SELECT stock FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1', [branch_id, productId]);
-        return rows.length > 0 ? rows[0].stock : 0;
+        const rows = await query('SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1', [branch_id, productId]);
+        if (rows.length === 0) return null;
+        if (Number(branch_id) > 1 && Number(rows[0].is_active) !== 1) return null;
+        return rows[0].stock;
       } catch (err) {
         return null;
       }
@@ -114,6 +116,17 @@ async function lookupBarcode(req, res, next) {
 
     if (barcodeRows.length > 0) {
       const row = barcodeRows[0];
+
+      // Regional branch check: verify product is active in this branch
+      if (branch_id && Number(branch_id) > 1) {
+        const branchCheck = await query(
+          'SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1',
+          [branch_id, row.product_id]
+        );
+        if (branchCheck.length === 0 || Number(branchCheck[0].is_active) !== 1) {
+          return sendError(res, 'This product is not active or available for this branch.', 404);
+        }
+      }
 
       // Get primary image if variant image not available
       let displayImage = row.variant_image;
@@ -173,6 +186,18 @@ async function lookupBarcode(req, res, next) {
 
     if (skuRows.length > 0) {
       const row = skuRows[0];
+
+      // Regional branch check: verify product is active in this branch
+      if (branch_id && Number(branch_id) > 1) {
+        const branchCheck = await query(
+          'SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1',
+          [branch_id, row.product_id]
+        );
+        if (branchCheck.length === 0 || Number(branchCheck[0].is_active) !== 1) {
+          return sendError(res, 'This product is not active or available for this branch.', 404);
+        }
+      }
+
       const imgs = await query(
         `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
         [row.product_id]
@@ -224,6 +249,18 @@ async function lookupBarcode(req, res, next) {
 
     if (prodRows.length > 0) {
       const p = prodRows[0];
+
+      // Regional branch check: verify product is active in this branch
+      if (branch_id && Number(branch_id) > 1) {
+        const branchCheck = await query(
+          'SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1',
+          [branch_id, p.id]
+        );
+        if (branchCheck.length === 0 || Number(branchCheck[0].is_active) !== 1) {
+          return sendError(res, 'This product is not active or available for this branch.', 404);
+        }
+      }
+
       const imgs = await query(
         `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
         [p.id]
@@ -270,6 +307,18 @@ async function lookupBarcode(req, res, next) {
 
       if (nameRows.length > 0) {
         const p = nameRows[0];
+
+        // Regional branch check: verify product is active in this branch
+        if (branch_id && Number(branch_id) > 1) {
+          const branchCheck = await query(
+            'SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1',
+            [branch_id, p.id]
+          );
+          if (branchCheck.length === 0 || Number(branchCheck[0].is_active) !== 1) {
+            return sendError(res, 'This product is not active or available for this branch.', 404);
+          }
+        }
+
         const imgs = await query(
           `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC LIMIT 1`,
           [p.id]

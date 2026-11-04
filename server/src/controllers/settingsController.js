@@ -372,6 +372,7 @@ async function getDashboardAnalytics(req, res, next) {
       bs.id, bs.branch_id, bs.product_id, bs.stock AS remaining_qty, bs.stock, bs.low_stock_threshold, bs.updated_at, bs.is_active,
       b.name AS branch_name, b.code AS branch_code,
       p.name AS product_name, p.price, p.sale_price, p.mrp, p.barcode_short_name,
+      COALESCE(p.stock, 0) AS main_branch_stock,
       (SELECT image_url FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image,
       c.name AS category_name,
       COALESCE((

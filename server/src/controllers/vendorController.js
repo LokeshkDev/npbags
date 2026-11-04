@@ -23,8 +23,21 @@ async function logAudit({ entity_id, action, summary, old_values = null, new_val
 // GET /api/vendors
 async function getAllVendors(req, res) {
   try {
+    const effectiveBranchId = (req.user && req.user.role !== 'admin')
+      ? req.user.branch_id
+      : (req.query.branch_id && req.query.branch_id !== 'all' ? parseInt(req.query.branch_id, 10) : null);
+
+    let whereClause = '';
+    const params = [];
+    if (effectiveBranchId) {
+      whereClause = 'WHERE (v.branch_id = ? OR (v.branch_id IS NULL AND ? = 1))';
+      params.push(effectiveBranchId, effectiveBranchId);
+    }
+
     const rows = await query(`
       SELECT v.*, 
+             b.name AS branch_name,
+             b.code AS branch_code,
              COUNT(p.id) AS products_count,
              COALESCE(SUM(p.stock), 0) AS total_stock_units,
              COALESCE(SUM(p.stock * COALESCE(p.purchase_price, p.price * 0.6)), 0) AS total_inventory_value,
@@ -45,10 +58,12 @@ async function getAllVendors(req, res) {
                WHERE pb.vendor_id = v.id AND pb.status <> 'cancelled'
              ) AS last_purchase_date
       FROM vendors v
+      LEFT JOIN branches b ON v.branch_id = b.id
       LEFT JOIN products p ON p.vendor_id = v.id AND p.is_active = TRUE
+      ${whereClause}
       GROUP BY v.id
       ORDER BY v.name ASC
-    `);
+    `, params);
     res.json(rows);
   } catch (err) {
     console.error('Error fetching vendors:', err);
@@ -95,18 +110,24 @@ async function createVendor(req, res) {
       state,
       pincode,
       bank_details,
-      notes
+      notes,
+      branch_id
     } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Vendor name is required' });
     }
 
+    const assignedBranchId = (req.user && req.user.branch_id)
+      ? req.user.branch_id
+      : (branch_id ? parseInt(branch_id, 10) : 1);
+
     const result = await query(`
       INSERT INTO vendors (
-        name, company_name, contact_person, phone, email, gstin, address, city, state, pincode, bank_details, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        branch_id, name, company_name, contact_person, phone, email, gstin, address, city, state, pincode, bank_details, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      assignedBranchId,
       name.trim(),
       company_name || null,
       contact_person || null,
@@ -159,7 +180,8 @@ async function updateVendor(req, res) {
       pincode,
       bank_details,
       notes,
-      is_active
+      is_active,
+      branch_id
     } = req.body;
 
     await query(`
@@ -176,7 +198,8 @@ async function updateVendor(req, res) {
         pincode = COALESCE(?, pincode),
         bank_details = COALESCE(?, bank_details),
         notes = COALESCE(?, notes),
-        is_active = COALESCE(?, is_active)
+        is_active = COALESCE(?, is_active),
+        branch_id = COALESCE(?, branch_id)
       WHERE id = ?
     `, [
       name !== undefined ? name.trim() : null,
@@ -192,6 +215,7 @@ async function updateVendor(req, res) {
       bank_details !== undefined ? bank_details : null,
       notes !== undefined ? notes : null,
       is_active !== undefined ? is_active : null,
+      branch_id !== undefined ? (parseInt(branch_id, 10) || null) : null,
       id
     ]);
 

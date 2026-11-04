@@ -6,17 +6,25 @@ import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
 import { Icon } from '../../components/Icons';
 import { usePOSModal } from '../../lib/pos-modal-context';
+import { useAdminAuth } from '../../lib/auth';
 import {
   getAdminOrders,
   updateOrderStatus,
   processAdminOrderReturn,
   deleteAdminOrder,
   updateAdminPOSOrderItems,
-  getAdminProducts
+  getAdminProducts,
+  getAdminBranches
 } from '../../lib/api';
 
 export default function AdminOrdersPage() {
   const { openPOS } = usePOSModal();
+  const { adminUser } = useAdminAuth();
+  const isSuperAdmin = !adminUser || adminUser.role === 'admin';
+  const userBranchId = adminUser?.branch_id ? String(adminUser.branch_id) : '';
+
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? 'all' : (userBranchId || '1'));
   const [orders, setOrders] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -46,14 +54,35 @@ export default function AdminOrdersPage() {
 
   const [billingLedger, setBillingLedger] = useState('pakka'); // 'pakka' (accountable) | 'kaccha' (unaccountable)
 
+  // Load branches
+  useEffect(() => {
+    getAdminBranches()
+      .then(res => {
+        if (res && Array.isArray(res.branches)) {
+          setBranches(res.branches);
+        }
+      })
+      .catch(err => console.warn('Failed to load branches:', err));
+  }, []);
+
+  useEffect(() => {
+    if (adminUser?.branch_id) {
+      setSelectedBranchId(String(adminUser.branch_id));
+    }
+  }, [adminUser]);
+
   // Load orders from API
   const loadOrders = () => {
-    getAdminOrders({
+    const params = {
       status: statusFilter === 'all' ? '' : statusFilter,
       search,
       is_accountable: billingLedger === 'kaccha' ? '0' : '1',
       limit: 100
-    })
+    };
+    if (selectedBranchId && selectedBranchId !== 'all') {
+      params.branch_id = selectedBranchId;
+    }
+    getAdminOrders(params)
       .then(data => {
         if (data && data.orders) setOrders(data.orders);
       })
@@ -67,7 +96,7 @@ export default function AdminOrdersPage() {
     };
     window.addEventListener('np_order_updated', handleOrderUpdated);
     return () => window.removeEventListener('np_order_updated', handleOrderUpdated);
-  }, [statusFilter, search, billingLedger]);
+  }, [statusFilter, search, billingLedger, selectedBranchId]);
 
   // Load catalog products for POS item editing
   useEffect(() => {
@@ -366,6 +395,11 @@ export default function AdminOrdersPage() {
     const dateStr = new Date(order.created_at || Date.now()).toLocaleString('en-IN');
     const orderNo = order.order_number || `POS-${order.id}`;
 
+    const totalMrp = Math.ceil(items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0));
+    const totalSellingPrice = Math.ceil(items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0));
+    const netPayable = Math.ceil(Number(order.total_amount || totalSellingPrice));
+    const totalSavings = Math.max(0, totalMrp - netPayable);
+
     const printHtml = `
 <!DOCTYPE html>
 <html>
@@ -397,7 +431,7 @@ export default function AdminOrdersPage() {
 <body>
   <div class="center">
     <div style="font-size: 16px; font-weight: 900;">NP GRAND SHOPPING</div>
-    <div class="subtext">Madambakkam Main Road, Chennai 600073</div>
+    <div class="subtext">${order.branch_name ? order.branch_name.toUpperCase() : (order.branch_id === 3 ? 'MANALI BRANCH' : 'MAIN STORE')}</div>
     <div class="subtext">Phone: +91 97909 04504 &bull; www.npgrandshopping.com</div>
     <div class="divider"></div>
     <div class="bold" style="font-size: 12px;">TAX INVOICE / POS RECEIPT</div>
@@ -413,30 +447,53 @@ export default function AdminOrdersPage() {
 
   <table class="items-table">
     <thead>
-      <tr><th style="width: 48%;">ITEM</th><th style="width: 14%;" class="right">QTY</th><th style="width: 18%;" class="right">PRICE</th><th style="width: 20%;" class="right">TOTAL</th></tr>
+      <tr>
+        <th style="width: 38%;">ITEM</th>
+        <th style="width: 10%;" class="right">QTY</th>
+        <th style="width: 17%;" class="right">MRP</th>
+        <th style="width: 17%;" class="right">PRICE</th>
+        <th style="width: 18%;" class="right">TOTAL</th>
+      </tr>
     </thead>
     <tbody>
-      ${items.map(it => `
-        <tr>
-          <td><div class="bold">${it.product_name}</div><div class="subtext">[${it.sku || it.barcode || 'ITEM'}]</div></td>
-          <td class="right bold">${it.quantity}</td>
-          <td class="right">${Number(it.price).toFixed(2)}</td>
-          <td class="right bold">${Number(it.total || (it.quantity * it.price)).toFixed(2)}</td>
-        </tr>
-      `).join('')}
+      ${items.map(it => {
+        const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
+        const itPrice = Number(it.price || 0);
+        const itQty = Number(it.quantity || 1);
+        const itTotal = itQty * itPrice;
+        return `
+          <tr>
+            <td>
+              <div class="bold">${it.product_name}</div>
+              <div class="subtext">[${it.sku || it.barcode || 'ITEM'}]</div>
+            </td>
+            <td class="right bold">${itQty}</td>
+            <td class="right">${itMrp.toFixed(2)}</td>
+            <td class="right bold">${itPrice.toFixed(2)}</td>
+            <td class="right bold">${itTotal.toFixed(2)}</td>
+          </tr>
+        `;
+      }).join('')}
     </tbody>
   </table>
 
   <div class="divider"></div>
   <div class="flex-row"><span>Items Count:</span><span class="bold">${items.reduce((s, i) => s + Number(i.quantity), 0)}</span></div>
-  <div class="flex-row"><span>Gross Total:</span><span>Rs. ${Number(order.subtotal || order.total_amount).toFixed(2)}</span></div>
+  <div class="flex-row"><span>Total MRP:</span><span class="bold">Rs. ${totalMrp}</span></div>
+  <div class="flex-row"><span>Final Price (Selling Price):</span><span class="bold">Rs. ${totalSellingPrice}</span></div>
   ${Number(order.discount) > 0 ? `<div class="flex-row"><span>Discount:</span><span class="bold">- Rs. ${Number(order.discount).toFixed(2)}</span></div>` : ''}
   <div class="flex-row"><span>Taxable Value:</span><span>Rs. ${Number(order.taxable_amount || (order.total_amount * 0.8475)).toFixed(2)}</span></div>
   <div class="flex-row"><span>CGST (9%):</span><span>Rs. ${Number(order.cgst_amount || (order.total_amount * 0.07625)).toFixed(2)}</span></div>
   <div class="flex-row"><span>SGST (9%):</span><span>Rs. ${Number(order.sgst_amount || (order.total_amount * 0.07625)).toFixed(2)}</span></div>
   <div class="double-divider"></div>
-  <div class="flex-row" style="font-size: 13.5px;"><span class="bold">NET PAYABLE:</span><span class="bold">Rs. ${Number(order.total_amount).toFixed(2)}</span></div>
+  <div class="flex-row" style="font-size: 13.5px;"><span class="bold">NET PAYABLE:</span><span class="bold">Rs. ${netPayable}</span></div>
   <div class="double-divider"></div>
+
+  ${totalSavings > 0 ? `
+    <div class="center bold" style="font-size: 12px; padding: 4px 2px; border: 1.5px dashed #000000; margin: 6px 0; letter-spacing: 0.4px;">
+      *** YOU SAVED: ₹${totalSavings} ***
+    </div>
+  ` : ''}
 
   <div class="center" style="font-size: 9.5px; margin-top: 8px;">
     <div class="bold">GST INCLUSIVE. ALL TAXES ACCOUNTED FOR.</div>
@@ -586,18 +643,18 @@ export default function AdminOrdersPage() {
 
           {/* Search & Filters */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '14px' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 type="search"
                 placeholder="Search by order #, customer name, email..."
                 className="form-control"
-                style={{ width: '320px' }}
+                style={{ width: '280px' }}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
               <select
                 className="form-control"
-                style={{ width: '180px' }}
+                style={{ width: '160px' }}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
@@ -608,6 +665,28 @@ export default function AdminOrdersPage() {
                 <option value="delivered">Delivered</option>
                 <option value="cancelled">Cancelled</option>
               </select>
+
+              {/* Branch Filter */}
+              {isSuperAdmin ? (
+                <select
+                  className="form-control"
+                  style={{ width: '200px', fontWeight: 700, borderColor: '#0ea5e9' }}
+                  value={selectedBranchId}
+                  onChange={(e) => setSelectedBranchId(e.target.value)}
+                >
+                  <option value="all">🏢 All Branches</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#e0f2fe', color: '#0369a1', padding: '6px 12px', borderRadius: '8px', fontWeight: 800, fontSize: '12px', border: '1px solid #bae6fd' }}>
+                  <span>🏢</span>
+                  <span>{branches.find(b => String(b.id) === String(selectedBranchId))?.name || 'My Branch'}</span>
+                </div>
+              )}
             </div>
 
             <button
@@ -627,6 +706,7 @@ export default function AdminOrdersPage() {
                 <thead>
                   <tr>
                     <th>Order / Bill #</th>
+                    <th>Branch</th>
                     <th>Date</th>
                     <th>Customer</th>
                     <th>Payment</th>
@@ -638,13 +718,15 @@ export default function AdminOrdersPage() {
                 <tbody>
                   {filteredOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
                         {activeOrderTypeTab === 'online' ? 'No online orders found matching criteria.' : activeOrderTypeTab === 'pos' ? 'No walk-in / POS billing orders found.' : 'No orders recorded yet.'}
                       </td>
                     </tr>
                   ) : (
                     filteredOrders.map(o => {
                       const isPOS = (o.order_type || '').toLowerCase() === 'pos';
+                      const isRegionalBranch = o.branch_id && Number(o.branch_id) > 1;
+                      const branchLabel = o.branch_name || (o.branch_id === 3 ? 'Manali Branch' : 'Main Store');
                       return (
                         <tr key={o.id}>
                           <td>
@@ -667,6 +749,22 @@ export default function AdminOrdersPage() {
                                 )}
                               </div>
                             </div>
+                          </td>
+                          <td>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              background: isRegionalBranch ? '#eff6ff' : '#f8fafc',
+                              color: isRegionalBranch ? '#1d4ed8' : '#475569',
+                              border: `1px solid ${isRegionalBranch ? '#bfdbfe' : '#e2e8f0'}`
+                            }}>
+                              🏢 {branchLabel}
+                            </span>
                           </td>
                           <td style={{ color: 'var(--muted)' }}>{new Date(o.created_at).toLocaleDateString()}</td>
                           <td>
@@ -865,7 +963,7 @@ export default function AdminOrdersPage() {
                 {(selectedOrder.order_type || '').toLowerCase() === 'pos' ? (
                   <div style={{ fontSize: '12.5px', marginTop: '4px', lineHeight: 1.5, color: '#334155' }}>
                     NP Grand Shopping Store Counter<br />
-                    Madambakkam Main Road, Chennai 600073<br />
+                    Branch: <strong>{selectedOrder.branch_name || (selectedOrder.branch_id === 3 ? 'Manali Branch' : 'Main Store')}</strong><br />
                     Payment Mode: <strong>{(selectedOrder.payment_method || 'Cash').toUpperCase()}</strong>
                   </div>
                 ) : selectedOrder.shipping_address ? (

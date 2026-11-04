@@ -7,7 +7,13 @@ import { Topbar } from '../../components/Topbar';
 import { Icon } from '../../components/Icons';
 import { usePOSModal } from '../../lib/pos-modal-context';
 import { useAdminAuth } from '../../lib/auth';
-import { getAdminDashboardAnalytics, getAdminProductAgingAlerts, getAdminBranches } from '../../lib/api';
+import {
+  getAdminDashboardAnalytics,
+  getAdminProductAgingAlerts,
+  getAdminBranches,
+  updateAdminBranchProductStock,
+  pushAdminStockToMainBranch
+} from '../../lib/api';
 
 export default function AdminDashboardPage() {
   const { openPOS } = usePOSModal();
@@ -174,6 +180,78 @@ export default function AdminDashboardPage() {
     window.addEventListener('np_order_updated', handleOrderSync);
     return () => window.removeEventListener('np_order_updated', handleOrderSync);
   }, [fetchAnalytics, fetchAgingAlerts]);
+
+  // Branch Product Stock & Visibility Maintenance
+  const handleToggleBranchVisibility = async (p) => {
+    const bId = p.branch_id || (data.active_branch ? data.active_branch.id : (selectedBranchId !== 'all' ? selectedBranchId : null));
+    if (!bId) {
+      alert('Please select a specific branch from the dropdown above to manage branch visibility.');
+      return;
+    }
+    try {
+      const newStatus = p.is_active === 0 ? 1 : 0;
+      await updateAdminBranchProductStock(bId, p.product_id, { is_active: newStatus });
+      fetchAnalytics();
+    } catch (err) {
+      alert(`Could not toggle visibility: ${err.message || 'Server error'}`);
+    }
+  };
+
+  const handleUpdateBranchQty = async (p) => {
+    const bId = p.branch_id || (data.active_branch ? data.active_branch.id : (selectedBranchId !== 'all' ? selectedBranchId : null));
+    if (!bId) {
+      alert('Please select a specific branch from the dropdown above to update branch stock.');
+      return;
+    }
+    const currentQty = p.remaining_qty ?? p.stock ?? 0;
+    const input = window.prompt(`Update branch stock quantity for "${p.product_name}":`, String(currentQty));
+    if (input === null) return;
+    const newQty = parseInt(input, 10);
+    if (Number.isNaN(newQty) || newQty < 0) {
+      alert('Please enter a valid non-negative number for stock.');
+      return;
+    }
+    try {
+      await updateAdminBranchProductStock(bId, p.product_id, { stock: newQty });
+      fetchAnalytics();
+    } catch (err) {
+      alert(`Could not update stock: ${err.message || 'Server error'}`);
+    }
+  };
+
+  const handlePushToMain = async (p) => {
+    const bId = p.branch_id || (data.active_branch ? data.active_branch.id : (selectedBranchId !== 'all' ? selectedBranchId : null));
+    if (!bId) {
+      alert('Please select a specific branch from the dropdown above to transfer stock.');
+      return;
+    }
+    const branchStock = p.remaining_qty ?? p.stock ?? 0;
+    if (branchStock <= 0) {
+      alert(`Branch has 0 units of "${p.product_name}". Nothing to push to Main Branch.`);
+      return;
+    }
+    const input = window.prompt(
+      `Push "${p.product_name}" to Main Branch (Head Warehouse).\n\nAvailable in Branch: ${branchStock} units\nMain Store Stock: ${p.main_branch_stock ?? 0} units\n\nEnter number of units to transfer:`,
+      '1'
+    );
+    if (!input) return;
+    const qty = parseInt(input, 10);
+    if (!qty || qty <= 0) {
+      alert('Please enter a valid positive quantity.');
+      return;
+    }
+    if (qty > branchStock) {
+      alert(`Cannot transfer ${qty} units. Branch only has ${branchStock} units.`);
+      return;
+    }
+    try {
+      const res = await pushAdminStockToMainBranch(bId, p.product_id, { quantity: qty });
+      alert(res?.message || `✓ Transferred ${qty} unit(s) of "${p.product_name}" to Main Branch!`);
+      fetchAnalytics();
+    } catch (err) {
+      alert(`Could not transfer stock: ${err.message || 'Server error'}`);
+    }
+  };
 
   // Safe memoized accessors preventing undefined length errors
   const chartSeries = useMemo(() => Array.isArray(data?.chart_series) ? data.chart_series : [], [data?.chart_series]);
@@ -1365,15 +1443,17 @@ export default function AdminDashboardPage() {
                     <th style={{ padding: '10px 18px', textAlign: 'right' }}>MRP / PRICE</th>
                     <th style={{ padding: '10px 18px', textAlign: 'center' }}>TOTAL ALLOCATED</th>
                     <th style={{ padding: '10px 18px', textAlign: 'center' }}>ITEMS SOLD</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>REMAINING QTY</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>STATUS</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>BRANCH REMAINING</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>BRANCH VISIBILITY</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>MAIN STORE STOCK</th>
+                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>ACTIONS</th>
                     <th style={{ padding: '10px 18px', textAlign: 'right' }}>{movedViewMode === 'today' ? 'TIME MOVED TODAY' : 'LAST UPDATED'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(movedViewMode === 'today' ? todayMovedProducts : movedProducts).length === 0 ? (
                     <tr>
-                      <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', fontSize: '13px' }}>
+                      <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', fontSize: '13px' }}>
                         <div style={{ fontSize: '28px', marginBottom: '8px' }}>{movedViewMode === 'today' ? '🚚' : '📦'}</div>
                         <div style={{ fontWeight: 800, color: '#334155' }}>
                           {movedViewMode === 'today'
@@ -1394,6 +1474,9 @@ export default function AdminDashboardPage() {
                       const isOut = remaining <= 0;
                       const updatedDate = p.updated_at ? new Date(p.updated_at) : null;
                       const isToday = updatedDate && (new Date().toDateString() === updatedDate.toDateString());
+                      const isBranchVisible = p.is_active !== 0;
+                      const mainStock = p.main_branch_stock ?? 0;
+                      const isMainZero = mainStock === 0;
 
                       return (
                         <tr key={p.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -1462,20 +1545,93 @@ export default function AdminDashboardPage() {
                               {remaining} remaining
                             </span>
                           </td>
+
+                          {/* Branch Visibility Column */}
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleBranchVisibility(p)}
+                              style={{
+                                padding: '3px 9px',
+                                borderRadius: '16px',
+                                border: isBranchVisible ? '1px solid #86efac' : '1px solid #cbd5e1',
+                                background: isBranchVisible ? '#f0fdf4' : '#f8fafc',
+                                color: isBranchVisible ? '#15803d' : '#64748b',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title={isBranchVisible ? 'Visible in Branch POS. Click to hide.' : 'Hidden from Branch POS. Click to make visible.'}
+                            >
+                              <span>{isBranchVisible ? '🟢' : '⚪'}</span>
+                              <span>{isBranchVisible ? 'Visible' : 'Hidden'}</span>
+                            </button>
+                          </td>
+
+                          {/* Main Store Stock Column */}
                           <td style={{ padding: '12px 18px', textAlign: 'center' }}>
                             <span
                               style={{
-                                fontSize: '10.5px',
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: '12px',
                                 fontWeight: 800,
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                background: isOut ? '#fef2f2' : isLow ? '#fef3c7' : '#dcfce7',
-                                color: isOut ? '#b91c1c' : isLow ? '#92400e' : '#15803d'
+                                fontSize: '11px',
+                                background: isMainZero ? '#fef2f2' : '#f8fafc',
+                                color: isMainZero ? '#dc2626' : '#334155',
+                                border: isMainZero ? '1.5px solid #fca5a5' : '1px solid #e2e8f0'
                               }}
                             >
-                              {isOut ? 'OUT OF STOCK' : isLow ? 'LOW STOCK' : 'IN STOCK'}
+                              {isMainZero ? '⚠️ 0 (Out of Stock)' : `${mainStock} units`}
                             </span>
                           </td>
+
+                          {/* Actions Column (Qty Edit + Push to Main) */}
+                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateBranchQty(p)}
+                                style={{
+                                  padding: '4px 8px',
+                                  background: '#ffffff',
+                                  border: '1px solid #cbd5e1',
+                                  borderRadius: '5px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                                title="Update branch stock quantity"
+                              >
+                                ✎ Qty
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePushToMain(p)}
+                                style={{
+                                  padding: '4px 9px',
+                                  background: isMainZero ? '#dc2626' : '#0f172a',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '5px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  boxShadow: isMainZero ? '0 1px 4px rgba(220, 38, 38, 0.35)' : 'none'
+                                }}
+                                title={isMainZero ? 'Main Store has 0 stock! Click to transfer quantity to Main Branch' : 'Transfer quantity from this branch to Main Store'}
+                              >
+                                <span>🚀 Push to Main</span>
+                              </button>
+                            </div>
+                          </td>
+
                           <td style={{ padding: '12px 18px', textAlign: 'right', fontSize: '11.5px', color: '#475569' }}>
                             {isToday ? (
                               <span style={{ fontWeight: 800, color: '#065935', background: '#dcfce7', padding: '2px 7px', borderRadius: '4px' }}>

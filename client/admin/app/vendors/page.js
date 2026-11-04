@@ -6,6 +6,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
 import { Icon } from '../../components/Icons';
+import { useAdminAuth } from '../../lib/auth';
 import {
   getAdminVendors,
   createAdminVendor,
@@ -21,7 +22,8 @@ import {
   confirmAdminPurchaseBill,
   addAdminPurchaseBillPayment,
   deleteAdminPurchaseBill,
-  getAdminProducts
+  getAdminProducts,
+  getAdminBranches
 } from '../../lib/api';
 
 const money = (value) => Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -46,7 +48,8 @@ const emptyVendorForm = {
   pincode: '',
   payment_terms: 'Net 30',
   notes: '',
-  is_active: true
+  is_active: true,
+  branch_id: 1
 };
 
 let billItemKey = 1;
@@ -62,6 +65,7 @@ const newBillItem = () => ({
 
 const emptyBillForm = {
   vendor_id: '',
+  branch_id: 1,
   bill_number: '',
   purchase_date: today(),
   additional_charges: '',
@@ -98,6 +102,13 @@ function PaymentBadge({ status }) {
 
 export default function AdminVendorsPage() {
   const router = useRouter();
+  const { adminUser } = useAdminAuth();
+  const isSuperAdmin = !adminUser || adminUser.role === 'admin';
+  const userBranchId = adminUser?.branch_id ? String(adminUser.branch_id) : '';
+
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? 'all' : (userBranchId || '1'));
+
   const [mainTab, setMainTab] = useState('vendors');
   const [vendors, setVendors] = useState([]);
   const [products, setProducts] = useState([]);
@@ -140,10 +151,29 @@ export default function AdminVendorsPage() {
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  const loadVendors = async () => {
+  // Load branches
+  useEffect(() => {
+    getAdminBranches()
+      .then(res => {
+        if (res && Array.isArray(res.branches)) {
+          setBranches(res.branches);
+        }
+      })
+      .catch(err => console.warn('Failed to load branches:', err));
+  }, []);
+
+  useEffect(() => {
+    if (adminUser?.branch_id) {
+      setSelectedBranchId(String(adminUser.branch_id));
+    }
+  }, [adminUser]);
+
+  const loadVendors = async (branchId = selectedBranchId) => {
     try {
       setLoading(true);
-      const data = await getAdminVendors();
+      const params = {};
+      if (branchId && branchId !== 'all') params.branch_id = branchId;
+      const data = await getAdminVendors(params);
       setVendors(Array.isArray(data) ? data : (data && Array.isArray(data.vendors) ? data.vendors : []));
     } catch (err) {
       showToast(err.message || 'Failed to load vendors', 'error');
@@ -162,13 +192,14 @@ export default function AdminVendorsPage() {
     }
   };
 
-  const loadPurchaseBills = async (filters = billFilters) => {
+  const loadPurchaseBills = async (filters = billFilters, branchId = selectedBranchId) => {
     try {
       setLoadingBills(true);
       const params = {};
       Object.entries(filters).forEach(([key, value]) => {
         if (value && value !== 'all') params[key] = value;
       });
+      if (branchId && branchId !== 'all') params.branch_id = branchId;
       const data = await getAdminPurchaseBills(params);
       setBills(Array.isArray(data?.bills) ? data.bills : []);
       setBillSummary(data?.summary || {});
@@ -182,13 +213,15 @@ export default function AdminVendorsPage() {
   const resetBillFilters = () => {
     const next = { bill_number: '', search: '', status: 'all', payment_status: 'all', from_date: '', to_date: '', vendor_id: 'all' };
     setBillFilters(next);
-    loadPurchaseBills(next);
+    loadPurchaseBills(next, selectedBranchId);
   };
 
-  const loadOutstanding = async () => {
+  const loadOutstanding = async (branchId = selectedBranchId) => {
     try {
       setLoadingOutstanding(true);
-      const data = await getAdminOutstandingPurchaseBills();
+      const params = {};
+      if (branchId && branchId !== 'all') params.branch_id = branchId;
+      const data = await getAdminOutstandingPurchaseBills(params);
       setOutstanding({
         bills: Array.isArray(data?.bills) ? data.bills : [],
         vendor_totals: Array.isArray(data?.vendor_totals) ? data.vendor_totals : [],
@@ -202,11 +235,13 @@ export default function AdminVendorsPage() {
   };
 
   useEffect(() => {
-    loadVendors();
+    loadVendors(selectedBranchId);
     loadProducts();
-    loadPurchaseBills();
-    loadOutstanding();
+    loadPurchaseBills(billFilters, selectedBranchId);
+    loadOutstanding(selectedBranchId);
+  }, [selectedBranchId]);
 
+  useEffect(() => {
     // Check if returning from creating a product for a purchase bill
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -323,7 +358,8 @@ export default function AdminVendorsPage() {
   const openAddModal = () => {
     setEditingVendor(null);
     setErrorMsg('');
-    setFormData(emptyVendorForm);
+    const defaultBranch = isSuperAdmin ? (selectedBranchId !== 'all' ? Number(selectedBranchId) : 1) : (Number(userBranchId) || 1);
+    setFormData({ ...emptyVendorForm, branch_id: defaultBranch });
     setIsModalOpen(true);
   };
 
@@ -343,7 +379,8 @@ export default function AdminVendorsPage() {
       pincode: vendor.pincode || '',
       payment_terms: vendor.payment_terms || 'Net 30',
       notes: vendor.notes || '',
-      is_active: vendor.is_active !== undefined ? Boolean(vendor.is_active) : true
+      is_active: vendor.is_active !== undefined ? Boolean(vendor.is_active) : true,
+      branch_id: vendor.branch_id || 1
     });
     setIsModalOpen(true);
   };
@@ -357,15 +394,19 @@ export default function AdminVendorsPage() {
     try {
       setSaving(true);
       setErrorMsg('');
+      const submitData = {
+        ...formData,
+        branch_id: Number(formData.branch_id || (isSuperAdmin ? (selectedBranchId !== 'all' ? selectedBranchId : 1) : userBranchId) || 1)
+      };
       if (editingVendor) {
-        await updateAdminVendor(editingVendor.id, formData);
+        await updateAdminVendor(editingVendor.id, submitData);
         showToast(`Vendor "${formData.name}" updated successfully.`);
       } else {
-        await createAdminVendor(formData);
+        await createAdminVendor(submitData);
         showToast(`Vendor "${formData.name}" added successfully.`);
       }
       setIsModalOpen(false);
-      loadVendors();
+      loadVendors(selectedBranchId);
     } catch (err) {
       setErrorMsg(err.message || 'Failed to save vendor details.');
     } finally {
@@ -391,7 +432,14 @@ export default function AdminVendorsPage() {
       const res = await getNextPurchaseBillNumber();
       number = res?.bill_number || '';
     } catch (_) {}
-    setBillForm({ ...emptyBillForm, vendor_id: vendorId ? String(vendorId) : '', bill_number: number, items: [newBillItem()] });
+    const defaultBranch = isSuperAdmin ? (selectedBranchId !== 'all' ? Number(selectedBranchId) : 1) : (Number(userBranchId) || 1);
+    setBillForm({
+      ...emptyBillForm,
+      vendor_id: vendorId ? String(vendorId) : '',
+      branch_id: defaultBranch,
+      bill_number: number,
+      items: [newBillItem()]
+    });
   };
 
   const openNewBill = async (vendorId = '') => {
@@ -410,6 +458,7 @@ export default function AdminVendorsPage() {
       setEditingBill(detail);
       setBillForm({
         vendor_id: detail.vendor_id ? String(detail.vendor_id) : '',
+        branch_id: detail.branch_id || 1,
         bill_number: detail.bill_number || '',
         purchase_date: detail.purchase_date ? String(detail.purchase_date).slice(0, 10) : today(),
         additional_charges: detail.additional_charges !== null && detail.additional_charges !== undefined ? String(detail.additional_charges) : '',
@@ -486,6 +535,7 @@ export default function AdminVendorsPage() {
     }
     const payload = {
       vendor_id: Number(billForm.vendor_id),
+      branch_id: Number(billForm.branch_id || (isSuperAdmin ? (selectedBranchId !== 'all' ? selectedBranchId : 1) : userBranchId) || 1),
       bill_number: billForm.bill_number.trim(),
       purchase_date: billForm.purchase_date,
       additional_charges: Number(billForm.additional_charges) || 0,
@@ -644,6 +694,7 @@ export default function AdminVendorsPage() {
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textAlign: 'left', textTransform: 'uppercase' }}>
               <th style={{ padding: '10px 14px' }}>Bill No.</th>
+              <th style={{ padding: '10px 14px' }}>Branch</th>
               {!opts.hideVendor && <th style={{ padding: '10px 14px' }}>Vendor</th>}
               <th style={{ padding: '10px 14px' }}>Date</th>
               <th style={{ padding: '10px 14px', textAlign: 'center' }}>Items</th>
@@ -660,6 +711,19 @@ export default function AdminVendorsPage() {
                 <td style={{ padding: '10px 14px', fontWeight: 800, color: '#0f172a' }}>
                   {bill.bill_number}
                   {bill.status === 'draft' && <span style={{ marginLeft: '6px', fontSize: '10px', color: '#b45309', background: '#fef3c7', padding: '1px 6px', borderRadius: '8px' }}>DRAFT</span>}
+                </td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={{
+                    fontSize: '10.5px',
+                    fontWeight: 800,
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    background: bill.branch_id > 1 ? '#eff6ff' : '#f8fafc',
+                    color: bill.branch_id > 1 ? '#1d4ed8' : '#475569',
+                    border: `1px solid ${bill.branch_id > 1 ? '#bfdbfe' : '#e2e8f0'}`
+                  }}>
+                    🏢 {bill.branch_name || (bill.branch_id === 3 ? 'Manali Branch' : 'Main Store')}
+                  </span>
                 </td>
                 {!opts.hideVendor && <td style={{ padding: '10px 14px', color: '#334155' }}>{bill.vendor_name || '—'}</td>}
                 <td style={{ padding: '10px 14px', color: '#475569' }}>{shortDate(bill.purchase_date)}</td>
@@ -704,7 +768,20 @@ export default function AdminVendorsPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '12px', color: '#065935', fontWeight: 900 }}>{isExpanded ? '▾' : '▸'}</span>
               <div>
-                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '13.5px' }}>{vendor.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '13.5px' }}>{vendor.name}</span>
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    background: vendor.branch_id > 1 ? '#eff6ff' : '#f8fafc',
+                    color: vendor.branch_id > 1 ? '#1d4ed8' : '#475569',
+                    border: `1px solid ${vendor.branch_id > 1 ? '#bfdbfe' : '#e2e8f0'}`
+                  }}>
+                    🏢 {vendor.branch_name || (vendor.branch_id === 3 ? 'Manali Branch' : 'Main Store')}
+                  </span>
+                </div>
                 {vendor.company_name && <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>{vendor.company_name}</div>}
               </div>
             </div>
@@ -870,30 +947,65 @@ export default function AdminVendorsPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
-            {[
-              { key: 'vendors', label: `Vendors (${safeVendors.length})` },
-              { key: 'purchase-bills', label: `All Purchase Bills (${safeBills.length})` },
-              { key: 'outstanding', label: `Outstanding Payables (${safeOutstandingBills.length})` }
-            ].map(tab => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setMainTab(tab.key)}
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: '8px',
-                  border: mainTab === tab.key ? '1px solid #065935' : '1px solid #cbd5e1',
-                  background: mainTab === tab.key ? '#065935' : '#ffffff',
-                  color: mainTab === tab.key ? '#ffffff' : '#334155',
-                  fontWeight: 800,
-                  fontSize: '12.5px',
-                  cursor: 'pointer'
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {[
+                { key: 'vendors', label: `Vendors (${safeVendors.length})` },
+                { key: 'purchase-bills', label: `All Purchase Bills (${safeBills.length})` },
+                { key: 'outstanding', label: `Outstanding Payables (${safeOutstandingBills.length})` }
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setMainTab(tab.key)}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '8px',
+                    border: mainTab === tab.key ? '1px solid #065935' : '1px solid #cbd5e1',
+                    background: mainTab === tab.key ? '#065935' : '#ffffff',
+                    color: mainTab === tab.key ? '#ffffff' : '#334155',
+                    fontWeight: 800,
+                    fontSize: '12.5px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Branch Selector Filter */}
+            {isSuperAdmin ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>Filter Branch:</span>
+                <select
+                  value={selectedBranchId}
+                  onChange={(e) => setSelectedBranchId(e.target.value)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    border: '1.5px solid #0ea5e9',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    background: '#fff',
+                    color: '#0369a1',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">🏢 All Branches</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#e0f2fe', color: '#0369a1', padding: '6px 14px', borderRadius: '8px', fontWeight: 800, fontSize: '12.5px', border: '1px solid #bae6fd' }}>
+                <span>🏢</span>
+                <span>{branches.find(b => String(b.id) === String(selectedBranchId))?.name || 'Regional Branch'}</span>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
@@ -1118,6 +1230,27 @@ export default function AdminVendorsPage() {
               </div>
 
               <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>Assigned Branch *</label>
+                {isSuperAdmin ? (
+                  <select
+                    value={formData.branch_id || 1}
+                    onChange={(e) => setFormData({ ...formData, branch_id: Number(e.target.value) })}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #0ea5e9', fontSize: '13px', background: '#fff', fontWeight: 700 }}
+                  >
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={{ padding: '9px 12px', borderRadius: '8px', background: '#e0f2fe', color: '#0369a1', fontSize: '13px', fontWeight: 800 }}>
+                    🏢 {branches.find(b => String(b.id) === String(userBranchId))?.name || 'Regional Branch'}
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>Notes</label>
                 <textarea rows={2} placeholder="Internal notes about this vendor..." value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', resize: 'vertical' }} />
               </div>
@@ -1139,13 +1272,33 @@ export default function AdminVendorsPage() {
             <form onSubmit={handleSaveBill} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {billError && <div style={{ padding: '10px 14px', borderRadius: '8px', background: '#fee2e2', color: '#b91c1c', fontSize: '12.5px', fontWeight: 700 }}>{billError}</div>}
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 800, color: '#475569', marginBottom: '5px' }}>VENDOR *</label>
                   <select required value={billForm.vendor_id} onChange={(e) => setBillForm(prev => ({ ...prev, vendor_id: e.target.value }))} style={{ width: '100%', padding: '9px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '13px', background: '#fff' }}>
                     <option value="">Select vendor...</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}{v.company_name ? ` (${v.company_name})` : ''}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 800, color: '#475569', marginBottom: '5px' }}>BRANCH *</label>
+                  {isSuperAdmin ? (
+                    <select
+                      value={billForm.branch_id || 1}
+                      onChange={(e) => setBillForm(prev => ({ ...prev, branch_id: Number(e.target.value) }))}
+                      style={{ width: '100%', padding: '9px 11px', borderRadius: '7px', border: '1.5px solid #0ea5e9', fontSize: '13px', background: '#fff', fontWeight: 700 }}
+                    >
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.code})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ padding: '9px 11px', borderRadius: '7px', background: '#e0f2fe', color: '#0369a1', fontSize: '12.5px', fontWeight: 800 }}>
+                      🏢 {branches.find(b => String(b.id) === String(userBranchId))?.name || 'Regional Branch'}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 800, color: '#475569', marginBottom: '5px' }}>BILL NUMBER</label>

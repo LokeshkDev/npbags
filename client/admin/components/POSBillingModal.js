@@ -204,6 +204,7 @@ export function POSBillingModal() {
   const [customerFoundBadge, setCustomerFoundBadge] = useState(null);
   const [customerNpPoints, setCustomerNpPoints] = useState(0);
   const [redeemPoints, setRedeemPoints] = useState(0);
+  const [showRoyaltyAdjust, setShowRoyaltyAdjust] = useState(false);
 
   // Payment state
   const [paymentMethod, setPaymentMethod] = useState('Cash'); // 'Cash' | 'UPI' | 'Card'
@@ -250,7 +251,7 @@ export function POSBillingModal() {
   const [storeSettings, setStoreSettings] = useState({
     store_name: 'NP Grand Shopping',
     phone: '+91 97909 04504',
-    address: 'Madambakkam Main Road, Chennai 600073',
+    address: 'Thiruvallur',
     website: 'https://www.npgrandshopping.com'
   });
 
@@ -1247,7 +1248,8 @@ export function POSBillingModal() {
 
   // Cart financial calculations (Flat vs % discount, NPPoints redemption, GST 18% inclusive standard)
   const cartFinancials = useMemo(() => {
-    const rawSubtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const rawSubtotal = cart.reduce((sum, item) => sum + ((Number(item.price) || 0) * item.quantity), 0);
+    const rawMrpTotal = cart.reduce((sum, item) => sum + ((Number(item.mrp || item.regular_price || item.price || 0)) * item.quantity), 0);
     const parsedDiscountVal = parseFloat(discountInput) || 0;
 
     let disc = 0;
@@ -1265,7 +1267,14 @@ export function POSBillingModal() {
     const validRedeemPoints = Math.min(maxRedeemablePoints, Math.max(0, parseInt(redeemPoints, 10) || 0));
     const pointsDiscount = Math.round(validRedeemPoints * 0.25 * 100) / 100;
 
-    const grandTotal = Math.max(0, Math.round((prePointsTotal - pointsDiscount) * 100) / 100);
+    const unroundedTotal = Math.max(0, prePointsTotal - pointsDiscount);
+    // User requirement: No paise (e.g. ₹150.25 becomes 151)
+    const grandTotal = Math.ceil(unroundedTotal);
+    const roundOff = Math.round((grandTotal - unroundedTotal) * 100) / 100;
+
+    const totalMrp = Math.ceil(rawMrpTotal);
+    const totalSellingPrice = Math.ceil(rawSubtotal);
+    const totalSavings = Math.max(0, totalMrp - grandTotal);
 
     // Points earned on bill: For every ₹100 spent = 1 pt
     const pointsEarned = Math.floor(grandTotal / 100);
@@ -1281,6 +1290,10 @@ export function POSBillingModal() {
 
     return {
       rawSubtotal,
+      totalMrp,
+      totalSellingPrice,
+      totalSavings,
+      roundOff,
       discountAmount: disc,
       discountType,
       discountValue: parsedDiscountVal,
@@ -1320,6 +1333,8 @@ export function POSBillingModal() {
         discount_type: discountType,
         discount_value: cartFinancials.discountValue,
         points_redeemed: cartFinancials.validRedeemPoints || 0,
+        points_discount: cartFinancials.pointsDiscount || 0,
+        adjusted_customer_points: customerNpPoints,
         sales_person_id: chosenStaff ? chosenStaff.id : null,
         sales_person_name: chosenStaff ? chosenStaff.name : null,
         received_amount: paymentMethod === 'Cash' ? (Number(receivedAmount) || cartFinancials.grandTotal) : cartFinancials.grandTotal,
@@ -1568,6 +1583,12 @@ export function POSBillingModal() {
     const fontSize = is58mm ? '10px' : '11.5px';
     const is300Bol = settings.density === '300bol';
 
+    const totalItemsCount = items.reduce((s, i) => s + Number(i.quantity || 1), 0);
+    const totalMrp = Math.ceil(items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0));
+    const totalSellingPrice = Math.ceil(items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0));
+    const netPayable = Math.ceil(Number(order.total_amount || cartFinancials.grandTotal || totalSellingPrice));
+    const totalSavings = Math.max(0, totalMrp - netPayable);
+
     const renderReceiptBody = (copyLabel = 'CUSTOMER COPY') => `
       <div class="receipt-section">
         <div class="center">
@@ -1589,30 +1610,39 @@ export function POSBillingModal() {
         <table class="items-table">
           <thead>
             <tr>
-              <th style="width: 46%;">ITEM</th>
-              <th style="width: 14%;" class="right">QTY</th>
-              <th style="width: 20%;" class="right">PRICE</th>
-              <th style="width: 20%;" class="right">TOTAL</th>
+              <th style="width: 38%;">ITEM</th>
+              <th style="width: 10%;" class="right">QTY</th>
+              <th style="width: 17%;" class="right">MRP</th>
+              <th style="width: 17%;" class="right">PRICE</th>
+              <th style="width: 18%;" class="right">TOTAL</th>
             </tr>
           </thead>
           <tbody>
-            ${items.map(it => `
-              <tr>
-                <td>
-                  <div class="bold">${it.product_name}</div>
-                  <div class="subtext">[${it.barcode}]</div>
-                </td>
-                <td class="right bold">${it.quantity}</td>
-                <td class="right bold">${Number(it.price).toFixed(2)}</td>
-                <td class="right bold">${(it.quantity * it.price).toFixed(2)}</td>
-              </tr>
-            `).join('')}
+            ${items.map(it => {
+              const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
+              const itPrice = Number(it.price || 0);
+              const itQty = Number(it.quantity || 1);
+              const itTotal = itQty * itPrice;
+              return `
+                <tr>
+                  <td>
+                    <div class="bold">${it.product_name}</div>
+                    <div class="subtext">[${it.barcode || it.sku || 'ITEM'}]</div>
+                  </td>
+                  <td class="right bold">${itQty}</td>
+                  <td class="right">${itMrp.toFixed(2)}</td>
+                  <td class="right bold">${itPrice.toFixed(2)}</td>
+                  <td class="right bold">${itTotal.toFixed(2)}</td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
 
         <div class="divider"></div>
-        <div class="flex-row"><span>Items Count:</span><span class="bold">${items.reduce((s, i) => s + Number(i.quantity), 0)}</span></div>
-        <div class="flex-row"><span>Gross Total:</span><span class="bold">Rs. ${(Number(order.subtotal || cartFinancials.rawSubtotal || (Number(order.total_amount || cartFinancials.grandTotal) + Number(order.discount || order.discount_amount || cartFinancials.discountAmount || 0)))).toFixed(2)}</span></div>
+        <div class="flex-row"><span>Items Count:</span><span class="bold">${totalItemsCount}</span></div>
+        <div class="flex-row"><span>Total MRP:</span><span class="bold">Rs. ${totalMrp}</span></div>
+        <div class="flex-row"><span>Final Price (Selling Price):</span><span class="bold">Rs. ${totalSellingPrice}</span></div>
         ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount || 0) > 0 ? `
           <div class="flex-row bold"><span>Discount ${(order.discount_type === 'percent' || discountType === 'percent') ? `(${order.discount_value || discountInput}%)` : ''}:</span><span class="bold">- Rs. ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount).toFixed(2)}</span></div>
         ` : ''}
@@ -1631,9 +1661,15 @@ export function POSBillingModal() {
         <div class="double-divider"></div>
         <div class="flex-row" style="font-size: ${is58mm ? '12px' : '14px'};">
           <span class="bold">NET PAYABLE:</span>
-          <span class="bold">Rs. ${Number(order.total_amount || cartFinancials.grandTotal).toFixed(2)}</span>
+          <span class="bold">Rs. ${netPayable}</span>
         </div>
         <div class="double-divider"></div>
+
+        ${totalSavings > 0 ? `
+          <div class="center bold" style="font-size: ${is58mm ? '11px' : '12.5px'}; padding: 4px 2px; border: 1.5px dashed #000000; margin: 6px 0; letter-spacing: 0.5px;">
+            *** YOU SAVED: ₹${totalSavings} ***
+          </div>
+        ` : ''}
 
         ${paymentMethod === 'Cash' ? `
           <div class="flex-row"><span>Cash Tendered:</span><span class="bold">Rs. ${Number(receivedAmount || order.total_amount || cartFinancials.grandTotal).toFixed(2)}</span></div>
@@ -3101,9 +3137,20 @@ export function POSBillingModal() {
               BILL CALCULATION
             </div>
 
+            {/* Total MRP */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', color: posTheme.textSub }}>
-              <span>Items Total ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
-              <span style={{ fontWeight: 700, color: posTheme.textMain }}>₹{cartFinancials.rawSubtotal.toLocaleString('en-IN')}</span>
+              <span style={{ fontWeight: 600 }}>Total MRP</span>
+              <span style={{ fontWeight: 700, color: posTheme.textMain }}>
+                ₹{cartFinancials.totalMrp.toLocaleString('en-IN')}
+              </span>
+            </div>
+
+            {/* Final Price (Selling Price) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', color: posTheme.textSub }}>
+              <span style={{ fontWeight: 600 }}>Final Price (Selling Price) ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
+              <span style={{ fontWeight: 800, color: posTheme.textMain }}>
+                ₹{cartFinancials.totalSellingPrice.toLocaleString('en-IN')}
+              </span>
             </div>
 
             {/* Discount Input with Flat ₹ vs % Dropdown */}
@@ -3157,14 +3204,62 @@ export function POSBillingModal() {
               </div>
             </div>
 
-            {/* NPPoints Loyalty Section */}
-            {customerNpPoints > 0 && (
+            {/* Royalty / NPPoints Loyalty Section */}
+            {customerNpPoints === 0 && !showRoyaltyAdjust ? (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '4px 0 10px 0' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRoyaltyAdjust(true)}
+                  style={{
+                    background: 'transparent',
+                    border: `1px dashed ${posTheme.isAccountable ? '#d97706' : '#fbbf24'}`,
+                    color: posTheme.isAccountable ? '#b45309' : '#fbbf24',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <span>⭐</span>
+                  <span>Adjust Royalty Points in Bill</span>
+                </button>
+              </div>
+            ) : (
               <div style={{ background: posTheme.isAccountable ? '#fffbeb' : posTheme.inputBg, border: posTheme.isAccountable ? '1px solid #fef3c7' : `1px solid ${posTheme.cardBorder}`, borderRadius: '8px', padding: '10px 12px', margin: '8px 0 10px 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                     <span style={{ fontSize: '13px' }}>⭐</span>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: posTheme.isAccountable ? '#92400e' : '#fbbf24' }}>NPPoints Available:</span>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: posTheme.isAccountable ? '#92400e' : '#fbbf24' }}>Royalty Points:</span>
                     <span style={{ fontSize: '12.5px', fontWeight: 900, color: posTheme.isAccountable ? '#b45309' : '#fbbf24' }}>{customerNpPoints} pts</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextVal = window.prompt('Adjust Customer Royalty / NPPoints balance:', String(customerNpPoints));
+                        if (nextVal !== null) {
+                          const parsed = Math.max(0, parseInt(nextVal, 10) || 0);
+                          setCustomerNpPoints(parsed);
+                          setShowRoyaltyAdjust(true);
+                        }
+                      }}
+                      title="Adjust customer royalty points balance"
+                      style={{
+                        marginLeft: '4px',
+                        background: posTheme.isAccountable ? '#fef3c7' : '#27272a',
+                        color: posTheme.isAccountable ? '#92400e' : '#fbbf24',
+                        border: '1px solid #d97706',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ✏️ Adjust Points
+                    </button>
                   </div>
                   <span style={{ fontSize: '11px', color: posTheme.textMuted, fontWeight: 700 }}>
                     (Worth: ₹{(customerNpPoints * 0.25).toFixed(2)})
@@ -3216,7 +3311,7 @@ export function POSBillingModal() {
 
                 {cartFinancials.pointsDiscount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11.5px', fontWeight: 800, color: '#15803d' }}>
-                    <span>NPPoints Discount:</span>
+                    <span>Royalty Points Discount:</span>
                     <span>-₹{cartFinancials.pointsDiscount.toFixed(2)}</span>
                   </div>
                 )}
@@ -3236,6 +3331,13 @@ export function POSBillingModal() {
               <span>₹{cartFinancials.sgstAmount.toFixed(2)}</span>
             </div>
 
+            {cartFinancials.roundOff > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '12px', color: '#16a34a', fontWeight: 700 }}>
+                <span>Round Off (No Paise)</span>
+                <span>+₹{cartFinancials.roundOff.toFixed(2)}</span>
+              </div>
+            )}
+
             <div
               style={{
                 borderTop: `2px dashed ${posTheme.borderTopBar}`,
@@ -3246,10 +3348,34 @@ export function POSBillingModal() {
               }}
             >
               <span style={{ fontSize: '15px', fontWeight: 900, color: posTheme.textMain }}>NET PAYABLE</span>
-              <span style={{ fontSize: '24px', fontWeight: 900, color: posTheme.payableColor }}>
+              <span style={{ fontSize: '26px', fontWeight: 900, color: posTheme.payableColor }}>
                 ₹{cartFinancials.grandTotal.toLocaleString('en-IN')}
               </span>
             </div>
+
+            {/* YOU SAVE BANNER (Prominently displayed) */}
+            {cartFinancials.totalSavings > 0 && (
+              <div
+                style={{
+                  marginTop: '10px',
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  background: '#ecfdf5',
+                  border: '1.5px dashed #059669',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  boxShadow: '0 1px 3px rgba(5, 150, 105, 0.08)'
+                }}
+              >
+                <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🎉</span> YOU SAVE:
+                </span>
+                <span style={{ fontSize: '16px', fontWeight: 900, color: '#047857' }}>
+                  ₹{cartFinancials.totalSavings.toLocaleString('en-IN')}
+                </span>
+              </div>
+            )}
 
             <div style={{ marginTop: '10px', padding: '6px 10px', background: posTheme.isAccountable ? '#f0fdf4' : posTheme.inputBg, border: posTheme.isAccountable ? '1px solid #bbf7d0' : `1px solid ${posTheme.cardBorder}`, borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', fontWeight: 700, color: posTheme.isAccountable ? '#166534' : '#a1a1aa' }}>
               <span>✨ NPPoints to be earned:</span>
@@ -3879,85 +4005,115 @@ export function POSBillingModal() {
                     <div style={{ borderTop: '1.5px dashed #000000', margin: '6px 0' }} />
 
                     {/* Items table */}
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: thermalSettings.paperWidth === '58mm' ? '9.5px' : '10.5px' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '1.5px dashed #000000', textAlign: 'left' }}>
-                          <th style={{ padding: '3px 0' }}>ITEM</th>
-                          <th style={{ padding: '3px 0', textAlign: 'right' }}>QTY</th>
-                          <th style={{ padding: '3px 0', textAlign: 'right' }}>PRICE</th>
-                          <th style={{ padding: '3px 0', textAlign: 'right' }}>TOTAL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(completedOrder.items || []).map((it, idx) => (
-                          <tr key={idx} style={{ verticalAlign: 'top' }}>
-                            <td style={{ padding: '3px 0' }}>
-                              <div style={{ fontWeight: 900 }}>{it.product_name}</div>
-                              <div style={{ fontSize: '8.5px', fontWeight: 700 }}>[{it.barcode}]</div>
-                            </td>
-                            <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 900 }}>{it.quantity}</td>
-                            <td style={{ padding: '3px 0', textAlign: 'right' }}>{Number(it.price).toFixed(2)}</td>
-                            <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 900 }}>{(it.quantity * it.price).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    {(() => {
+                      const previewItems = completedOrder.items || [];
+                      const previewTotalMrp = Math.ceil(previewItems.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0));
+                      const previewTotalSellingPrice = Math.ceil(previewItems.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0));
+                      const previewNetPayable = Math.ceil(Number(completedOrder.total_amount || cartFinancials.grandTotal || previewTotalSellingPrice));
+                      const previewSavings = Math.max(0, previewTotalMrp - previewNetPayable);
 
-                    <div style={{ borderTop: '1.5px dashed #000000', margin: '6px 0' }} />
+                      return (
+                        <>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: thermalSettings.paperWidth === '58mm' ? '9px' : '10px' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1.5px dashed #000000', textAlign: 'left' }}>
+                                <th style={{ padding: '3px 0', width: '38%' }}>ITEM</th>
+                                <th style={{ padding: '3px 0', textAlign: 'right', width: '10%' }}>QTY</th>
+                                <th style={{ padding: '3px 0', textAlign: 'right', width: '17%' }}>MRP</th>
+                                <th style={{ padding: '3px 0', textAlign: 'right', width: '17%' }}>PRICE</th>
+                                <th style={{ padding: '3px 0', textAlign: 'right', width: '18%' }}>TOTAL</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {previewItems.map((it, idx) => {
+                                const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
+                                const itPrice = Number(it.price || 0);
+                                const itQty = Number(it.quantity || 1);
+                                const itTotal = itQty * itPrice;
+                                return (
+                                  <tr key={idx} style={{ verticalAlign: 'top' }}>
+                                    <td style={{ padding: '3px 0' }}>
+                                      <div style={{ fontWeight: 900 }}>{it.product_name}</div>
+                                      <div style={{ fontSize: '8.5px', fontWeight: 700 }}>[{it.barcode || it.sku || 'ITEM'}]</div>
+                                    </td>
+                                    <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 900 }}>{itQty}</td>
+                                    <td style={{ padding: '3px 0', textAlign: 'right' }}>{itMrp.toFixed(2)}</td>
+                                    <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 800 }}>{itPrice.toFixed(2)}</td>
+                                    <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 900 }}>{itTotal.toFixed(2)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
 
-                    {/* Financial summary */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
-                      <span>Items Count:</span>
-                      <span style={{ fontWeight: 900 }}>{(completedOrder.items || []).reduce((s, i) => s + i.quantity, 0)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
-                      <span>Gross Total:</span>
-                      <span>Rs. {(Number(completedOrder.subtotal || cartFinancials.rawSubtotal || (Number(completedOrder.total_amount || cartFinancials.grandTotal) + Number(completedOrder.discount || completedOrder.discount_amount || cartFinancials.discountAmount || 0)))).toFixed(2)}</span>
-                    </div>
-                    {Number(completedOrder.discount || completedOrder.discount_amount || cartFinancials.discountAmount || 0) > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
-                        <span>Discount:</span>
-                        <span style={{ fontWeight: 900 }}>- Rs. {Number(completedOrder.discount || completedOrder.discount_amount || cartFinancials.discountAmount).toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
-                      <span>Taxable Value:</span>
-                      <span>Rs. {Number(completedOrder.taxable_amount || cartFinancials.taxableAmount).toFixed(2)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
-                      <span>CGST (9%):</span>
-                      <span>Rs. {Number(completedOrder.cgst_amount || cartFinancials.cgstAmount).toFixed(2)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
-                      <span>SGST (9%):</span>
-                      <span>Rs. {Number(completedOrder.sgst_amount || cartFinancials.sgstAmount).toFixed(2)}</span>
-                    </div>
+                          <div style={{ borderTop: '1.5px dashed #000000', margin: '6px 0' }} />
 
-                    {(Number(completedOrder.points_discount) > 0 || cartFinancials.pointsDiscount > 0) && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
-                        <span>NPPoints Redeemed:</span>
-                        <span>- Rs. {(Number(completedOrder.points_discount) || cartFinancials.pointsDiscount).toFixed(2)}</span>
-                      </div>
-                    )}
-                    {(Number(completedOrder.points_earned) > 0 || cartFinancials.pointsEarned > 0) && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
-                        <span>⭐ NPPoints Earned:</span>
-                        <span>+{Number(completedOrder.points_earned) || cartFinancials.pointsEarned} pts</span>
-                      </div>
-                    )}
-                    {completedOrder.customer_np_points !== undefined && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
-                        <span>Total NPPoints:</span>
-                        <span>{completedOrder.customer_np_points} pts</span>
-                      </div>
-                    )}
+                          {/* Financial summary */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
+                            <span>Items Count:</span>
+                            <span style={{ fontWeight: 900 }}>{previewItems.reduce((s, i) => s + Number(i.quantity || 1), 0)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
+                            <span>Total MRP:</span>
+                            <span style={{ fontWeight: 900 }}>Rs. {previewTotalMrp}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
+                            <span>Final Price (Selling Price):</span>
+                            <span style={{ fontWeight: 900 }}>Rs. {previewTotalSellingPrice}</span>
+                          </div>
+                          {Number(completedOrder.discount || completedOrder.discount_amount || cartFinancials.discountAmount || 0) > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                              <span>Discount:</span>
+                              <span style={{ fontWeight: 900 }}>- Rs. {Number(completedOrder.discount || completedOrder.discount_amount || cartFinancials.discountAmount).toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
+                            <span>Taxable Value:</span>
+                            <span>Rs. {Number(completedOrder.taxable_amount || cartFinancials.taxableAmount).toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
+                            <span>CGST (9%):</span>
+                            <span>Rs. {Number(completedOrder.cgst_amount || cartFinancials.cgstAmount).toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0' }}>
+                            <span>SGST (9%):</span>
+                            <span>Rs. {Number(completedOrder.sgst_amount || cartFinancials.sgstAmount).toFixed(2)}</span>
+                          </div>
 
-                    <div style={{ borderTop: '2.5px solid #000000', margin: '6px 0' }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: thermalSettings.paperWidth === '58mm' ? '12px' : '13.5px', fontWeight: 900 }}>
-                      <span>NET PAYABLE:</span>
-                      <span>Rs. {Number(completedOrder.total_amount || cartFinancials.grandTotal).toFixed(2)}</span>
-                    </div>
-                    <div style={{ borderTop: '2.5px solid #000000', margin: '6px 0' }} />
+                          {(Number(completedOrder.points_discount) > 0 || cartFinancials.pointsDiscount > 0) && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                              <span>NPPoints Redeemed:</span>
+                              <span>- Rs. {(Number(completedOrder.points_discount) || cartFinancials.pointsDiscount).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {(Number(completedOrder.points_earned) > 0 || cartFinancials.pointsEarned > 0) && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                              <span>NPPoints Earned:</span>
+                              <span>+{Number(completedOrder.points_earned) || cartFinancials.pointsEarned} pts</span>
+                            </div>
+                          )}
+                          {completedOrder.customer_np_points !== undefined && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', margin: '2px 0', fontWeight: 900 }}>
+                              <span>Total NPPoints:</span>
+                              <span>{completedOrder.customer_np_points} pts</span>
+                            </div>
+                          )}
+
+                          <div style={{ borderTop: '2.5px solid #000000', margin: '6px 0' }} />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: thermalSettings.paperWidth === '58mm' ? '12px' : '13.5px', fontWeight: 900 }}>
+                            <span>NET PAYABLE:</span>
+                            <span>Rs. {previewNetPayable}</span>
+                          </div>
+                          <div style={{ borderTop: '2.5px solid #000000', margin: '6px 0' }} />
+
+                          {previewSavings > 0 && (
+                            <div style={{ textAlign: 'center', fontWeight: 900, fontSize: thermalSettings.paperWidth === '58mm' ? '11px' : '12px', padding: '4px 2px', border: '1.5px dashed #000000', margin: '6px 0', letterSpacing: '0.3px' }}>
+                              *** YOU SAVED: ₹{previewSavings} ***
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {completedOrder.payment_method === 'Cash' && (
                       <>

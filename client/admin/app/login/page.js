@@ -1,16 +1,25 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '../../components/Icons';
-import { loginAdmin, setAdminToken } from '../../lib/api';
+import { loginAdmin, setAdminToken, removeAdminToken } from '../../lib/api';
 
-export default function AdminLoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isExpired = searchParams?.get('expired') === '1';
+
   const [email, setEmail] = useState('admin@npgrand.com');
   const [password, setPassword] = useState('admin123');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(isExpired ? 'Your session has expired. Please log in again.' : '');
+
+  useEffect(() => {
+    if (isExpired) {
+      removeAdminToken();
+    }
+  }, [isExpired]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,18 +35,10 @@ export default function AdminLoginPage() {
         }
         router.push('/dashboard');
       } else {
-        // Fallback demo login
-        setAdminToken('demo_admin_jwt_token_2026');
-        router.push('/dashboard');
+        setError('Login failed: No authorization token received.');
       }
     } catch (err) {
-      // In offline/initial mode, allow demo login with default credentials
-      if (email === 'admin@npgrand.com' && password === 'admin123') {
-        setAdminToken('demo_admin_jwt_token_2026');
-        router.push('/dashboard');
-      } else {
-        setError(err.message || 'Invalid administrator credentials');
-      }
+      setError(err.message || 'Invalid administrator credentials. Please check your email and password.');
     } finally {
       setLoading(false);
     }
@@ -61,7 +62,7 @@ export default function AdminLoginPage() {
         </div>
 
         {error && (
-          <div style={{ background: '#fef2f2', color: '#991b1b', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '20px', border: '1px solid #fecaca' }}>
+          <div style={{ background: isExpired && !loading ? '#fffbeb' : '#fef2f2', color: isExpired && !loading ? '#b45309' : '#991b1b', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '20px', border: `1px solid ${isExpired && !loading ? '#fde68a' : '#fecaca'}` }}>
             {error}
           </div>
         )}
@@ -113,6 +114,14 @@ export default function AdminLoginPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <React.Suspense fallback={<div style={{ minHeight: '100vh', background: '#191f1c' }} />}>
+      <LoginForm />
+    </React.Suspense>
   );
 }
 

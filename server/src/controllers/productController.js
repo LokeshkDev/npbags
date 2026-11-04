@@ -88,13 +88,19 @@ async function getAllProducts(req, res, next) {
     } = req.query;
 
     const branch_id = queryBranchId || (req.user && req.user.role !== 'admin' ? req.user.branch_id : null);
+    const isRegionalBranch = Boolean(branch_id && Number(branch_id) > 1);
     const params = [];
 
     let branchSelect = '';
     let branchJoin = '';
     if (branch_id) {
-      branchSelect = `, COALESCE(bs.stock, 0) AS branch_stock, bs.low_stock_threshold AS branch_low_stock_threshold`;
-      branchJoin = ` LEFT JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ?`;
+      branchSelect = `, COALESCE(bs.stock, 0) AS branch_stock, bs.low_stock_threshold AS branch_low_stock_threshold, COALESCE(bs.is_active, 0) AS is_branch_active`;
+      if (isRegionalBranch && include_inactive !== '1' && include_inactive !== 'true' && req.query.include_inactive_branch !== '1') {
+        // For regional branches, only return products that have been explicitly assigned and are active in this branch
+        branchJoin = ` INNER JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ? AND bs.is_active = 1`;
+      } else {
+        branchJoin = ` LEFT JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ?`;
+      }
       params.push(branch_id);
     }
 
@@ -441,6 +447,20 @@ async function getProductByIdentifier(req, res, next, { includeOffline = false }
     }
     product.related_products = related;
 
+    // Attach allocated branch stocks
+    try {
+      const branchStocks = await query(
+        `SELECT bs.*, b.name AS branch_name, b.code AS branch_code
+         FROM branch_stocks bs
+         JOIN branches b ON bs.branch_id = b.id
+         WHERE bs.product_id = ?`,
+        [product.id]
+      );
+      product.branch_stocks = branchStocks;
+    } catch (_) {
+      product.branch_stocks = [];
+    }
+
     return sendSuccess(res, product);
   } catch (error) {
     next(error);
@@ -655,6 +675,31 @@ async function createProduct(req, res, next) {
             [v.color_name || null, existingImg[0].id]
           );
         }
+      }
+    }
+
+    // Save initial branch stock allocation & visibility if provided
+    if (req.body.branch_id) {
+      try {
+        const bId = parseInt(req.body.branch_id, 10);
+        const bStock = req.body.branch_stock !== undefined && req.body.branch_stock !== ''
+          ? parseInt(req.body.branch_stock, 10)
+          : 0;
+        const bActive = req.body.is_branch_active !== undefined
+          ? (req.body.is_branch_active === '1' || req.body.is_branch_active === 1 || req.body.is_branch_active === true || req.body.is_branch_active === 'true' ? 1 : 0)
+          : 0;
+
+        await query(
+          `INSERT INTO branch_stocks (branch_id, product_id, stock, low_stock_threshold, is_active)
+           VALUES (?, ?, ?, 5, ?)
+           ON DUPLICATE KEY UPDATE
+             stock = VALUES(stock),
+             is_active = VALUES(is_active),
+             updated_at = CURRENT_TIMESTAMP`,
+          [bId, id, bStock, bActive]
+        );
+      } catch (bErr) {
+        console.warn('[Product Create] Error saving initial branch stock:', bErr.message);
       }
     }
 
@@ -952,6 +997,31 @@ async function updateProduct(req, res, next) {
             }
           }
         }
+      }
+    }
+
+    // Save or update branch stock allocation & visibility if provided
+    if (req.body.branch_id) {
+      try {
+        const bId = parseInt(req.body.branch_id, 10);
+        const bStock = req.body.branch_stock !== undefined && req.body.branch_stock !== ''
+          ? parseInt(req.body.branch_stock, 10)
+          : null;
+        const bActive = req.body.is_branch_active !== undefined
+          ? (req.body.is_branch_active === '1' || req.body.is_branch_active === 1 || req.body.is_branch_active === true || req.body.is_branch_active === 'true' ? 1 : 0)
+          : null;
+
+        await query(
+          `INSERT INTO branch_stocks (branch_id, product_id, stock, low_stock_threshold, is_active)
+           VALUES (?, ?, COALESCE(?, 0), 5, COALESCE(?, 1))
+           ON DUPLICATE KEY UPDATE
+             stock = COALESCE(?, stock),
+             is_active = COALESCE(?, is_active),
+             updated_at = CURRENT_TIMESTAMP`,
+          [bId, id, bStock, bActive, bStock, bActive]
+        );
+      } catch (bErr) {
+        console.warn('[Product Update] Error updating branch stock:', bErr.message);
       }
     }
 

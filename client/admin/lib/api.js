@@ -41,6 +41,12 @@ async function adminFetch(endpoint, options = {}) {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      removeAdminToken();
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?expired=1';
+      }
+    }
     throw new Error(data.message || `Request failed with status ${res.status}`);
   }
 
@@ -428,8 +434,9 @@ export async function lookupCustomerByPhone(phone) {
 }
 
 // Vendors & Suppliers
-export async function getAdminVendors() {
-  return adminFetch('/admin/vendors');
+export async function getAdminVendors(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return adminFetch(`/admin/vendors${query ? `?${query}` : ''}`);
 }
 
 export async function getAdminVendorById(id) {
@@ -667,6 +674,13 @@ export async function pushAdminBranchCategory(branchId, data) {
 export async function updateAdminBranchProductStock(branchId, productId, data) {
   return adminFetch(`/admin/branches/${branchId}/stocks/${productId}`, {
     method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function pushAdminStockToMainBranch(branchId, productId, data) {
+  return adminFetch(`/admin/branches/${branchId}/stocks/${productId}/push-to-main`, {
+    method: 'POST',
     body: JSON.stringify(data)
   });
 }

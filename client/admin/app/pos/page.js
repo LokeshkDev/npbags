@@ -82,7 +82,12 @@ export default function POSBillingPage() {
     const bodyWidth = is58mm ? '52mm' : '72mm';
     const fontSize = is58mm ? '10px' : '11.5px';
 
-    const printHtml = `
+    const totalMrp = Math.ceil(items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0));
+    const totalSellingPrice = Math.ceil(items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0));
+    const netPayable = Math.ceil(Number(order.total_amount || totalSellingPrice));
+    const totalSavings = Math.max(0, totalMrp - netPayable);
+
+  const printHtml = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -113,7 +118,7 @@ export default function POSBillingPage() {
 <body>
   <div class="center">
     <div style="font-size: 15px; font-weight: 900;">${storeSettings?.store_name || 'NP GRAND SHOPPING'}</div>
-    <div class="subtext">${storeSettings?.address || 'Madambakkam Main Road, Chennai 600073'}</div>
+    <div class="subtext">${storeSettings?.address || 'Thiruvallur & Manali'}</div>
     <div class="subtext">Phone: ${storeSettings?.phone || '+91 97909 04504'}</div>
     <div class="divider"></div>
     <div class="bold" style="font-size: 12px;">TAX INVOICE / POS BILL</div>
@@ -129,27 +134,50 @@ export default function POSBillingPage() {
 
   <table class="items-table">
     <thead>
-      <tr><th style="width: 48%;">ITEM</th><th style="width: 14%;" class="right">QTY</th><th style="width: 18%;" class="right">PRICE</th><th style="width: 20%;" class="right">TOTAL</th></tr>
+      <tr>
+        <th style="width: 38%;">ITEM</th>
+        <th style="width: 10%;" class="right">QTY</th>
+        <th style="width: 17%;" class="right">MRP</th>
+        <th style="width: 17%;" class="right">PRICE</th>
+        <th style="width: 18%;" class="right">TOTAL</th>
+      </tr>
     </thead>
     <tbody>
-      ${items.map(it => `
-        <tr>
-          <td><div class="bold">${it.product_name}</div><div class="subtext">[${it.sku || it.barcode || 'ITEM'}]</div></td>
-          <td class="right bold">${it.quantity}</td>
-          <td class="right">${Number(it.price).toFixed(2)}</td>
-          <td class="right bold">${Number(it.total || (it.quantity * it.price)).toFixed(2)}</td>
-        </tr>
-      `).join('')}
+      ${items.map(it => {
+        const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
+        const itPrice = Number(it.price || 0);
+        const itQty = Number(it.quantity || 1);
+        const itTotal = itQty * itPrice;
+        return `
+          <tr>
+            <td>
+              <div class="bold">${it.product_name}</div>
+              <div class="subtext">[${it.sku || it.barcode || 'ITEM'}]</div>
+            </td>
+            <td class="right bold">${itQty}</td>
+            <td class="right">${itMrp.toFixed(2)}</td>
+            <td class="right bold">${itPrice.toFixed(2)}</td>
+            <td class="right bold">${itTotal.toFixed(2)}</td>
+          </tr>
+        `;
+      }).join('')}
     </tbody>
   </table>
 
   <div class="divider"></div>
   <div class="flex-row"><span>Items Count:</span><span class="bold">${items.reduce((s, i) => s + Number(i.quantity), 0)}</span></div>
-  <div class="flex-row"><span>Gross Total:</span><span>Rs. ${(Number(order.subtotal || (Number(order.total_amount) + Number(order.discount || order.discount_amount || 0)))).toFixed(2)}</span></div>
+  <div class="flex-row"><span>Total MRP:</span><span class="bold">Rs. ${totalMrp}</span></div>
+  <div class="flex-row"><span>Final Price (Selling Price):</span><span class="bold">Rs. ${totalSellingPrice}</span></div>
   ${Number(order.discount || order.discount_amount || 0) > 0 ? `<div class="flex-row bold"><span>Discount:</span><span class="bold">- Rs. ${Number(order.discount || order.discount_amount).toFixed(2)}</span></div>` : ''}
   <div class="double-divider"></div>
-  <div class="flex-row" style="font-size: 13.5px;"><span class="bold">NET PAYABLE:</span><span class="bold">Rs. ${Number(order.total_amount).toFixed(2)}</span></div>
+  <div class="flex-row" style="font-size: 13.5px;"><span class="bold">NET PAYABLE:</span><span class="bold">Rs. ${netPayable}</span></div>
   <div class="double-divider"></div>
+
+  ${totalSavings > 0 ? `
+    <div class="center bold" style="font-size: ${is58mm ? '11px' : '12px'}; padding: 4px 2px; border: 1.5px dashed #000000; margin: 6px 0; letter-spacing: 0.4px;">
+      *** YOU SAVED: ₹${totalSavings} ***
+    </div>
+  ` : ''}
 
   <div class="center" style="font-size: 9.5px; margin-top: 8px;">
     <div class="bold">GST INCLUSIVE. ALL TAXES ACCOUNTED FOR.</div>
@@ -287,7 +315,7 @@ export default function POSBillingPage() {
                 {storeSettings?.store_name || 'NP Grand Shopping'}
               </div>
               <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                {storeSettings?.address || 'Madambakkam Main Road, Chennai 600073'}
+                {storeSettings?.address || 'Thiruvallur & Manali'}
               </div>
             </div>
 

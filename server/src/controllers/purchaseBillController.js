@@ -259,6 +259,21 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
         userId || null
       ]
     );
+
+    // If purchase bill belongs to a regional branch (e.g. Manali Branch), update branch_stocks
+    const targetBranchId = bill.branch_id ? parseInt(bill.branch_id, 10) : 1;
+    if (targetBranchId > 1) {
+      try {
+        await tx.query(
+          `INSERT INTO branch_stocks (branch_id, product_id, stock, is_active)
+           VALUES (?, ?, ?, 1)
+           ON DUPLICATE KEY UPDATE stock = GREATEST(0, stock + ?)`,
+          [targetBranchId, item.product_id, Math.max(0, signedQty), signedQty]
+        );
+      } catch (bsErr) {
+        console.warn('[PurchaseBill] branch_stocks sync warning:', bsErr.message);
+      }
+    }
   }
 }
 
@@ -292,6 +307,16 @@ async function getAllPurchaseBills(req, res, next) {
 
     let where = ' WHERE 1=1';
     const params = [];
+
+    // Branch scoping: Branch staff see only their branch bills; Super Admin can filter with ?branch_id=X or see all
+    const effectiveBranchId = (req.user && req.user.role !== 'admin')
+      ? req.user.branch_id
+      : (req.query.branch_id && req.query.branch_id !== 'all' ? parseInt(req.query.branch_id, 10) : null);
+
+    if (effectiveBranchId) {
+      where += ' AND (pb.branch_id = ? OR (pb.branch_id IS NULL AND ? = 1))';
+      params.push(effectiveBranchId, effectiveBranchId);
+    }
 
     if (vendor_id && vendor_id !== 'all') {
       where += ' AND pb.vendor_id = ?';
@@ -340,10 +365,12 @@ async function getAllPurchaseBills(req, res, next) {
 
     const bills = await query(
       `SELECT pb.*, v.name AS vendor_name, v.company_name AS vendor_company,
+              b.name AS branch_name, b.code AS branch_code,
               (SELECT COUNT(*) FROM purchase_bill_items pbi WHERE pbi.purchase_bill_id = pb.id) AS item_count,
               (SELECT COALESCE(SUM(quantity), 0) FROM purchase_bill_items pbi WHERE pbi.purchase_bill_id = pb.id) AS total_quantity
        FROM purchase_bills pb
        JOIN vendors v ON pb.vendor_id = v.id
+       LEFT JOIN branches b ON pb.branch_id = b.id
        ${where}
        ORDER BY pb.purchase_date DESC, pb.id DESC
        LIMIT ? OFFSET ?`,
@@ -383,6 +410,15 @@ async function getOutstandingPurchaseBills(req, res, next) {
     let where = ` WHERE pb.status <> 'cancelled' AND pb.payment_status IN ('Unpaid', 'Partially Paid') AND pb.outstanding_amount > 0`;
     const params = [];
 
+    const effectiveBranchId = (req.user && req.user.role !== 'admin')
+      ? req.user.branch_id
+      : (req.query.branch_id && req.query.branch_id !== 'all' ? parseInt(req.query.branch_id, 10) : null);
+
+    if (effectiveBranchId) {
+      where += ' AND (pb.branch_id = ? OR (pb.branch_id IS NULL AND ? = 1))';
+      params.push(effectiveBranchId, effectiveBranchId);
+    }
+
     if (vendor_id && vendor_id !== 'all') {
       where += ' AND pb.vendor_id = ?';
       params.push(vendor_id);
@@ -411,9 +447,11 @@ async function getOutstandingPurchaseBills(req, res, next) {
 
     const bills = await query(
       `SELECT pb.*, v.name AS vendor_name, v.company_name AS vendor_company,
+              b.name AS branch_name, b.code AS branch_code,
               (SELECT COUNT(*) FROM purchase_bill_items pbi WHERE pbi.purchase_bill_id = pb.id) AS item_count
        FROM purchase_bills pb
        JOIN vendors v ON pb.vendor_id = v.id
+       LEFT JOIN branches b ON pb.branch_id = b.id
        ${where}
        ORDER BY pb.purchase_date ASC, pb.id ASC`,
       params
@@ -547,12 +585,17 @@ async function createPurchaseBill(req, res, next) {
       const outstanding = toMoney(grandTotal - paid);
       const status = confirm ? 'confirmed' : 'draft';
 
+      const assignedBranchId = (req.user && req.user.branch_id)
+        ? req.user.branch_id
+        : (req.body.branch_id ? parseInt(req.body.branch_id, 10) : 1);
+
       const insertResult = await tx.query(
         `INSERT INTO purchase_bills (
-          vendor_id, bill_number, purchase_date, subtotal, additional_charges, grand_total,
+          branch_id, vendor_id, bill_number, purchase_date, subtotal, additional_charges, grand_total,
           payment_status, amount_paid, outstanding_amount, notes, status, stock_applied, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
         [
+          assignedBranchId,
           vendor_id,
           billNo,
           formatDate(purchase_date),
@@ -573,6 +616,7 @@ async function createPurchaseBill(req, res, next) {
         id: billId,
         bill_number: billNo,
         vendor_id,
+        branch_id: assignedBranchId,
         grand_total: grandTotal
       };
 

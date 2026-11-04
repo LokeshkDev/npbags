@@ -25,10 +25,24 @@ import {
   getProductBarcodes,
   generateProductBarcodes,
   deleteBarcode,
-  getAdminProductPurchaseRateHistory
+  getAdminProductPurchaseRateHistory,
+  getAdminBranches,
+  getAdminBranchStocks,
+  updateAdminBranchProductStock
 } from '../../lib/api';
+import { useAdminAuth } from '../../lib/auth';
 
 export default function AdminProductsPage() {
+  const { adminUser } = useAdminAuth();
+  const isSuperAdmin = Boolean(adminUser && adminUser.role === 'admin' && (!adminUser.branch_id || Number(adminUser.branch_id) <= 1));
+  const userBranchId = adminUser?.branch_id ? String(adminUser.branch_id) : '';
+
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('3');
+  const [branchStockQty, setBranchStockQty] = useState('0');
+  const [isBranchActive, setIsBranchActive] = useState(true);
+  const [isUpdatingBranchStock, setIsUpdatingBranchStock] = useState(false);
+
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [vendors, setVendors] = useState([]);
@@ -244,6 +258,82 @@ export default function AdminProductsPage() {
     }
   };
 
+  // Load branches
+  useEffect(() => {
+    getAdminBranches()
+      .then(res => {
+        if (res && Array.isArray(res.branches)) {
+          setBranches(res.branches);
+          const regional = res.branches.find(b => b.code !== 'MAIN') || res.branches[0];
+          if (regional) {
+            setSelectedBranchId(String(regional.id));
+          }
+        }
+      })
+      .catch(err => console.warn('Failed to load branches:', err));
+  }, []);
+
+  const handleBranchSelectChange = (branchId) => {
+    setSelectedBranchId(branchId);
+    if (editingProduct) {
+      const activeBranchStocks = Array.isArray(editingProduct.branch_stocks) ? editingProduct.branch_stocks : [];
+      const currentBranchStock = activeBranchStocks.find(bs => String(bs.branch_id) === String(branchId));
+      if (currentBranchStock) {
+        setBranchStockQty(String(currentBranchStock.stock ?? 0));
+        setIsBranchActive(Number(currentBranchStock.is_active) === 1);
+      } else {
+        getAdminBranchStocks(branchId)
+          .then(res => {
+            const list = res?.stocks || (Array.isArray(res) ? res : []);
+            const match = list.find(s => String(s.product_id) === String(editingProduct.id));
+            if (match) {
+              setBranchStockQty(String(match.stock ?? 0));
+              setIsBranchActive(Number(match.is_active) === 1);
+            } else {
+              setBranchStockQty('0');
+              setIsBranchActive(false);
+            }
+          })
+          .catch(() => {
+            setBranchStockQty('0');
+            setIsBranchActive(false);
+          });
+      }
+    }
+  };
+
+  const handleQuickUpdateBranchStock = async () => {
+    if (!editingProduct?.id || !selectedBranchId) return;
+    setIsUpdatingBranchStock(true);
+    try {
+      await updateAdminBranchProductStock(selectedBranchId, editingProduct.id, {
+        stock: parseInt(branchStockQty, 10) || 0,
+        is_active: isBranchActive ? 1 : 0
+      });
+      setEditingProduct(prev => {
+        if (!prev) return null;
+        const oldList = Array.isArray(prev.branch_stocks) ? prev.branch_stocks : [];
+        const updated = oldList.filter(bs => String(bs.branch_id) !== String(selectedBranchId));
+        const branchObj = branches.find(b => String(b.id) === String(selectedBranchId));
+        updated.push({
+          branch_id: Number(selectedBranchId),
+          branch_name: branchObj?.name || 'Regional Branch',
+          branch_code: branchObj?.code || '',
+          product_id: prev.id,
+          stock: parseInt(branchStockQty, 10) || 0,
+          is_active: isBranchActive ? 1 : 0
+        });
+        return { ...prev, branch_stocks: updated };
+      });
+      alert(`✅ Branch stock & visibility updated for ${branches.find(b => String(b.id) === String(selectedBranchId))?.name || 'branch'}! (Active in branch: ${isBranchActive ? 'Yes' : 'No'})`);
+      loadData();
+    } catch (err) {
+      alert(`Failed to update branch stock: ${err.message || 'Server error'}`);
+    } finally {
+      setIsUpdatingBranchStock(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
     const handleRefresh = () => {
@@ -328,6 +418,8 @@ export default function AdminProductsPage() {
       purchase_margin: '',
       landing_margin: ''
     });
+    setBranchStockQty('0');
+    setIsBranchActive(false);
     setSelectedFile(null);
     setModalOpen(true);
   };
@@ -357,6 +449,17 @@ export default function AdminProductsPage() {
 
   const openEditModal = async (p) => {
     setEditingProduct(p);
+    const targetBranchId = selectedBranchId || '3';
+    const activeBranchStocks = Array.isArray(p.branch_stocks) ? p.branch_stocks : [];
+    const currentBranchStock = activeBranchStocks.find(bs => String(bs.branch_id) === String(targetBranchId));
+    if (currentBranchStock) {
+      setBranchStockQty(String(currentBranchStock.stock ?? 0));
+      setIsBranchActive(Number(currentBranchStock.is_active) === 1);
+    } else {
+      setBranchStockQty('0');
+      setIsBranchActive(false);
+    }
+
     const defaultSeoTitle = p.seo_title || (p.name ? `${p.name} | NP Grand Shopping` : '');
     const defaultSeoDesc = p.seo_description || (p.description ? p.description.slice(0, 155) : (p.name ? `Buy ${p.name} online at NP Grand Shopping.` : ''));
     const defaultSeoKw = p.seo_keywords || (p.name ? p.name.toLowerCase().split(/\s+/).filter(w => w.length > 2).join(', ') : '');
@@ -471,6 +574,16 @@ export default function AdminProductsPage() {
             sku: v.sku || '',
             image_url: v.image_url || ''
           })));
+        }
+        if (Array.isArray(detailed.branch_stocks)) {
+          const bStock = detailed.branch_stocks.find(bs => String(bs.branch_id) === String(targetBranchId));
+          if (bStock) {
+            setBranchStockQty(String(bStock.stock ?? 0));
+            setIsBranchActive(Number(bStock.is_active) === 1);
+          } else {
+            setBranchStockQty('0');
+            setIsBranchActive(false);
+          }
         }
         setFormData(prev => {
           const updated = {
@@ -838,6 +951,12 @@ export default function AdminProductsPage() {
     data.set('is_featured', formData.is_featured ? '1' : '0');
     data.set('is_active', formData.is_active ? '1' : '0');
     data.set('is_online', formData.is_online ? '1' : '0');
+
+    if (isSuperAdmin && selectedBranchId) {
+      data.set('branch_id', String(selectedBranchId));
+      data.set('branch_stock', String(branchStockQty || '0'));
+      data.set('is_branch_active', isBranchActive ? '1' : '0');
+    }
 
     data.append('variants', JSON.stringify(variants));
 
@@ -2119,7 +2238,7 @@ export default function AdminProductsPage() {
                 Control product visibility and sales channel availability.
               </span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: '#fff', padding: '10px 14px', borderRadius: '6px', border: formData.is_active ? '1.5px solid #10b981' : '1px solid #e5e7eb', transition: 'border-color 0.2s' }}>
                 <input
                   type="checkbox"
@@ -2145,7 +2264,113 @@ export default function AdminProductsPage() {
                   <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Product available on online store</span>
                 </div>
               </label>
+
+              {/* Show in Branch - Super Admin Only */}
+              {isSuperAdmin && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: '#fff', padding: '10px 14px', borderRadius: '6px', border: isBranchActive ? '1.5px solid #8b5cf6' : '1px solid #e5e7eb', transition: 'border-color 0.2s' }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: '18px', height: '18px', accentColor: '#8b5cf6', cursor: 'pointer' }}
+                    checked={Boolean(isBranchActive)}
+                    onChange={(e) => setIsBranchActive(e.target.checked)}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '13px', display: 'block', color: 'var(--ink)' }}>Show in Branch</strong>
+                    <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Product visible in branch POS</span>
+                  </div>
+                </label>
+              )}
             </div>
+
+            {/* Branch Selection & Quantity Update - Super Admin Only */}
+            {isSuperAdmin && (
+              <div style={{ marginTop: '14px', padding: '14px 16px', background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 280px' }}>
+                  <span style={{ fontSize: '22px' }}>🏢</span>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, color: '#475569', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Select Branch
+                    </label>
+                    <select
+                      value={selectedBranchId}
+                      onChange={(e) => handleBranchSelectChange(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1.5px solid #0ea5e9',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        background: '#fff',
+                        color: '#0369a1',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {branches.filter(b => b.code !== 'MAIN').map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, color: '#475569', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Branch Stock (Qty)
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        value={branchStockQty}
+                        onChange={(e) => setBranchStockQty(e.target.value)}
+                        placeholder="0"
+                        style={{
+                          width: '110px',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #10b981',
+                          fontSize: '14px',
+                          fontWeight: 800,
+                          textAlign: 'center',
+                          color: '#065935',
+                          background: '#f0fdf4'
+                        }}
+                      />
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>units</span>
+                    </div>
+                  </div>
+
+                  {editingProduct && (
+                    <button
+                      type="button"
+                      onClick={handleQuickUpdateBranchStock}
+                      disabled={isUpdatingBranchStock}
+                      style={{
+                        marginTop: '16px',
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        background: '#065935',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '12.5px',
+                        fontWeight: 800,
+                        cursor: isUpdatingBranchStock ? 'not-allowed' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                      title="Quickly save and update this product's branch stock in the database"
+                    >
+                      <span>{isUpdatingBranchStock ? '⏳' : '💾'}</span>
+                      <span>{isUpdatingBranchStock ? 'Updating...' : 'Update Qty'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Materials & Care Instructions (Shown in PDP Materials & Care Tab) */}

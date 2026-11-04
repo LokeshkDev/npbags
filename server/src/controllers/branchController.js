@@ -336,6 +336,7 @@ async function getBranchStocks(req, res, next) {
     const stocks = await query(`
       SELECT bs.id, bs.branch_id, bs.product_id, bs.stock, bs.low_stock_threshold, bs.is_active, bs.updated_at,
              p.name AS product_name, p.price, p.sale_price, p.mrp, p.barcode_short_name,
+             COALESCE(p.stock, 0) AS main_branch_stock,
              (SELECT image_url FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image,
              c.name AS category_name, c.id AS category_id
       FROM branch_stocks bs
@@ -450,27 +451,126 @@ async function updateBranchProductStock(req, res, next) {
     const { id, productId } = req.params;
     const { stock, low_stock_threshold, is_active } = req.body;
 
-    const existing = await query('SELECT id FROM branch_stocks WHERE branch_id = ? AND product_id = ?', [id, productId]);
+    const existing = await query('SELECT id, stock, is_active, low_stock_threshold FROM branch_stocks WHERE branch_id = ? AND product_id = ?', [id, productId]);
     if (existing.length === 0) {
+      await query(`
+        INSERT INTO branch_stocks (branch_id, product_id, stock, low_stock_threshold, is_active)
+        VALUES (?, ?, ?, ?, ?)
+      `, [
+        id,
+        productId,
+        stock !== undefined ? parseInt(stock, 10) : 0,
+        low_stock_threshold !== undefined ? parseInt(low_stock_threshold, 10) : 5,
+        is_active !== undefined ? (is_active ? 1 : 0) : 1
+      ]);
+    } else {
+      await query(`
+        UPDATE branch_stocks
+        SET stock = COALESCE(?, stock),
+            low_stock_threshold = COALESCE(?, low_stock_threshold),
+            is_active = COALESCE(?, is_active),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE branch_id = ? AND product_id = ?
+      `, [
+        stock !== undefined ? parseInt(stock, 10) : null,
+        low_stock_threshold !== undefined ? parseInt(low_stock_threshold, 10) : null,
+        is_active !== undefined ? (is_active ? 1 : 0) : null,
+        id,
+        productId
+      ]);
+    }
+
+    return sendSuccess(res, null, 'Branch product stock updated');
+  } catch (error) {
+    next(error);
+  }
+}
+
+// 14. Push / transfer stock from regional branch back to Main Branch (Head Warehouse)
+async function pushStockToMainBranch(req, res, next) {
+  try {
+    const { id, productId } = req.params;
+    const { quantity } = req.body;
+    const transferQty = parseInt(quantity, 10);
+
+    if (!transferQty || transferQty <= 0) {
+      return sendError(res, 'Transfer quantity must be greater than 0', 400);
+    }
+
+    // 1. Fetch current branch stock
+    const branchRows = await query(`
+      SELECT bs.*, b.name AS branch_name, p.name AS product_name, COALESCE(p.stock, 0) AS main_stock
+      FROM branch_stocks bs
+      JOIN branches b ON bs.branch_id = b.id
+      JOIN products p ON bs.product_id = p.id
+      WHERE bs.branch_id = ? AND bs.product_id = ?
+    `, [id, productId]);
+
+    if (branchRows.length === 0) {
       return sendError(res, 'Product is not allocated to this branch', 404);
     }
 
+    const currentBranchStock = parseInt(branchRows[0].stock, 10) || 0;
+    if (currentBranchStock < transferQty) {
+      return sendError(res, `Cannot transfer ${transferQty} unit(s). Branch only has ${currentBranchStock} unit(s) available.`, 400);
+    }
+
+    // 2. Decrement branch stock
     await query(`
       UPDATE branch_stocks
-      SET stock = COALESCE(?, stock),
-          low_stock_threshold = COALESCE(?, low_stock_threshold),
-          is_active = COALESCE(?, is_active),
+      SET stock = stock - ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE branch_id = ? AND product_id = ?
-    `, [
-      stock !== undefined ? parseInt(stock, 10) : null,
-      low_stock_threshold !== undefined ? parseInt(low_stock_threshold, 10) : null,
-      is_active !== undefined ? (is_active ? 1 : 0) : null,
-      id,
-      productId
-    ]);
+    `, [transferQty, id, productId]);
 
-    return sendSuccess(res, null, 'Branch product stock updated');
+    // 3. Increment Main Branch stock (Central warehouse products table)
+    await query(`
+      UPDATE products
+      SET stock = stock + ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [transferQty, productId]);
+
+    // Update variant stock if single variant exists
+    try {
+      const vRows = await query('SELECT id, stock_quantity FROM product_variants WHERE product_id = ?', [productId]);
+      if (vRows.length === 1) {
+        await query('UPDATE product_variants SET stock_quantity = stock_quantity + ? WHERE id = ?', [transferQty, vRows[0].id]);
+      }
+    } catch (vErr) {
+      console.warn('Variant stock update skipped:', vErr.message);
+    }
+
+    // 4. Record transaction in audit log
+    const newBranchStock = currentBranchStock - transferQty;
+    const newMainStock = (parseInt(branchRows[0].main_stock, 10) || 0) + transferQty;
+
+    try {
+      await query(`
+        INSERT INTO inventory_transactions (
+          product_id, variant_sku, type, change_qty, balance_after, reference, notes, source, user_id
+        )
+        VALUES (?, ?, 'Branch Push to Main', ?, ?, ?, ?, 'branch_transfer', ?)
+      `, [
+        productId,
+        branchRows[0].sku || 'DEFAULT',
+        transferQty,
+        newMainStock,
+        `TRANSFER-FROM-BR-${id}`,
+        `Stock pushed to Main Branch from ${branchRows[0].branch_name} (Branch #${id})`,
+        req.user?.id || null
+      ]);
+    } catch (tErr) {
+      console.warn('Inventory transaction log skipped:', tErr.message);
+    }
+
+    return sendSuccess(res, {
+      product_id: productId,
+      product_name: branchRows[0].product_name,
+      transferred_qty: transferQty,
+      branch_stock: newBranchStock,
+      main_branch_stock: newMainStock
+    }, `Successfully transferred ${transferQty} unit(s) of "${branchRows[0].product_name}" to Main Branch! Main Branch stock is now ${newMainStock}.`);
   } catch (error) {
     next(error);
   }
@@ -489,6 +589,7 @@ module.exports = {
   getBranchStocks,
   pushProductsToBranch,
   pushCategoryToBranch,
-  updateBranchProductStock
+  updateBranchProductStock,
+  pushStockToMainBranch
 };
 

@@ -30,6 +30,13 @@ export function AdminAuthProvider({ children }) {
           localStorage.setItem('npgrand_admin_user', JSON.stringify(fresh));
           return fresh;
         }
+      } else if (res.status === 401) {
+        removeAdminToken();
+        setAdminUser(null);
+        if (pathname !== '/login') {
+          router.push('/login?expired=1');
+        }
+        return null;
       }
     } catch (e) {
       console.warn('Could not refresh admin user profile:', e);

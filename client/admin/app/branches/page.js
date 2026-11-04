@@ -20,7 +20,8 @@ import {
   getAdminBranchStocks,
   pushAdminBranchProducts,
   pushAdminBranchCategory,
-  updateAdminBranchProductStock
+  updateAdminBranchProductStock,
+  pushAdminStockToMainBranch
 } from '../../lib/api';
 
 const AVAILABLE_MENUS = [
@@ -232,6 +233,46 @@ export default function BranchesPage() {
       loadBranchStocks(targetBranchId);
     } catch (err) {
       alert(`Could not update stock: ${err.message || 'Server error'}`);
+    }
+  };
+
+  const handleToggleVisibility = async (item) => {
+    try {
+      const newStatus = item.is_active === 0 ? 1 : 0;
+      await updateAdminBranchProductStock(targetBranchId, item.product_id, { is_active: newStatus });
+      showToast(`✓ "${item.product_name}" is now ${newStatus === 1 ? 'visible' : 'hidden'} in this branch.`);
+      loadBranchStocks(targetBranchId);
+    } catch (err) {
+      alert(`Could not toggle visibility: ${err.message || 'Server error'}`);
+    }
+  };
+
+  const handlePushToMain = async (item) => {
+    const branchStock = parseInt(item.stock, 10) || 0;
+    if (branchStock <= 0) {
+      alert(`Branch has 0 units of "${item.product_name}". Nothing to push to Main Branch.`);
+      return;
+    }
+    const input = window.prompt(
+      `Push "${item.product_name}" to Main Branch (Head Warehouse).\n\nAvailable in Branch: ${branchStock} units\nMain Branch Stock: ${item.main_branch_stock ?? 0} units\n\nEnter number of units to transfer:`,
+      '1'
+    );
+    if (!input) return;
+    const qty = parseInt(input, 10);
+    if (!qty || qty <= 0) {
+      alert('Please enter a valid positive quantity.');
+      return;
+    }
+    if (qty > branchStock) {
+      alert(`Cannot transfer ${qty} units. Branch only has ${branchStock} units.`);
+      return;
+    }
+    try {
+      const res = await pushAdminStockToMainBranch(targetBranchId, item.product_id, { quantity: qty });
+      showToast(res?.message || `✓ Transferred ${qty} unit(s) of "${item.product_name}" to Main Branch!`);
+      loadBranchStocks(targetBranchId);
+    } catch (err) {
+      alert(`Could not transfer stock: ${err.message || 'Server error'}`);
     }
   };
 
@@ -1124,20 +1165,21 @@ export default function BranchesPage() {
                       <th style={{ padding: '12px 18px' }}>CATEGORY</th>
                       <th style={{ padding: '12px 18px', textAlign: 'right' }}>SELLING PRICE</th>
                       <th style={{ padding: '12px 18px', textAlign: 'center' }}>BRANCH STOCK</th>
-                      <th style={{ padding: '12px 18px', textAlign: 'center' }}>ALERT AT</th>
-                      <th style={{ padding: '12px 18px', textAlign: 'right' }}>ACTION</th>
+                      <th style={{ padding: '12px 18px', textAlign: 'center' }}>VISIBILITY IN BRANCH</th>
+                      <th style={{ padding: '12px 18px', textAlign: 'center' }}>MAIN STORE STOCK</th>
+                      <th style={{ padding: '12px 18px', textAlign: 'right' }}>ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loadingStocks ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                        <td colSpan={8} style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
                           Loading branch inventory...
                         </td>
                       </tr>
                     ) : branchStocks.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                        <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
                           No products allocated to this branch yet. Use the cards above to push categories or products.
                         </td>
                       </tr>
@@ -1147,6 +1189,10 @@ export default function BranchesPage() {
                         .map((item, idx) => {
                           const isEditing = editingStockId === item.product_id;
                           const isLow = item.stock <= item.low_stock_threshold;
+                          const isBranchVisible = item.is_active !== 0;
+                          const mainStock = item.main_branch_stock ?? 0;
+                          const isMainZero = mainStock === 0;
+
                           return (
                             <tr key={item.id || item.product_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '12px 18px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
@@ -1160,6 +1206,7 @@ export default function BranchesPage() {
                               <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
                                 ₹{item.sale_price > 0 ? item.sale_price : item.price}
                               </td>
+                              {/* Branch Stock Column */}
                               <td style={{ padding: '12px 18px', textAlign: 'center' }}>
                                 {isEditing ? (
                                   <input
@@ -1192,65 +1239,135 @@ export default function BranchesPage() {
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: '12px 18px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
-                                &le; {item.low_stock_threshold} units
+
+                              {/* Visibility in Branch Column */}
+                              <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleVisibility(item)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '20px',
+                                    border: isBranchVisible ? '1px solid #86efac' : '1px solid #cbd5e1',
+                                    background: isBranchVisible ? '#f0fdf4' : '#f8fafc',
+                                    color: isBranchVisible ? '#15803d' : '#64748b',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px'
+                                  }}
+                                  title={isBranchVisible ? 'Product is visible in this branch POS. Click to hide.' : 'Product is hidden from branch POS. Click to make visible.'}
+                                >
+                                  <span>{isBranchVisible ? '🟢' : '⚪'}</span>
+                                  <span>{isBranchVisible ? 'Visible in Branch' : 'Hidden'}</span>
+                                </button>
                               </td>
+
+                              {/* Main Store Stock Column */}
+                              <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '3px 9px',
+                                    borderRadius: '12px',
+                                    fontWeight: 800,
+                                    fontSize: '11.5px',
+                                    background: isMainZero ? '#fef2f2' : '#f8fafc',
+                                    color: isMainZero ? '#dc2626' : '#334155',
+                                    border: isMainZero ? '1.5px solid #fca5a5' : '1px solid #e2e8f0'
+                                  }}
+                                >
+                                  {isMainZero ? '⚠️ 0 in Main (Out of Stock)' : `${mainStock} in Main`}
+                                </span>
+                              </td>
+
+                              {/* Actions Column */}
                               <td style={{ padding: '12px 18px', textAlign: 'right' }}>
-                                {isEditing ? (
-                                  <div style={{ display: 'inline-flex', gap: '6px' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveStockUpdate(item.product_id)}
-                                      style={{
-                                        padding: '4px 8px',
-                                        background: '#065935',
-                                        color: '#fff',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        fontSize: '11px',
-                                        fontWeight: 800,
-                                        cursor: 'pointer'
-                                      }}
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingStockId(null)}
-                                      style={{
-                                        padding: '4px 8px',
-                                        background: '#f1f5f9',
-                                        color: '#334155',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        fontSize: '11px',
-                                        fontWeight: 700,
-                                        cursor: 'pointer'
-                                      }}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingStockId(item.product_id);
-                                      setEditingStockVal(item.stock);
-                                    }}
-                                    style={{
-                                      padding: '4px 10px',
-                                      background: '#ffffff',
-                                      border: '1px solid #cbd5e1',
-                                      borderRadius: '5px',
-                                      fontSize: '11.5px',
-                                      fontWeight: 700,
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    Edit Stock
-                                  </button>
-                                )}
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                                  {isEditing ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveStockUpdate(item.product_id)}
+                                        style={{
+                                          padding: '4px 8px',
+                                          background: '#065935',
+                                          color: '#fff',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          fontSize: '11px',
+                                          fontWeight: 800,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingStockId(null)}
+                                        style={{
+                                          padding: '4px 8px',
+                                          background: '#f1f5f9',
+                                          color: '#334155',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingStockId(item.product_id);
+                                          setEditingStockVal(item.stock);
+                                        }}
+                                        style={{
+                                          padding: '4px 9px',
+                                          background: '#ffffff',
+                                          border: '1px solid #cbd5e1',
+                                          borderRadius: '5px',
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                        title="Quick update branch stock quantity"
+                                      >
+                                        ✎ Qty
+                                      </button>
+
+                                      {/* Push to Main Branch Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePushToMain(item)}
+                                        style={{
+                                          padding: '4px 10px',
+                                          background: isMainZero ? '#dc2626' : '#0f172a',
+                                          color: '#ffffff',
+                                          border: 'none',
+                                          borderRadius: '5px',
+                                          fontSize: '11px',
+                                          fontWeight: 800,
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          boxShadow: isMainZero ? '0 1px 4px rgba(220, 38, 38, 0.3)' : 'none'
+                                        }}
+                                        title={isMainZero ? 'Main Store has 0 stock! Click to transfer quantity to Main Branch' : 'Transfer quantity from this branch to Main Store'}
+                                      >
+                                        <span>🚀 Push to Main</span>
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );

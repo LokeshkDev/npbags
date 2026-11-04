@@ -621,40 +621,40 @@ async function validateCoupon(req, res, next) {
 async function getAllOrdersAdmin(req, res, next) {
   try {
     const { status, search, page = 1, limit = 20, is_accountable } = req.query;
-    let sql = `SELECT * FROM orders WHERE 1=1`;
+    let sql = `SELECT o.*, b.name AS branch_name, b.code AS branch_code FROM orders o LEFT JOIN branches b ON o.branch_id = b.id WHERE 1=1`;
     const params = [];
 
     // Filter by Accountable (Pakka) vs Unaccountable (Kaccha)
     if (is_accountable === '0' || is_accountable === 0) {
-      sql += ` AND is_accountable = 0`;
+      sql += ` AND o.is_accountable = 0`;
     } else if (is_accountable === 'all') {
       // Do not restrict by accountability
     } else {
       // Default: Only accountable / official Pakka bills (including online orders)
-      sql += ` AND COALESCE(is_accountable, 1) = 1`;
+      sql += ` AND COALESCE(o.is_accountable, 1) = 1`;
     }
 
     // Branch scoping: Branch staff see only their branch; Super Admin can filter by branch_id
     const effectiveBranchId = (req.user && req.user.role !== 'admin')
       ? req.user.branch_id
-      : (req.query.branch_id ? parseInt(req.query.branch_id, 10) : null);
+      : (req.query.branch_id && req.query.branch_id !== 'all' ? parseInt(req.query.branch_id, 10) : null);
 
     if (effectiveBranchId) {
-      sql += ` AND branch_id = ?`;
-      params.push(effectiveBranchId);
+      sql += ` AND (o.branch_id = ? OR (o.branch_id IS NULL AND ? = 1))`;
+      params.push(effectiveBranchId, effectiveBranchId);
     }
 
     if (status && status !== 'all') {
-      sql += ` AND order_status = ?`;
+      sql += ` AND o.order_status = ?`;
       params.push(status);
     }
 
     if (search) {
-      sql += ` AND (order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ? OR customer_phone LIKE ?)`;
+      sql += ` AND (o.order_number LIKE ? OR o.customer_name LIKE ? OR o.customer_email LIKE ? OR o.customer_phone LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    sql += ` ORDER BY created_at DESC`;
+    sql += ` ORDER BY o.created_at DESC`;
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
     sql += ` LIMIT ? OFFSET ?`;
     params.push(parseInt(limit, 10), offset);
@@ -797,7 +797,7 @@ async function createPOSOrder(req, res, next) {
     }
 
     const order_number = await generateNextPosOrderNumber();
-    const grandTotal = taxSummary.grandTotal;
+    const grandTotal = Math.ceil(taxSummary.grandTotal);
 
     // Save or link newly added / recognized customer into users table so customer info is preserved
     let customerUserId = null;
@@ -819,9 +819,21 @@ async function createPOSOrder(req, res, next) {
       if (uRows.length > 0) currentCustomerPoints = Number(uRows[0].np_points) || 0;
     }
 
+    // Cashier option to adjust/override customer loyalty points balance in the bill
+    if (req.body.adjusted_customer_points !== undefined && req.body.adjusted_customer_points !== null) {
+      const manualAdjustVal = parseInt(req.body.adjusted_customer_points, 10);
+      if (!Number.isNaN(manualAdjustVal) && manualAdjustVal >= 0) {
+        currentCustomerPoints = manualAdjustVal;
+      }
+    }
+
     const points_redeemed = Math.min(currentCustomerPoints, Math.max(0, points_redeemed_req));
-    const points_discount = Math.min(grandTotal, Math.round(points_redeemed * 0.25 * 100) / 100);
-    const finalTotal = Math.max(0, Math.round((grandTotal - points_discount) * 100) / 100);
+    const points_discount = req.body.points_discount !== undefined && Number(req.body.points_discount) >= 0
+      ? Math.min(grandTotal, Number(req.body.points_discount))
+      : Math.min(grandTotal, Math.round(points_redeemed * 0.25 * 100) / 100);
+
+    // User requirement: No paise (e.g. ₹150.25 becomes 151)
+    const finalTotal = Math.ceil(Math.max(0, grandTotal - points_discount));
     const points_earned = Math.floor(finalTotal / 100);
 
     let updatedPointsBalance = currentCustomerPoints;
@@ -1114,7 +1126,7 @@ async function updatePOSOrderItems(req, res, next) {
       await ensureCustomItemsAsProducts(taxSummary.items);
     }
 
-    const grandTotal = taxSummary.grandTotal;
+    const grandTotal = Math.ceil(taxSummary.grandTotal);
 
     // 3. Delete old items and insert updated items
     await query(`DELETE FROM order_items WHERE order_id = ?`, [id]);
