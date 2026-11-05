@@ -48,46 +48,56 @@ export function AdminAuthProvider({ children }) {
     const token = getAdminToken();
     const storedUser = localStorage.getItem('npgrand_admin_user');
 
-    if (token) {
-      if (storedUser) {
-        try {
-          const user = JSON.parse(storedUser);
-          setAdminUser(user);
+    if (!token) {
+      setAdminUser(null);
+      setLoading(false);
+      if (pathname !== '/login') {
+        router.replace('/login');
+      }
+      return;
+    }
 
-          // Menu route guard for restricted branch users
-          if (user.role !== 'admin' && pathname !== '/login' && pathname !== '/dashboard') {
-            if (pathname.startsWith('/branches') || pathname.startsWith('/settings')) {
-              router.push('/dashboard');
-            } else if (Array.isArray(user.allowed_menus) && user.allowed_menus.length > 0) {
-              const routeKeyMap = {
-                '/pos': 'pos',
-                '/orders': 'orders',
-                '/inventory': 'inventory',
-                '/products': 'products',
-                '/categories': 'categories',
-                '/barcodes': 'barcodes',
-                '/customers': 'customers',
-                '/salespersons': 'salespersons',
-                '/vendors': 'vendors',
-                '/audit-logs': 'audit_logs',
-                '/cms': 'cms'
-              };
-              const matchedKey = Object.keys(routeKeyMap).find(k => pathname.startsWith(k));
-              if (matchedKey && !user.allowed_menus.includes(routeKeyMap[matchedKey])) {
-                router.push('/dashboard');
-              }
+    if (storedUser) {
+      try {
+        const user = JSON.parse(storedUser);
+        setAdminUser(user);
+
+        // Menu route guard for restricted branch users
+        if (user.role !== 'admin' && pathname !== '/login' && pathname !== '/dashboard') {
+          if (pathname.startsWith('/branches') || pathname.startsWith('/settings')) {
+            router.replace('/dashboard');
+          } else if (Array.isArray(user.allowed_menus) && user.allowed_menus.length > 0) {
+            const routeKeyMap = {
+              '/pos': 'pos',
+              '/orders': 'orders',
+              '/inventory': 'inventory',
+              '/products': 'products',
+              '/categories': 'categories',
+              '/barcodes': 'barcodes',
+              '/customers': 'customers',
+              '/salespersons': 'salespersons',
+              '/vendors': 'vendors',
+              '/audit-logs': 'audit_logs',
+              '/cms': 'cms'
+            };
+            const matchedKey = Object.keys(routeKeyMap).find(k => pathname.startsWith(k));
+            if (matchedKey && !user.allowed_menus.includes(routeKeyMap[matchedKey])) {
+              router.replace('/dashboard');
             }
           }
-        } catch (e) {
-          removeAdminToken();
         }
+      } catch (e) {
+        removeAdminToken();
+        setAdminUser(null);
+        if (pathname !== '/login') {
+          router.replace('/login');
+        }
+        setLoading(false);
+        return;
       }
-      // Always pull live permissions from server on mount/transition to reflect permission edits instantly
-      refreshProfile();
-    } else if (pathname !== '/login') {
-      router.push('/login');
     }
-    setLoading(false);
+    // Always pull live permissions from server on mount/transition to reflect permission edits instantly
+    refreshProfile().finally(() => setLoading(false));
   }, [pathname, router, refreshProfile]);
 
   // Real-time synchronization across tabs and when user permissions are updated
@@ -126,6 +136,36 @@ export function AdminAuthProvider({ children }) {
     router.push('/login');
   };
 
+  // If not on login page, do not render children until authentication is verified!
+  if (pathname !== '/login' && (loading || !adminUser)) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#0f172a',
+        color: '#f8fafc',
+        fontFamily: 'var(--font-body, -apple-system, BlinkMacSystemFont, sans-serif)'
+      }}>
+        <div style={{
+          width: '38px',
+          height: '38px',
+          border: '3px solid rgba(255, 255, 255, 0.15)',
+          borderTopColor: '#38bdf8',
+          borderRadius: '50%',
+          animation: 'adminSpin 0.75s linear infinite',
+          marginBottom: '16px'
+        }} />
+        <style>{`@keyframes adminSpin { to { transform: rotate(360deg); } }`}</style>
+        <span style={{ fontSize: '13px', fontWeight: 600, letterSpacing: '0.04em', color: '#94a3b8' }}>
+          Verifying security access...
+        </span>
+      </div>
+    );
+  }
+
   return (
     <AdminAuthContext.Provider
       value={{
@@ -146,8 +186,8 @@ export function useAdminAuth() {
   const ctx = useContext(AdminAuthContext);
   if (!ctx) {
     return {
-      adminUser: { name: 'Administrator', role: 'admin' },
-      isAuthenticated: true,
+      adminUser: null,
+      isAuthenticated: false,
       loading: false,
       login: async () => {},
       logout: () => {

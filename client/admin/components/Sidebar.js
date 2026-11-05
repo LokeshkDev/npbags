@@ -45,7 +45,7 @@ export function Sidebar() {
   ];
 
   // Role and allowed menu filtering for restricted branch staff
-  const isSuperAdmin = !adminUser || adminUser.role === 'admin';
+  const isSuperAdmin = Boolean(adminUser && adminUser.role === 'admin' && (!adminUser.branch_id || Number(adminUser.branch_id) <= 1));
   const allowedSet = new Set(Array.isArray(adminUser?.allowed_menus) ? adminUser.allowed_menus : []);
 
   const visibleNavLinks = navItems.filter(item => {

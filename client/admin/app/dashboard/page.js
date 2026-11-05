@@ -18,7 +18,7 @@ import {
 export default function AdminDashboardPage() {
   const { openPOS } = usePOSModal();
   const { adminUser } = useAdminAuth();
-  const isSuperAdmin = !adminUser || adminUser.role === 'admin';
+  const isSuperAdmin = Boolean(adminUser && adminUser.role === 'admin' && (!adminUser.branch_id || Number(adminUser.branch_id) <= 1));
 
   // Branch isolation state
   const [branches, setBranches] = useState([]);

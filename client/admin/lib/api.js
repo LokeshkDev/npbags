@@ -8,6 +8,7 @@ export function getAdminToken() {
 export function setAdminToken(token) {
   if (typeof window !== 'undefined') {
     localStorage.setItem('npgrand_admin_token', token);
+    document.cookie = `npgrand_admin_token=${token}; path=/; max-age=86400; SameSite=Lax`;
   }
 }
 
@@ -15,6 +16,7 @@ export function removeAdminToken() {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('npgrand_admin_token');
     localStorage.removeItem('npgrand_admin_user');
+    document.cookie = 'npgrand_admin_token=; path=/; max-age=0; SameSite=Lax';
   }
 }
 

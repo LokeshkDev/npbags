@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
@@ -41,6 +42,7 @@ const AVAILABLE_MENUS = [
 
 export default function BranchesPage() {
   const { adminUser } = useAdminAuth();
+  const isSuperAdmin = Boolean(adminUser && adminUser.role === 'admin' && (!adminUser.branch_id || Number(adminUser.branch_id) <= 1));
   const [activeTab, setActiveTab] = useState('branches'); // 'branches' | 'users'
   const [branches, setBranches] = useState([]);
   const [branchUsers, setBranchUsers] = useState([]);
@@ -145,8 +147,10 @@ export default function BranchesPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isSuperAdmin) {
+      loadData();
+    }
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     if (targetBranchId) {
@@ -432,6 +436,30 @@ export default function BranchesPage() {
       alert(`Could not delete user: ${err.message || 'Server error'}`);
     }
   };
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="admin-layout">
+        <Sidebar />
+        <div className="admin-main">
+          <Topbar title="Multi-Branch & Access Control" />
+          <main className="admin-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+            <div style={{ textAlign: 'center', maxWidth: '440px', padding: '36px 28px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 16px rgba(0,0,0,0.04)' }}>
+              <span style={{ fontSize: '48px', display: 'block', marginBottom: '16px' }}>🔒</span>
+              <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Access Restricted</h2>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: 1.5 }}>
+                Multi-branch management and staff provisioning is reserved exclusively for the Super Administrator.
+              </p>
+              <Link href="/dashboard" className="admin-btn admin-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <Icon name="home" size={16} />
+                <span>Return to Dashboard</span>
+              </Link>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="admin-layout">
