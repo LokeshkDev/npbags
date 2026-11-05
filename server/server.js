@@ -31,6 +31,11 @@ const configuredOrigins = [
   env.cors.adminUrl,
   ...(env.cors.allowedOrigins ? env.cors.allowedOrigins.split(',') : []),
   ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : []),
+  'https://npgrandshopping.com',
+  'https://www.npgrandshopping.com',
+  'https://admin.npgrandshopping.com',
+  'https://api.npgrandshopping.com',
+  'http://api.npgrandshopping.com:5014',
   'https://npbags.vercel.app',
   'https://npbags-admin.vercel.app',
   'https://npbags-backend.onrender.com',
@@ -53,22 +58,27 @@ function isOriginAllowed(origin) {
     return true;
   }
 
-  // 2. Allow all Vercel deployments (production, branch preview URLs)
+  // 2. Allow all npgrandshopping.com subdomains and ports
+  if (/^https?:\/\/([a-zA-Z0-9_-]+\.)*npgrandshopping\.com(:[0-9]+)?$/i.test(cleanOrigin)) {
+    return true;
+  }
+
+  // 3. Allow all Vercel deployments (production, branch preview URLs)
   if (/^https:\/\/([a-zA-Z0-9_-]+\.)*vercel\.app$/i.test(cleanOrigin)) {
     return true;
   }
 
-  // 3. Allow all Render URLs
+  // 4. Allow all Render URLs
   if (/^https:\/\/([a-zA-Z0-9_-]+\.)*onrender\.com$/i.test(cleanOrigin)) {
     return true;
   }
 
-  // 4. Allow any localhost or 127.0.0.1 on any port
+  // 5. Allow any localhost or 127.0.0.1 on any port
   if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cleanOrigin)) {
     return true;
   }
 
-  // 5. Permissive fallback for custom domains unless strict mode is enabled
+  // 6. Permissive fallback for custom domains unless strict mode is enabled
   if (process.env.CORS_STRICT !== 'true') {
     return true;
   }
