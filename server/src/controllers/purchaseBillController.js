@@ -29,6 +29,68 @@ function normalizePurchaseRate(value) {
   return trimmed === '' ? null : trimmed;
 }
 
+function normalizeGstType(value) {
+  return String(value || '').toLowerCase() === 'inclusive' ? 'inclusive' : 'exclusive';
+}
+
+function normalizeDiscountType(value) {
+  return String(value || '').toLowerCase() === 'percent' ? 'percent' : 'flat';
+}
+
+function normalizeDate(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function computeLineCosting({
+  rateValue,
+  quantity,
+  mrp,
+  gstType,
+  gstRate,
+  discountType,
+  discountValue,
+  sellingPrice
+}) {
+  const qty = Math.max(1, parseInt(quantity, 10) || 1);
+  const rate = toMoney(rateValue);
+  const gstPct = Math.max(0, Number.parseFloat(gstRate) || 0);
+  const landingUnit = normalizeGstType(gstType) === 'exclusive' && gstPct > 0 && rate > 0
+    ? toMoney(rate * (1 + gstPct / 100))
+    : rate;
+
+  const grossAmount = toMoney(rate * qty);
+  const type = normalizeDiscountType(discountType);
+  const value = Math.max(0, toMoney(discountValue));
+  const discountAmount = type === 'percent'
+    ? toMoney((grossAmount * Math.min(100, value)) / 100)
+    : Math.min(grossAmount, toMoney(value));
+  const totalAmount = toMoney(grossAmount - discountAmount);
+
+  const mrpValue = toMoney(mrp);
+  const sellValue = toMoney(sellingPrice);
+  const marginBase = mrpValue > 0 ? mrpValue : sellValue;
+  const purchaseMargin = marginBase > 0 && landingUnit > 0
+    ? Math.round(((marginBase - landingUnit) / marginBase) * 1000) / 10
+    : 0;
+  const landingMargin = sellValue > 0 && landingUnit > 0
+    ? Math.round(((sellValue - landingUnit) / sellValue) * 1000) / 10
+    : 0;
+
+  return {
+    discount_type: type,
+    discount_value: type === 'percent' ? Math.min(100, value) : value,
+    discount_amount: discountAmount,
+    gross_amount: grossAmount,
+    total_amount: totalAmount,
+    landing_cost: landingUnit,
+    purchase_margin: purchaseMargin,
+    landing_margin: landingMargin
+  };
+}
+
 async function recordPurchaseRateHistory(tx, productId, oldRate, newRate, userId = null) {
   const previous = normalizePurchaseRate(oldRate);
   const next = normalizePurchaseRate(newRate);
@@ -136,7 +198,12 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     product_id: product.id,
     variant_id: variantId,
     product_name: product.name,
-    variant_info: variantInfo
+    variant_info: variantInfo,
+    product_mrp: product.mrp,
+    product_price: product.price,
+    product_sale_price: product.sale_price,
+    product_gst_type: product.gst_type,
+    product_gst_rate: product.gst_rate
   };
 }
 
@@ -559,8 +626,43 @@ async function createPurchaseBill(req, res, next) {
         const purchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null
           ? String(item.purchase_rate)
           : String(rateValue);
-        const totalAmount = toMoney(rateValue * quantity);
-        normalizedItems.push({ ...resolved, quantity, purchase_rate: purchaseRate, rate_value: rateValue, total_amount: totalAmount });
+        const mrpValue = item.mrp !== undefined && item.mrp !== null && item.mrp !== ''
+          ? toMoney(item.mrp)
+          : toMoney(resolved.product_mrp);
+        const gstType = normalizeGstType(item.gst_type || resolved.product_gst_type);
+        const gstRate = item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== ''
+          ? Math.max(0, Number.parseFloat(item.gst_rate) || 0)
+          : Math.max(0, Number.parseFloat(resolved.product_gst_rate) || 0);
+        const sellingPrice = toMoney(
+          resolved.product_sale_price !== null && resolved.product_sale_price !== undefined && Number(resolved.product_sale_price) > 0
+            ? resolved.product_sale_price
+            : resolved.product_price
+        );
+        const lineCosting = computeLineCosting({
+          rateValue,
+          quantity,
+          mrp: mrpValue,
+          gstType,
+          gstRate,
+          discountType: item.discount_type,
+          discountValue: item.discount_value,
+          sellingPrice
+        });
+        const manufacturingDate = normalizeDate(item.manufacturing_date);
+        const expiryDate = normalizeDate(item.expiry_date);
+        normalizedItems.push({
+          ...resolved,
+          quantity,
+          purchase_rate: purchaseRate,
+          rate_value: rateValue,
+          mrp: mrpValue,
+          gst_type: gstType,
+          gst_rate: gstRate,
+          selling_price: sellingPrice,
+          manufacturing_date: manufacturingDate,
+          expiry_date: expiryDate,
+          ...lineCosting
+        });
 
         if (purchaseRate || rateValue) {
           const currentRateRows = await tx.query('SELECT purchased_rate FROM products WHERE id = ?', [resolved.product_id]);
@@ -575,9 +677,20 @@ async function createPurchaseBill(req, res, next) {
           );
           await recordPurchaseRateHistory(tx, resolved.product_id, oldRate, purchaseRate || rateValue, userId);
         }
+
+        if (manufacturingDate || expiryDate) {
+          await tx.query(
+            `UPDATE products
+             SET manufacturing_date = COALESCE(?, manufacturing_date),
+                 expiry_date = COALESCE(?, expiry_date)
+             WHERE id = ?`,
+            [manufacturingDate, expiryDate, resolved.product_id]
+          );
+        }
       }
 
       const subtotal = toMoney(normalizedItems.reduce((sum, item) => sum + item.total_amount, 0));
+      const discountTotal = toMoney(normalizedItems.reduce((sum, item) => sum + item.discount_amount, 0));
       const charges = toMoney(additional_charges);
       const grandTotal = toMoney(subtotal + charges);
       const paid = Math.min(grandTotal, Math.max(0, toMoney(amount_paid)));
@@ -591,15 +704,16 @@ async function createPurchaseBill(req, res, next) {
 
       const insertResult = await tx.query(
         `INSERT INTO purchase_bills (
-          branch_id, vendor_id, bill_number, purchase_date, subtotal, additional_charges, grand_total,
+          branch_id, vendor_id, bill_number, purchase_date, subtotal, discount_total, additional_charges, grand_total,
           payment_status, amount_paid, outstanding_amount, notes, status, stock_applied, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
         [
           assignedBranchId,
           vendor_id,
           billNo,
           formatDate(purchase_date),
           subtotal,
+          discountTotal,
           charges,
           grandTotal,
           paymentStatus,
@@ -624,8 +738,10 @@ async function createPurchaseBill(req, res, next) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
-            quantity, purchase_rate, rate_value, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            quantity, purchase_rate, rate_value, mrp, gst_type, gst_rate,
+            discount_type, discount_value, discount_amount,
+            landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date, total_amount
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             billId,
             item.product_id,
@@ -635,6 +751,17 @@ async function createPurchaseBill(req, res, next) {
             item.quantity,
             item.purchase_rate || null,
             item.rate_value || 0,
+            item.mrp || null,
+            item.gst_type || null,
+            item.gst_rate !== undefined ? item.gst_rate : null,
+            item.discount_type || 'flat',
+            item.discount_value || 0,
+            item.discount_amount || 0,
+            item.landing_cost || 0,
+            item.purchase_margin || 0,
+            item.landing_margin || 0,
+            item.manufacturing_date || null,
+            item.expiry_date || null,
             item.total_amount
           ]
         );
@@ -709,8 +836,43 @@ async function updatePurchaseBill(req, res, next) {
         const purchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null
           ? String(item.purchase_rate)
           : String(rateValue);
-        const totalAmount = toMoney(rateValue * quantity);
-        normalizedItems.push({ ...resolved, quantity, purchase_rate: purchaseRate, rate_value: rateValue, total_amount: totalAmount });
+        const mrpValue = item.mrp !== undefined && item.mrp !== null && item.mrp !== ''
+          ? toMoney(item.mrp)
+          : toMoney(resolved.product_mrp);
+        const gstType = normalizeGstType(item.gst_type || resolved.product_gst_type);
+        const gstRate = item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== ''
+          ? Math.max(0, Number.parseFloat(item.gst_rate) || 0)
+          : Math.max(0, Number.parseFloat(resolved.product_gst_rate) || 0);
+        const sellingPrice = toMoney(
+          resolved.product_sale_price !== null && resolved.product_sale_price !== undefined && Number(resolved.product_sale_price) > 0
+            ? resolved.product_sale_price
+            : resolved.product_price
+        );
+        const lineCosting = computeLineCosting({
+          rateValue,
+          quantity,
+          mrp: mrpValue,
+          gstType,
+          gstRate,
+          discountType: item.discount_type,
+          discountValue: item.discount_value,
+          sellingPrice
+        });
+        const manufacturingDate = normalizeDate(item.manufacturing_date);
+        const expiryDate = normalizeDate(item.expiry_date);
+        normalizedItems.push({
+          ...resolved,
+          quantity,
+          purchase_rate: purchaseRate,
+          rate_value: rateValue,
+          mrp: mrpValue,
+          gst_type: gstType,
+          gst_rate: gstRate,
+          selling_price: sellingPrice,
+          manufacturing_date: manufacturingDate,
+          expiry_date: expiryDate,
+          ...lineCosting
+        });
 
         if (purchaseRate || rateValue) {
           const currentRateRows = await tx.query('SELECT purchased_rate FROM products WHERE id = ?', [resolved.product_id]);
@@ -724,9 +886,20 @@ async function updatePurchaseBill(req, res, next) {
           );
           await recordPurchaseRateHistory(tx, resolved.product_id, oldRate, purchaseRate || rateValue, userId);
         }
+
+        if (manufacturingDate || expiryDate) {
+          await tx.query(
+            `UPDATE products
+             SET manufacturing_date = COALESCE(?, manufacturing_date),
+                 expiry_date = COALESCE(?, expiry_date)
+             WHERE id = ?`,
+            [manufacturingDate, expiryDate, resolved.product_id]
+          );
+        }
       }
 
       const subtotal = toMoney(normalizedItems.reduce((sum, item) => sum + item.total_amount, 0));
+      const discountTotal = toMoney(normalizedItems.reduce((sum, item) => sum + item.discount_amount, 0));
       const charges = toMoney(additional_charges);
       const grandTotal = toMoney(subtotal + charges);
       const shouldConfirm = confirm === undefined ? existing.status === 'confirmed' : Boolean(confirm);
@@ -739,13 +912,14 @@ async function updatePurchaseBill(req, res, next) {
 
       await tx.query(
         `UPDATE purchase_bills SET
-           bill_number = ?, purchase_date = ?, subtotal = ?, additional_charges = ?, grand_total = ?,
+           bill_number = ?, purchase_date = ?, subtotal = ?, discount_total = ?, additional_charges = ?, grand_total = ?,
            payment_status = ?, amount_paid = ?, outstanding_amount = ?, notes = ?, status = ?, stock_applied = 0
          WHERE id = ?`,
         [
           billNo,
           formatDate(purchase_date || existing.purchase_date),
           subtotal,
+          discountTotal,
           charges,
           grandTotal,
           paymentStatus,
@@ -763,8 +937,10 @@ async function updatePurchaseBill(req, res, next) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
-            quantity, purchase_rate, rate_value, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            quantity, purchase_rate, rate_value, mrp, gst_type, gst_rate,
+            discount_type, discount_value, discount_amount,
+            landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date, total_amount
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             item.product_id,
@@ -774,6 +950,17 @@ async function updatePurchaseBill(req, res, next) {
             item.quantity,
             item.purchase_rate || null,
             item.rate_value || 0,
+            item.mrp || null,
+            item.gst_type || null,
+            item.gst_rate !== undefined ? item.gst_rate : null,
+            item.discount_type || 'flat',
+            item.discount_value || 0,
+            item.discount_amount || 0,
+            item.landing_cost || 0,
+            item.purchase_margin || 0,
+            item.landing_margin || 0,
+            item.manufacturing_date || null,
+            item.expiry_date || null,
             item.total_amount
           ]
         );

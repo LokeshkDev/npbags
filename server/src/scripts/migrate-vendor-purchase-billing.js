@@ -28,6 +28,16 @@ async function migrate() {
     await query('ALTER TABLE products ADD COLUMN purchased_rate VARCHAR(64) NULL AFTER purchase_price');
   }
 
+  if (!(await columnExists('products', 'manufacturing_date'))) {
+    console.log('Adding products.manufacturing_date...');
+    await query('ALTER TABLE products ADD COLUMN manufacturing_date DATE NULL AFTER shipping_info');
+  }
+
+  if (!(await columnExists('products', 'expiry_date'))) {
+    console.log('Adding products.expiry_date...');
+    await query('ALTER TABLE products ADD COLUMN expiry_date DATE NULL AFTER manufacturing_date');
+  }
+
   if (!(await columnExists('product_barcodes', 'barcode_sequence'))) {
     console.log('Adding product_barcodes.barcode_sequence...');
     await query('ALTER TABLE product_barcodes ADD COLUMN barcode_sequence INT NULL AFTER barcode');
@@ -52,6 +62,7 @@ async function migrate() {
       bill_number VARCHAR(100) NOT NULL UNIQUE,
       purchase_date DATE NOT NULL,
       subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      discount_total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       additional_charges DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       grand_total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       payment_status ENUM('Unpaid', 'Partially Paid', 'Paid') NOT NULL DEFAULT 'Unpaid',
@@ -70,6 +81,11 @@ async function migrate() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  if (!(await columnExists('purchase_bills', 'discount_total'))) {
+    console.log('Adding purchase_bills.discount_total...');
+    await query('ALTER TABLE purchase_bills ADD COLUMN discount_total DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER subtotal');
+  }
+
   console.log('Creating purchase_bill_items table...');
   await query(`
     CREATE TABLE IF NOT EXISTS purchase_bill_items (
@@ -82,6 +98,17 @@ async function migrate() {
       quantity INT NOT NULL DEFAULT 1,
       purchase_rate VARCHAR(64) NULL,
       rate_value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      mrp DECIMAL(12,2) NULL,
+      gst_type ENUM('inclusive', 'exclusive') NULL DEFAULT 'exclusive',
+      gst_rate DECIMAL(5,2) NULL DEFAULT 18.00,
+      discount_type ENUM('flat', 'percent') NOT NULL DEFAULT 'flat',
+      discount_value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      landing_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      purchase_margin DECIMAL(6,2) NULL,
+      landing_margin DECIMAL(6,2) NULL,
+      manufacturing_date DATE NULL,
+      expiry_date DATE NULL,
       total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_pbi_bill (purchase_bill_id),
@@ -90,6 +117,26 @@ async function migrate() {
       CONSTRAINT fk_purchase_bill_items_variant FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  const itemCostingColumns = [
+    { name: 'mrp', def: 'DECIMAL(12,2) NULL AFTER rate_value' },
+    { name: 'gst_type', def: "ENUM('inclusive', 'exclusive') NULL DEFAULT 'exclusive' AFTER mrp" },
+    { name: 'gst_rate', def: 'DECIMAL(5,2) NULL DEFAULT 18.00 AFTER gst_type' },
+    { name: 'discount_type', def: "ENUM('flat', 'percent') NOT NULL DEFAULT 'flat' AFTER gst_rate" },
+    { name: 'discount_value', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_type' },
+    { name: 'discount_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_value' },
+    { name: 'landing_cost', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_amount' },
+    { name: 'purchase_margin', def: 'DECIMAL(6,2) NULL AFTER landing_cost' },
+    { name: 'landing_margin', def: 'DECIMAL(6,2) NULL AFTER purchase_margin' },
+    { name: 'manufacturing_date', def: 'DATE NULL AFTER landing_margin' },
+    { name: 'expiry_date', def: 'DATE NULL AFTER manufacturing_date' }
+  ];
+  for (const column of itemCostingColumns) {
+    if (!(await columnExists('purchase_bill_items', column.name))) {
+      console.log(`Adding purchase_bill_items.${column.name}...`);
+      await query(`ALTER TABLE purchase_bill_items ADD COLUMN ${column.name} ${column.def}`);
+    }
+  }
 
   console.log('Creating purchase_bill_payments table...');
   await query(`

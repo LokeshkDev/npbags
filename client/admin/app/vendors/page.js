@@ -34,6 +34,22 @@ const shortDate = (value) => {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 const today = () => new Date().toISOString().slice(0, 10);
+const toDateInput = (value) => {
+  if (!value) return '';
+  const formatLocal = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  if (value instanceof Date) return formatLocal(value);
+  const str = String(value);
+  if (str.includes('T')) {
+    const date = new Date(str);
+    if (!Number.isNaN(date.getTime())) return formatLocal(date);
+  }
+  return str.slice(0, 10);
+};
 
 const emptyVendorForm = {
   name: '',
@@ -60,8 +76,64 @@ const newBillItem = () => ({
   variant_id: '',
   variant_info: '',
   quantity: 1,
-  purchase_rate: ''
+  purchase_rate: '',
+  mrp: '',
+  gst_type: 'exclusive',
+  gst_rate: '18',
+  discount_type: 'flat',
+  discount_value: '',
+  manufacturing_date: '',
+  expiry_date: ''
 });
+
+const parseAmount = (value) => {
+  const num = parseFloat(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(num) ? num : 0;
+};
+
+const computeBillItemCosting = (item, product) => {
+  const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
+  const rate = parseAmount(item.purchase_rate);
+  const gstPct = Math.max(0, parseFloat(item.gst_rate) || 0);
+  const gstType = item.gst_type === 'inclusive' ? 'inclusive' : 'exclusive';
+  const landingUnit = gstType === 'exclusive' && gstPct > 0 && rate > 0
+    ? Math.round(rate * (1 + gstPct / 100) * 100) / 100
+    : rate;
+
+  const gross = Math.round(rate * qty * 100) / 100;
+  const discountType = item.discount_type === 'percent' ? 'percent' : 'flat';
+  const rawDiscount = Math.max(0, parseAmount(item.discount_value));
+  const discountAmount = discountType === 'percent'
+    ? Math.round((gross * Math.min(100, rawDiscount)) / 100 * 100) / 100
+    : Math.min(gross, Math.round(rawDiscount * 100) / 100);
+  const netAmount = Math.round((gross - discountAmount) * 100) / 100;
+
+  const mrpValue = parseAmount(item.mrp);
+  const sellValue = parseAmount(product?.sale_price || product?.price);
+  const marginBase = mrpValue > 0 ? mrpValue : sellValue;
+  const purchaseMargin = marginBase > 0 && landingUnit > 0
+    ? Math.round(((marginBase - landingUnit) / marginBase) * 1000) / 10
+    : 0;
+  const landingMargin = sellValue > 0 && landingUnit > 0
+    ? Math.round(((sellValue - landingUnit) / sellValue) * 1000) / 10
+    : 0;
+  const netProfitUnit = sellValue > 0 ? Math.round((sellValue - landingUnit) * 100) / 100 : 0;
+
+  return {
+    qty,
+    rate,
+    gross,
+    discountType,
+    discountAmount,
+    netAmount,
+    landingUnit,
+    purchaseMargin,
+    landingMargin,
+    sellValue,
+    netProfitUnit,
+    mrpValue
+  };
+};
 
 const emptyBillForm = {
   vendor_id: '',
@@ -263,7 +335,14 @@ export default function AdminVendorsPage() {
               variant_id: '',
               variant_info: '',
               quantity: 1,
-              purchase_rate: newProd.purchased_rate || newProd.purchase_price || ''
+              purchase_rate: newProd.purchased_rate || newProd.purchase_price || '',
+              mrp: newProd.mrp !== null && newProd.mrp !== undefined ? String(newProd.mrp) : '',
+              gst_type: newProd.gst_type || 'exclusive',
+              gst_rate: newProd.gst_rate !== null && newProd.gst_rate !== undefined ? String(newProd.gst_rate) : '18',
+              discount_type: 'flat',
+              discount_value: '',
+              manufacturing_date: toDateInput(newProd.manufacturing_date),
+              expiry_date: toDateInput(newProd.expiry_date)
             };
 
             if (restoredForm) {
@@ -460,7 +539,7 @@ export default function AdminVendorsPage() {
         vendor_id: detail.vendor_id ? String(detail.vendor_id) : '',
         branch_id: detail.branch_id || 1,
         bill_number: detail.bill_number || '',
-        purchase_date: detail.purchase_date ? String(detail.purchase_date).slice(0, 10) : today(),
+        purchase_date: detail.purchase_date ? toDateInput(detail.purchase_date) : today(),
         additional_charges: detail.additional_charges !== null && detail.additional_charges !== undefined ? String(detail.additional_charges) : '',
         amount_paid: detail.amount_paid !== null && detail.amount_paid !== undefined ? String(detail.amount_paid) : '',
         payment_method: 'Cash',
@@ -473,7 +552,14 @@ export default function AdminVendorsPage() {
           variant_id: item.variant_id ? String(item.variant_id) : '',
           variant_info: item.variant_info || '',
           quantity: Number(item.quantity) || 1,
-          purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : ''))
+          purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
+          mrp: item.mrp !== null && item.mrp !== undefined ? String(item.mrp) : '',
+          gst_type: item.gst_type || 'exclusive',
+          gst_rate: item.gst_rate !== null && item.gst_rate !== undefined ? String(item.gst_rate) : '18',
+          discount_type: item.discount_type === 'percent' ? 'percent' : 'flat',
+          discount_value: item.discount_value !== null && item.discount_value !== undefined && Number(item.discount_value) !== 0 ? String(item.discount_value) : '',
+          manufacturing_date: toDateInput(item.manufacturing_date),
+          expiry_date: toDateInput(item.expiry_date)
         }))
       });
       setIsBillModalOpen(true);
@@ -501,7 +587,12 @@ export default function AdminVendorsPage() {
         variant_info: firstVar ? [firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
         purchase_rate: match.purchased_rate !== null && match.purchased_rate !== undefined
           ? String(match.purchased_rate)
-          : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : '')
+          : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : ''),
+        mrp: match.mrp !== null && match.mrp !== undefined ? String(match.mrp) : '',
+        gst_type: match.gst_type || 'exclusive',
+        gst_rate: match.gst_rate !== null && match.gst_rate !== undefined ? String(match.gst_rate) : '18',
+        manufacturing_date: toDateInput(match.manufacturing_date),
+        expiry_date: toDateInput(match.expiry_date)
       });
     } else {
       updateBillItem(index, { product_name: value, product_id: '', variant_id: '', variant_info: '' });
@@ -514,13 +605,34 @@ export default function AdminVendorsPage() {
     return { ...prev, items: items.length > 0 ? items : [newBillItem()] };
   });
 
-  const billSubtotal = useMemo(() => billForm.items.reduce((sum, item) => {
-    const qty = Number(item.quantity) || 0;
-    const rate = parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0;
-    return sum + qty * rate;
-  }, 0), [billForm.items]);
+  const billTotals = useMemo(() => {
+    return billForm.items.reduce((acc, item) => {
+      const product = products.find(p => String(p.id) === String(item.product_id));
+      const costing = computeBillItemCosting(item, product);
+      acc.gross += costing.gross;
+      acc.discount += costing.discountAmount;
+      acc.net += costing.netAmount;
+      acc.landing += costing.landingUnit * costing.qty;
+      acc.selling += costing.sellValue * costing.qty;
+      acc.mrp += (costing.mrpValue > 0 ? costing.mrpValue : costing.sellValue) * costing.qty;
+      return acc;
+    }, { gross: 0, discount: 0, net: 0, landing: 0, selling: 0, mrp: 0 });
+  }, [billForm.items, products]);
 
-  const billGrandTotal = useMemo(() => billSubtotal + (Number(billForm.additional_charges) || 0), [billSubtotal, billForm.additional_charges]);
+  const billSubtotal = useMemo(() => Math.round(billTotals.net * 100) / 100, [billTotals.net]);
+  const billGrandTotal = useMemo(() => Math.round((billSubtotal + (Number(billForm.additional_charges) || 0)) * 100) / 100, [billSubtotal, billForm.additional_charges]);
+  const billCostingSummary = useMemo(() => {
+    const landing = Math.round(billTotals.landing * 100) / 100;
+    const selling = Math.round(billTotals.selling * 100) / 100;
+    const mrp = Math.round(billTotals.mrp * 100) / 100;
+    return {
+      landing,
+      selling,
+      purchaseMargin: mrp > 0 ? Math.round(((mrp - landing) / mrp) * 1000) / 10 : 0,
+      landingMargin: selling > 0 ? Math.round(((selling - landing) / selling) * 1000) / 10 : 0,
+      netProfit: Math.round((selling - landing) * 100) / 100
+    };
+  }, [billTotals]);
 
   const handleSaveBill = async (e) => {
     e.preventDefault();
@@ -543,15 +655,32 @@ export default function AdminVendorsPage() {
       payment_method: billForm.payment_method,
       notes: billForm.notes,
       confirm: Boolean(billForm.confirm),
-      items: validItems.map(item => ({
-        product_id: item.product_id || null,
-        product_name: item.product_name,
-        variant_id: item.variant_id ? Number(item.variant_id) : null,
-        variant_info: item.variant_info || null,
-        quantity: Number(item.quantity) || 1,
-        purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
-        rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0
-      }))
+      items: validItems.map(item => {
+        const product = products.find(p => String(p.id) === String(item.product_id));
+        const costing = computeBillItemCosting(item, product);
+        return {
+          product_id: item.product_id || null,
+          product_name: item.product_name,
+          variant_id: item.variant_id ? Number(item.variant_id) : null,
+          variant_info: item.variant_info || null,
+          quantity: Number(item.quantity) || 1,
+          purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
+          rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0,
+          mrp: costing.mrpValue || null,
+          gst_type: item.gst_type || 'exclusive',
+          gst_rate: parseFloat(item.gst_rate) || 0,
+          discount_type: costing.discountType,
+          discount_value: costing.discountType === 'percent'
+            ? Math.min(100, Math.max(0, parseAmount(item.discount_value)))
+            : Math.max(0, parseAmount(item.discount_value)),
+          discount_amount: costing.discountAmount,
+          landing_cost: costing.landingUnit,
+          purchase_margin: costing.purchaseMargin,
+          landing_margin: costing.landingMargin,
+          manufacturing_date: item.manufacturing_date || null,
+          expiry_date: item.expiry_date || null
+        };
+      })
     };
 
     try {
@@ -1268,7 +1397,7 @@ export default function AdminVendorsPage() {
           </Modal>
 
           {/* PURCHASE BILL CREATE / EDIT MODAL */}
-          <Modal isOpen={isBillModalOpen} onClose={() => setIsBillModalOpen(false)} title={editingBill ? `Edit Purchase Bill: ${editingBill.bill_number}` : 'New Purchase Bill'} maxWidth="960px">
+          <Modal isOpen={isBillModalOpen} onClose={() => setIsBillModalOpen(false)} title={editingBill ? `Edit Purchase Bill: ${editingBill.bill_number}` : 'New Purchase Bill'} maxWidth="95vw" maxHeight="95vh" height="95vh">
             <form onSubmit={handleSaveBill} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {billError && <div style={{ padding: '10px 14px', borderRadius: '8px', background: '#fee2e2', color: '#b91c1c', fontSize: '12.5px', fontWeight: 700 }}>{billError}</div>}
 
@@ -1327,9 +1456,8 @@ export default function AdminVendorsPage() {
                     {products.map(p => <option key={p.id} value={p.name} />)}
                   </datalist>
                   {billForm.items.map((item, index) => {
-                    const variantSource = products.find(p => p.id === item.product_id);
+                    const variantSource = products.find(p => String(p.id) === String(item.product_id));
                     const variants = Array.isArray(variantSource?.variants) ? variantSource.variants : [];
-                    const amount = (Number(item.quantity) || 0) * (parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0);
 
                     // Stock calculation for this item
                     let currentStock = 0;
@@ -1343,10 +1471,11 @@ export default function AdminVendorsPage() {
                     }
                     const addQty = parseInt(item.quantity, 10) || 0;
                     const newTotalStock = currentStock + addQty;
+                    const itemCosting = computeBillItemCosting(item, variantSource);
 
                     return (
                       <div key={item.key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '10px 10px', marginBottom: '8px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2.2fr 1.3fr 0.8fr 1fr 0.9fr 0.35fr', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2.1fr 1.2fr 0.7fr 0.9fr 1.3fr 0.9fr 0.32fr', gap: '8px', alignItems: 'center' }}>
                           <div>
                             <input list="purchase-product-options" value={item.product_name} onChange={(e) => handleItemProductName(index, e.target.value)} placeholder="Type product name or select from catalog" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
                             {item.product_id ? (
@@ -1393,8 +1522,103 @@ export default function AdminVendorsPage() {
                             />
                           </div>
                           <input type="text" value={item.purchase_rate} onChange={(e) => updateBillItem(index, { purchase_rate: e.target.value })} placeholder="Rate" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} title="Purchased rate" />
-                          <div style={{ textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '12px' }}>₹{money(amount)}</div>
+                          <div>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <select
+                                value={item.discount_type}
+                                onChange={(e) => updateBillItem(index, { discount_type: e.target.value })}
+                                style={{ width: '58px', padding: '7px 4px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff', fontWeight: 700 }}
+                                title="Discount type"
+                              >
+                                <option value="flat">₹ Flat</option>
+                                <option value="percent">% Off</option>
+                              </select>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.discount_value}
+                                onChange={(e) => updateBillItem(index, { discount_value: e.target.value })}
+                                placeholder={item.discount_type === 'percent' ? '%' : 'Disc'}
+                                style={{ width: '100%', minWidth: 0, padding: '7px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'right' }}
+                                title="Discount value"
+                              />
+                            </div>
+                            {itemCosting.discountAmount > 0 && (
+                              <div style={{ fontSize: '9.5px', color: '#b91c1c', fontWeight: 700, marginTop: '2px', textAlign: 'right' }}>
+                                −₹{money(itemCosting.discountAmount)}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '12px' }}>
+                            ₹{money(itemCosting.netAmount)}
+                            {itemCosting.discountAmount > 0 && (
+                              <div style={{ fontSize: '9.5px', color: '#94a3b8', fontWeight: 600, textDecoration: 'line-through' }}>₹{money(itemCosting.gross)}</div>
+                            )}
+                          </div>
                           <button type="button" onClick={() => removeBillItem(index)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '5px', padding: '5px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+                        </div>
+
+                        {/* Purchase Order Costing & Margins */}
+                        <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>📦 Purchase Order Costing &amp; Margins</span>
+                            <span style={{ fontSize: '10px', color: '#64748b' }}>Auto-calculated from rate, MRP and GST</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px', alignItems: 'end' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>MRP (₹)</label>
+                              <input type="number" min="0" step="0.01" value={item.mrp} onChange={(e) => updateBillItem(index, { mrp: e.target.value })} placeholder="0.00" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>GST Mode</label>
+                              <select value={item.gst_type} onChange={(e) => updateBillItem(index, { gst_type: e.target.value })} style={{ width: '100%', padding: '6px 5px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff' }}>
+                                <option value="exclusive">Exclusive</option>
+                                <option value="inclusive">Inclusive</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>GST Slab</label>
+                              <select value={String(item.gst_rate)} onChange={(e) => updateBillItem(index, { gst_rate: e.target.value })} style={{ width: '100%', padding: '6px 5px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff' }}>
+                                <option value="0">0%</option>
+                                <option value="3">3%</option>
+                                <option value="5">5%</option>
+                                <option value="12">12%</option>
+                                <option value="18">18%</option>
+                                <option value="28">28%</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Landing Cost (₹)</label>
+                              <div style={{ padding: '6px 7px', borderRadius: '5px', background: '#f1f5f9', border: '1px solid #e2e8f0', fontSize: '11.5px', fontWeight: 800, color: '#0f172a' }}>₹{money(itemCosting.landingUnit)}</div>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Purchase Margin</label>
+                              <div style={{ padding: '6px 7px', borderRadius: '5px', background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: '11.5px', fontWeight: 800, color: itemCosting.purchaseMargin > 0 ? '#15803d' : '#0f172a' }}>{itemCosting.purchaseMargin.toFixed(1)}%</div>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Landing Margin</label>
+                              <div style={{ padding: '6px 7px', borderRadius: '5px', background: itemCosting.landingMargin < 0 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${itemCosting.landingMargin < 0 ? '#fecaca' : '#bbf7d0'}`, fontSize: '11.5px', fontWeight: 800, color: itemCosting.landingMargin < 0 ? '#b91c1c' : '#15803d' }}>{itemCosting.landingMargin.toFixed(1)}%</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 4fr', gap: '8px', alignItems: 'end', marginTop: '8px' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Manufacturing Date</label>
+                              <input type="date" value={item.manufacturing_date || ''} onChange={(e) => updateBillItem(index, { manufacturing_date: e.target.value })} style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Expiry Date</label>
+                              <input type="date" value={item.expiry_date || ''} onChange={(e) => updateBillItem(index, { expiry_date: e.target.value })} style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                            </div>
+                            <div style={{ fontSize: '10px', color: '#64748b', paddingBottom: '7px' }}>
+                              Saved on the purchase bill and synced to the linked product record.
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginTop: '5px', fontSize: '10.5px', color: '#475569' }}>
+                            <span>Selling Price: <strong style={{ color: '#0f172a' }}>{itemCosting.sellValue > 0 ? `₹${money(itemCosting.sellValue)}` : '—'}</strong></span>
+                            <span>Net Profit / Unit: <strong style={{ color: itemCosting.netProfitUnit < 0 ? '#b91c1c' : '#0284c7' }}>₹{money(itemCosting.netProfitUnit)}</strong></span>
+                            <span>Total Net Profit: <strong style={{ color: itemCosting.netProfitUnit < 0 ? '#b91c1c' : '#0284c7' }}>₹{money(itemCosting.netProfitUnit * itemCosting.qty)}</strong></span>
+                          </div>
                         </div>
 
                         {/* Stock Value & Quantity to Add Display */}
@@ -1444,13 +1668,40 @@ export default function AdminVendorsPage() {
                 <textarea rows={2} value={billForm.notes} onChange={(e) => setBillForm(prev => ({ ...prev, notes: e.target.value }))} placeholder="Invoice notes, transport details..." style={{ width: '100%', padding: '9px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '13px', resize: 'vertical' }} />
               </div>
 
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
+                  <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#0f172a' }}>📦 Purchase Order Costing &amp; Margins</span>
+                  <span style={{ fontSize: '10.5px', color: '#64748b' }}>Aggregated across all bill items</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Landing Cost</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', marginTop: '2px' }}>₹{money(billCostingSummary.landing)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Purchase Margin (Incl. GST)</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: billCostingSummary.purchaseMargin > 0 ? '#15803d' : '#0f172a', marginTop: '2px' }}>{billCostingSummary.purchaseMargin.toFixed(1)}%</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Landing Margin (Net Profit %)</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: billCostingSummary.landingMargin < 0 ? '#b91c1c' : '#065935', marginTop: '2px' }}>{billCostingSummary.landingMargin.toFixed(1)}%</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Projected Net Profit</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: billCostingSummary.netProfit < 0 ? '#b91c1c' : '#0284c7', marginTop: '2px' }}>₹{money(billCostingSummary.netProfit)}</div>
+                  </div>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px', flexWrap: 'wrap', gap: '10px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
                   <input type="checkbox" checked={billForm.confirm} onChange={(e) => setBillForm(prev => ({ ...prev, confirm: e.target.checked }))} style={{ width: '16px', height: '16px', accentColor: '#065935' }} />
                   Confirm bill and add stock to inventory
                 </label>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>Subtotal ₹{money(billSubtotal)} + Charges ₹{money(billForm.additional_charges)}</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                    Gross ₹{money(billTotals.gross)} − Discount ₹{money(billTotals.discount)} + Charges ₹{money(billForm.additional_charges)}
+                  </div>
                   <div style={{ fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>Total ₹{money(billGrandTotal)}</div>
                 </div>
               </div>
@@ -1497,16 +1748,38 @@ export default function AdminVendorsPage() {
                         <th style={{ padding: '9px 12px' }}>Variant</th>
                         <th style={{ padding: '9px 12px', textAlign: 'center' }}>Qty</th>
                         <th style={{ padding: '9px 12px', textAlign: 'right' }}>Rate</th>
+                        <th style={{ padding: '9px 12px', textAlign: 'right' }}>Discount</th>
+                        <th style={{ padding: '9px 12px', textAlign: 'right' }}>Landing / Unit</th>
                         <th style={{ padding: '9px 12px', textAlign: 'right' }}>Amount</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(selectedBill.items || []).map(item => (
                         <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '9px 12px', fontWeight: 700 }}>{item.product_name}</td>
+                          <td style={{ padding: '9px 12px', fontWeight: 700 }}>
+                            {item.product_name}
+                            {(Number(item.purchase_margin) || Number(item.landing_margin)) ? (
+                              <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>
+                                Purchase Margin {Number(item.purchase_margin || 0).toFixed(1)}% • Landing Margin {Number(item.landing_margin || 0).toFixed(1)}%
+                              </div>
+                            ) : null}
+                            {(item.manufacturing_date || item.expiry_date) ? (
+                              <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>
+                                {item.manufacturing_date ? `Mfg: ${shortDate(item.manufacturing_date)}` : ''}
+                                {item.manufacturing_date && item.expiry_date ? ' • ' : ''}
+                                {item.expiry_date ? `Exp: ${shortDate(item.expiry_date)}` : ''}
+                              </div>
+                            ) : null}
+                          </td>
                           <td style={{ padding: '9px 12px', color: '#64748b' }}>{item.variant_info || '—'}</td>
                           <td style={{ padding: '9px 12px', textAlign: 'center' }}>{item.quantity}</td>
                           <td style={{ padding: '9px 12px', textAlign: 'right' }}>{item.purchase_rate || `₹${money(item.rate_value)}`}</td>
+                          <td style={{ padding: '9px 12px', textAlign: 'right', color: Number(item.discount_amount) > 0 ? '#b91c1c' : '#64748b' }}>
+                            {Number(item.discount_amount) > 0
+                              ? `−₹${money(item.discount_amount)}${item.discount_type === 'percent' ? ` (${Number(item.discount_value)}%)` : ''}`
+                              : '—'}
+                          </td>
+                          <td style={{ padding: '9px 12px', textAlign: 'right' }}>₹{money(item.landing_cost)}</td>
                           <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800 }}>₹{money(item.total_amount)}</td>
                         </tr>
                       ))}
@@ -1516,7 +1789,10 @@ export default function AdminVendorsPage() {
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <div style={{ minWidth: '240px', fontSize: '12.5px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: '#64748b' }}>Subtotal</span><span>₹{money(selectedBill.subtotal)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: '#64748b' }}>Subtotal (after discount)</span><span>₹{money(selectedBill.subtotal)}</span></div>
+                    {Number(selectedBill.discount_total) > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', color: '#b91c1c' }}><span>Discount applied</span><span>−₹{money(selectedBill.discount_total)}</span></div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: '#64748b' }}>Additional charges</span><span>₹{money(selectedBill.additional_charges)}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #e2e8f0', fontWeight: 900 }}><span>Grand total</span><span>₹{money(selectedBill.grand_total)}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', color: '#15803d' }}><span>Paid</span><span>₹{money(selectedBill.amount_paid)}</span></div>

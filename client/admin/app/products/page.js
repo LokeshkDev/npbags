@@ -21,7 +21,6 @@ import {
   uploadProductGalleryImage,
   uploadCMSMedia,
   getAdminCategories,
-  getAdminVendors,
   getProductBarcodes,
   generateProductBarcodes,
   deleteBarcode,
@@ -31,6 +30,23 @@ import {
   updateAdminBranchProductStock
 } from '../../lib/api';
 import { useAdminAuth } from '../../lib/auth';
+
+const toDateInput = (value) => {
+  if (!value) return '';
+  const formatLocal = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  if (value instanceof Date) return formatLocal(value);
+  const str = String(value);
+  if (str.includes('T')) {
+    const date = new Date(str);
+    if (!Number.isNaN(date.getTime())) return formatLocal(date);
+  }
+  return str.slice(0, 10);
+};
 
 export default function AdminProductsPage() {
   const { adminUser } = useAdminAuth();
@@ -45,7 +61,6 @@ export default function AdminProductsPage() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [vendors, setVendors] = useState([]);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -229,13 +244,6 @@ export default function AdminProductsPage() {
         if (Array.isArray(data)) setCategories(data);
       })
       .catch(() => {});
-
-    getAdminVendors()
-      .then(data => {
-        const list = Array.isArray(data) ? data : (data?.vendors || []);
-        setVendors(Array.isArray(list) ? list : []);
-      })
-      .catch(() => {});
   };
 
   const handleToggleProductStatus = async (p, field) => {
@@ -401,6 +409,8 @@ export default function AdminProductsPage() {
       dimension_l: '',
       dimensions: '',
       shipping_info: '',
+      manufacturing_date: '',
+      expiry_date: '',
       seo_title: '',
       seo_description: '',
       seo_keywords: '',
@@ -490,6 +500,8 @@ export default function AdminProductsPage() {
       dimension_l: p.dimension_l !== null && p.dimension_l !== undefined ? p.dimension_l : '',
       dimensions: p.dimensions || '',
       shipping_info: p.shipping_info || '',
+      manufacturing_date: toDateInput(p.manufacturing_date),
+      expiry_date: toDateInput(p.expiry_date),
       seo_title: defaultSeoTitle,
       seo_description: defaultSeoDesc,
       seo_keywords: defaultSeoKw,
@@ -591,6 +603,8 @@ export default function AdminProductsPage() {
             materials: detailed.materials !== undefined ? (detailed.materials || '') : prev.materials,
             care_instructions: detailed.care_instructions !== undefined ? (detailed.care_instructions || '') : prev.care_instructions,
             shipping_info: detailed.shipping_info !== undefined ? (detailed.shipping_info || '') : prev.shipping_info,
+            manufacturing_date: detailed.manufacturing_date ? toDateInput(detailed.manufacturing_date) : prev.manufacturing_date,
+            expiry_date: detailed.expiry_date ? toDateInput(detailed.expiry_date) : prev.expiry_date,
             seo_title: detailed.seo_title || prev.seo_title,
             seo_description: detailed.seo_description || prev.seo_description,
             seo_keywords: detailed.seo_keywords || prev.seo_keywords,
@@ -983,7 +997,12 @@ export default function AdminProductsPage() {
           purchase_price: formData.purchase_price,
           purchased_rate: formData.purchased_rate,
           mrp: formData.mrp || formData.price,
-          price: formData.price
+          price: formData.price,
+          sale_price: formData.sale_price,
+          gst_type: formData.gst_type,
+          gst_rate: formData.gst_rate,
+          manufacturing_date: formData.manufacturing_date,
+          expiry_date: formData.expiry_date
         };
         try {
           window.sessionStorage.setItem('vendor_bill_new_product', JSON.stringify(newProductForBill));
@@ -1681,9 +1700,9 @@ export default function AdminProductsPage() {
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add New Product'}
-        maxWidth="80vw"
-        maxHeight="80vh"
-        height="80vh"
+        maxWidth="95vw"
+        maxHeight="95vh"
+        height="95vh"
       >
         <form onSubmit={handleSubmit} style={{ paddingRight: '8px' }}>
           {vendorBillContext && (
@@ -1806,252 +1825,6 @@ export default function AdminProductsPage() {
             <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
               Storefront URL: <code>/product/{formData.slug || 'your-slug'}</code>
             </span>
-          </div>
-
-          {/* PURCHASE ORDER & COSTING MARGINS SECTION */}
-          <div
-            style={{
-              background: '#f8fafc',
-              border: '1.5px solid #cbd5e1',
-              borderRadius: '10px',
-              padding: '18px 20px',
-              marginBottom: '20px'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
-              <div>
-                <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>📦</span>
-                  <span>Purchase Order Costing & Margins</span>
-                </h4>
-                <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
-                  Assign vendor, wholesale purchase price, GST tax slab, and auto-calculate landing cost & net margins.
-                </p>
-              </div>
-              <Link
-                href="/vendors"
-                target="_blank"
-                style={{ fontSize: '11px', fontWeight: 700, color: '#065935', textDecoration: 'none' }}
-              >
-                + Manage Vendors ↗
-              </Link>
-            </div>
-
-            {/* Vendor Selector & GST Type Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  Assigned Vendor / Supplier
-                </label>
-                <select
-                  className="form-control"
-                  value={formData.vendor_id || ''}
-                  onChange={(e) => updateCostingFields({ vendor_id: e.target.value })}
-                  style={{ fontSize: '12.5px' }}
-                >
-                  <option value="">-- No Vendor Assigned --</option>
-                  {vendors.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} {v.company_name ? `(${v.company_name})` : ''} {v.city ? `- ${v.city}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  GST Tax Mode
-                </label>
-                <select
-                  className="form-control"
-                  value={formData.gst_type || 'exclusive'}
-                  onChange={(e) => updateCostingFields({ gst_type: e.target.value })}
-                  style={{ fontSize: '13px' }}
-                >
-                  <option value="exclusive">Without GST (Exclusive)</option>
-                  <option value="inclusive">With GST (Inclusive)</option>
-                </select>
-              </div>
-
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  GST Slab
-                </label>
-                <select
-                  className="form-control"
-                  value={formData.gst_rate !== undefined ? String(formData.gst_rate) : '18'}
-                  onChange={(e) => updateCostingFields({ gst_rate: e.target.value })}
-                  style={{ fontSize: '12.5px' }}
-                >
-                  <option value="0">0% (Nil / Exempt)</option>
-                  <option value="3">3% (Precious Metal/Gems)</option>
-                  <option value="5">5% (Apparel & Essentials)</option>
-                  <option value="12">12% (Leather Goods / Accessories)</option>
-                  <option value="18">18% (Standard GST)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Purchase Price, MRP, and Selling Price Input Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '14px' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  Purchase Price (₹)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="e.g. 450.00"
-                  className="form-control"
-                  value={formData.purchase_price || ''}
-                  onChange={(e) => updateCostingFields({ purchase_price: e.target.value })}
-                  style={{ fontSize: '12.5px' }}
-                />
-                <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
-                  Wholesale base cost from vendor
-                </span>
-              </div>
-
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  MRP (Maximum Retail Price) (₹)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="e.g. 1499.00"
-                  className="form-control"
-                  value={formData.mrp || ''}
-                  onChange={(e) => updateCostingFields({ mrp: e.target.value })}
-                  style={{ fontSize: '12.5px' }}
-                />
-                <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
-                  Printed tag MRP
-                </span>
-              </div>
-
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  Purchase Rate (Barcode Label)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 450 or A-450"
-                  className="form-control"
-                  value={formData.purchased_rate || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, purchased_rate: e.target.value }))}
-                  style={{ fontSize: '12.5px' }}
-                />
-                <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>
-                  Characters + numbers printed on barcode label
-                </span>
-              </div>
-
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                  Calculated Landing Cost (₹)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  className="form-control"
-                  value={formData.landing_cost ? `₹${formData.landing_cost}` : '—'}
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 800,
-                    background: '#f1f5f9',
-                    color: '#0f172a',
-                    cursor: 'default'
-                  }}
-                />
-                <span style={{ fontSize: '10.5px', color: '#0369a1', marginTop: '2px', display: 'block' }}>
-                  {formData.gst_type === 'exclusive' ? `Base + ${formData.gst_rate}% GST` : 'GST Included'}
-                </span>
-              </div>
-            </div>
-
-            {/* Previous purchase rates (kept when the rate changes) */}
-            {editingProduct && (
-              <div style={{ marginBottom: '14px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-                <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                  Previous Purchase Rates
-                </div>
-                {loadingPurchaseRateHistory ? (
-                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>Loading rate history...</div>
-                ) : purchaseRateHistory.length === 0 ? (
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>No previous purchase rates recorded yet.</div>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {purchaseRateHistory.slice(0, 12).map(entry => (
-                      <span
-                        key={entry.id}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', color: '#334155' }}
-                      >
-                        <strong style={{ color: '#b45309' }}>{entry.old_rate || '—'}</strong>
-                        <span style={{ color: '#94a3b8' }}>→</span>
-                        <strong style={{ color: '#065935' }}>{entry.new_rate || '—'}</strong>
-                        <span style={{ color: '#94a3b8', fontSize: '10px' }}>
-                          {entry.changed_at ? new Date(entry.changed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Live Reactive Margins Card */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '12px',
-                background: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '12px 16px'
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  Purchase Margin % (Incl. GST)
-                </div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: Number(formData.purchase_margin) > 0 ? '#16a34a' : '#0f172a', marginTop: '2px' }}>
-                  {formData.purchase_margin ? `${formData.purchase_margin}%` : '0.0%'}
-                </div>
-                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
-                  ((MRP - Cost Incl. GST) / MRP)
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  Landing Margin % (Net Profit)
-                </div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: Number(formData.landing_margin) > 0 ? '#065935' : (Number(formData.landing_margin) < 0 ? '#ef4444' : '#0f172a'), marginTop: '2px' }}>
-                  {formData.landing_margin ? `${formData.landing_margin}%` : '0.0%'}
-                </div>
-                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
-                  ((Sell - Landing) / Sell)
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  Net Profit ₹ per Unit
-                </div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: '#0284c7', marginTop: '2px' }}>
-                  {formData.price && formData.landing_cost
-                    ? `₹${(Math.round(((parseFloat(formData.sale_price || formData.price) || 0) - (parseFloat(formData.landing_cost) || 0)) * 100) / 100).toFixed(2)}`
-                    : '₹0.00'}
-                </div>
-                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
-                  Selling Price - Landing Cost
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Pricing & Badge */}
@@ -2371,6 +2144,36 @@ export default function AdminProductsPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Manufacturing & Expiry Dates */}
+          <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', marginBottom: '18px', border: '1px solid #e2e8f0' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>Manufacturing &amp; Expiry Dates</strong>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '2px 0 0' }}>
+                These dates are also captured from vendor purchase bills and kept in sync with the product record.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Manufacturing Date</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={formData.manufacturing_date || ''}
+                  onChange={(e) => setFormData({ ...formData, manufacturing_date: e.target.value })}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Expiry Date</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={formData.expiry_date || ''}
+                  onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Materials & Care Instructions (Shown in PDP Materials & Care Tab) */}
