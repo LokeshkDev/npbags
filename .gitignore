@@ -45,3 +45,7 @@ test*.js
 tests/
 __tests__/
 
+
+# Vendor bill scanning unit tests
+!server/tests/
+!server/tests/*.test.js

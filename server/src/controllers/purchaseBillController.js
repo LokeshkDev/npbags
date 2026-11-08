@@ -1,6 +1,14 @@
 const slugify = require('slugify');
 const { query, withTransaction } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { normalizeScanCode } = require('../utils/purchaseScan');
+const {
+  isLegacyFullyAppliedBill,
+  isBillFullyStockApplied,
+  computeStockDelta,
+  itemQuantity,
+  itemAppliedQty
+} = require('../utils/purchaseStock');
 
 function toMoney(value) {
   const num = Number(value);
@@ -133,6 +141,7 @@ async function generateBillNumber(tx) {
 async function resolveProductForItem(tx, item, vendorId, userId) {
   let productId = item.product_id || item.id || null;
   let product = null;
+  const scannedBarcode = normalizeScanCode(item.scanned_barcode || item.barcode || '');
 
   if (productId) {
     const rows = await tx.query('SELECT * FROM products WHERE id = ? LIMIT 1', [productId]);
@@ -145,6 +154,21 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
       [String(item.product_name).trim(), slugify(String(item.product_name), { lower: true, strict: true })]
     );
     if (rows.length > 0) product = rows[0];
+  }
+
+  if (!product && scannedBarcode) {
+    const rows = await tx.query(
+      `SELECT p.* FROM product_barcodes pb
+       JOIN products p ON pb.product_id = p.id
+       WHERE pb.barcode = ? AND pb.status = 'active'
+       LIMIT 1`,
+      [scannedBarcode]
+    );
+    if (rows.length > 0) product = rows[0];
+  }
+
+  if (!product && !item.product_name && scannedBarcode) {
+    item.product_name = `Scanned Product ${scannedBarcode}`;
   }
 
   if (!product) {
@@ -179,6 +203,23 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
 
     const rows = await tx.query('SELECT * FROM products WHERE id = ? LIMIT 1', [productIdToCreate]);
     product = rows[0];
+
+    if (scannedBarcode) {
+      try {
+        const existingBarcode = await tx.query('SELECT id FROM product_barcodes WHERE barcode = ? LIMIT 1', [scannedBarcode]);
+        if (existingBarcode.length === 0) {
+          const sequenceRows = await tx.query('SELECT COALESCE(MAX(barcode_sequence), 0) AS max_sequence FROM product_barcodes');
+          const nextSequence = (parseInt(sequenceRows[0]?.max_sequence, 10) || 0) + 1;
+          await tx.query(
+            `INSERT INTO product_barcodes (product_id, barcode, barcode_sequence, is_primary, status, created_by)
+             VALUES (?, ?, ?, 1, 'active', ?)`,
+            [productIdToCreate, scannedBarcode, nextSequence, userId || null]
+          );
+        }
+      } catch (barcodeError) {
+        console.warn('[PurchaseBill] Could not link scanned barcode:', barcodeError.message);
+      }
+    }
   }
 
   let variantId = item.variant_id ? parseInt(item.variant_id, 10) : null;
@@ -208,11 +249,14 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
 }
 
 async function applyStockForBill(tx, bill, items, direction, userId) {
-  for (const item of items) {
-    const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
-    const signedQty = qty * direction;
+  const legacyFull = isLegacyFullyAppliedBill(bill, items);
 
+  for (const item of items) {
     if (!item.product_id) continue;
+
+    const deltaQty = computeStockDelta(item, direction, { legacyFull });
+    if (deltaQty <= 0) continue;
+    const signedQty = direction > 0 ? deltaQty : -deltaQty;
 
     if (item.variant_id) {
       const variants = await tx.query(
@@ -241,7 +285,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
             signedQty,
             after,
             bill.bill_number,
-            `${direction > 0 ? 'Received' : 'Reversed'} ${qty} units against purchase bill ${bill.bill_number}`,
+            `${direction > 0 ? 'Received' : 'Reversed'} ${deltaQty} units against purchase bill ${bill.bill_number}`,
             variant.size_name || null,
             variant.color_name || null,
             before,
@@ -286,7 +330,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
           signedQty,
           afterV,
           bill.bill_number,
-          `${direction > 0 ? 'Received' : 'Reversed'} ${qty} units against purchase bill ${bill.bill_number}`,
+          `${direction > 0 ? 'Received' : 'Reversed'} ${deltaQty} units against purchase bill ${bill.bill_number}`,
           primaryVariant.size_name || null,
           primaryVariant.color_name || null,
           beforeV,
@@ -300,7 +344,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
     if (products.length === 0) continue;
     const product = products[0];
     const before = parseInt(product.stock, 10) || 0;
-    const after = direction > 0 ? before + qty : Math.max(0, before - qty);
+    const after = direction > 0 ? before + deltaQty : Math.max(0, before - deltaQty);
     await tx.query('UPDATE products SET stock = ? WHERE id = ?', [after, product.id]);
 
     // Also ensure a default variant is recorded so catalog inventory functions see it
@@ -321,7 +365,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
         signedQty,
         after,
         bill.bill_number,
-        `${direction > 0 ? 'Received' : 'Reversed'} ${qty} units against purchase bill ${bill.bill_number}`,
+        `${direction > 0 ? 'Received' : 'Reversed'} ${deltaQty} units against purchase bill ${bill.bill_number}`,
         before,
         userId || null
       ]
@@ -342,6 +386,32 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
       }
     }
   }
+}
+
+async function applyStockChanges(tx, bill, changes, userId) {
+  const positive = [];
+  const negative = [];
+  for (const change of changes) {
+    if (!change || !change.item || !change.item.product_id) continue;
+    const delta = Math.trunc(Number(change.delta) || 0);
+    if (delta > 0) positive.push({ ...change.item, quantity: delta, stock_applied_qty: 0 });
+    else if (delta < 0) negative.push({ ...change.item, quantity: Math.abs(delta), stock_applied_qty: 0 });
+  }
+  if (positive.length > 0) await applyStockForBill(tx, bill, positive, 1, userId);
+  if (negative.length > 0) await applyStockForBill(tx, bill, negative, -1, userId);
+}
+
+function scanAppliedForItem(item, defaultFromApplied = false) {
+  const raw = item.stock_scan_applied;
+  if (defaultFromApplied && (raw === undefined || raw === null)) return itemAppliedQty(item);
+  return Math.min(itemQuantity(item), Math.max(0, parseInt(raw, 10) || 0));
+}
+
+function stockChangesForItems(items, confirm, defaultScanFromApplied = false) {
+  return items.map(item => {
+    const desired = confirm ? itemQuantity(item) : itemAppliedQty(item);
+    return { item, delta: desired - scanAppliedForItem(item, defaultScanFromApplied) };
+  });
 }
 
 async function loadItems(tx, billId) {
@@ -650,9 +720,14 @@ async function createPurchaseBill(req, res, next) {
         });
         const manufacturingDate = normalizeDate(item.manufacturing_date);
         const expiryDate = normalizeDate(item.expiry_date);
+        const stockAppliedQty = Math.min(
+          quantity,
+          Math.max(0, parseInt(item.stock_applied_qty, 10) || 0)
+        );
         normalizedItems.push({
           ...resolved,
           quantity,
+          stock_applied_qty: stockAppliedQty,
           purchase_rate: purchaseRate,
           rate_value: rateValue,
           mrp: mrpValue,
@@ -740,8 +815,9 @@ async function createPurchaseBill(req, res, next) {
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
             quantity, purchase_rate, rate_value, mrp, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
-            landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
+            stock_applied_qty, total_amount
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             billId,
             item.product_id,
@@ -762,6 +838,7 @@ async function createPurchaseBill(req, res, next) {
             item.landing_margin || 0,
             item.manufacturing_date || null,
             item.expiry_date || null,
+            item.stock_applied_qty || 0,
             item.total_amount
           ]
         );
@@ -775,10 +852,17 @@ async function createPurchaseBill(req, res, next) {
         );
       }
 
+      const anyPreapplied = normalizedItems.some(item => (parseInt(item.stock_applied_qty, 10) || 0) > 0);
+
+      await applyStockChanges(tx, bill, stockChangesForItems(normalizedItems, Boolean(confirm), true), userId);
+
       if (confirm) {
-        await applyStockForBill(tx, bill, normalizedItems, 1, userId);
-        await tx.query('UPDATE purchase_bills SET stock_applied = 1 WHERE id = ?', [billId]);
+        await tx.query('UPDATE purchase_bill_items SET stock_applied_qty = quantity WHERE purchase_bill_id = ?', [billId]);
       }
+      await tx.query(
+        'UPDATE purchase_bills SET stock_applied = ? WHERE id = ?',
+        [confirm || anyPreapplied ? 1 : 0, billId]
+      );
 
       return { id: billId, bill_number: billNo, grand_total: grandTotal };
     });
@@ -803,6 +887,7 @@ async function updatePurchaseBill(req, res, next) {
       amount_paid,
       payment_method = 'Cash',
       notes = '',
+      branch_id,
       confirm
     } = req.body;
 
@@ -860,9 +945,14 @@ async function updatePurchaseBill(req, res, next) {
         });
         const manufacturingDate = normalizeDate(item.manufacturing_date);
         const expiryDate = normalizeDate(item.expiry_date);
+        const stockAppliedQty = Math.min(
+          quantity,
+          Math.max(0, parseInt(item.stock_applied_qty, 10) || 0)
+        );
         normalizedItems.push({
           ...resolved,
           quantity,
+          stock_applied_qty: stockAppliedQty,
           purchase_rate: purchaseRate,
           rate_value: rateValue,
           mrp: mrpValue,
@@ -909,13 +999,15 @@ async function updatePurchaseBill(req, res, next) {
       const paymentStatus = paymentStatusFor(grandTotal, targetPaid);
       const outstanding = toMoney(grandTotal - targetPaid);
       const status = shouldConfirm ? 'confirmed' : 'draft';
+      const targetBranchId = branch_id ? (parseInt(branch_id, 10) || existing.branch_id) : existing.branch_id;
 
       await tx.query(
         `UPDATE purchase_bills SET
-           bill_number = ?, purchase_date = ?, subtotal = ?, discount_total = ?, additional_charges = ?, grand_total = ?,
+           branch_id = ?, bill_number = ?, purchase_date = ?, subtotal = ?, discount_total = ?, additional_charges = ?, grand_total = ?,
            payment_status = ?, amount_paid = ?, outstanding_amount = ?, notes = ?, status = ?, stock_applied = 0
          WHERE id = ?`,
         [
+          targetBranchId,
           billNo,
           formatDate(purchase_date || existing.purchase_date),
           subtotal,
@@ -932,15 +1024,22 @@ async function updatePurchaseBill(req, res, next) {
       );
 
       await tx.query('DELETE FROM purchase_bill_items WHERE purchase_bill_id = ?', [id]);
-      const bill = { id: Number(id), bill_number: billNo, vendor_id: existing.vendor_id, grand_total: grandTotal };
+      const bill = {
+        id: Number(id),
+        bill_number: billNo,
+        vendor_id: existing.vendor_id,
+        branch_id: targetBranchId,
+        grand_total: grandTotal
+      };
       for (const item of normalizedItems) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
             quantity, purchase_rate, rate_value, mrp, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
-            landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
+            stock_applied_qty, total_amount
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             item.product_id,
@@ -961,6 +1060,7 @@ async function updatePurchaseBill(req, res, next) {
             item.landing_margin || 0,
             item.manufacturing_date || null,
             item.expiry_date || null,
+            item.stock_applied_qty || 0,
             item.total_amount
           ]
         );
@@ -975,10 +1075,17 @@ async function updatePurchaseBill(req, res, next) {
         );
       }
 
+      const anyPreapplied = normalizedItems.some(item => (parseInt(item.stock_applied_qty, 10) || 0) > 0);
+
+      await applyStockChanges(tx, bill, stockChangesForItems(normalizedItems, shouldConfirm), userId);
+
       if (shouldConfirm) {
-        await applyStockForBill(tx, bill, normalizedItems, 1, userId);
-        await tx.query('UPDATE purchase_bills SET stock_applied = 1 WHERE id = ?', [id]);
+        await tx.query('UPDATE purchase_bill_items SET stock_applied_qty = quantity WHERE purchase_bill_id = ?', [id]);
       }
+      await tx.query(
+        'UPDATE purchase_bills SET stock_applied = ? WHERE id = ?',
+        [shouldConfirm || anyPreapplied ? 1 : 0, id]
+      );
 
       return bill;
     });
@@ -1002,12 +1109,17 @@ async function confirmPurchaseBill(req, res, next) {
       if (bills.length === 0) throw httpError('Purchase bill not found', 404);
       const bill = bills[0];
       if (bill.status === 'cancelled') throw httpError('Cancelled purchase bills cannot be confirmed.', 400);
-      if (Number(bill.stock_applied) === 1) return;
 
       const items = await loadItems(tx, id);
       if (!items.length) throw httpError('Purchase bill has no items.', 400);
 
+      if (isBillFullyStockApplied(bill, items)) {
+        await tx.query("UPDATE purchase_bills SET status = 'confirmed' WHERE id = ?", [id]);
+        return;
+      }
+
       await applyStockForBill(tx, bill, items, 1, userId);
+      await tx.query('UPDATE purchase_bill_items SET stock_applied_qty = quantity WHERE purchase_bill_id = ?', [id]);
       await tx.query(
         `UPDATE purchase_bills SET status = 'confirmed', stock_applied = 1 WHERE id = ?`,
         [id]
@@ -1163,5 +1275,7 @@ module.exports = {
   addPurchaseBillPayment,
   deletePurchaseBill,
   getVendorPurchaseHistory,
-  getSuggestedBillNumber
+  getSuggestedBillNumber,
+  applyStockForBill,
+  stockChangesForItems
 };

@@ -109,6 +109,7 @@ async function migrate() {
       landing_margin DECIMAL(6,2) NULL,
       manufacturing_date DATE NULL,
       expiry_date DATE NULL,
+      stock_applied_qty INT NOT NULL DEFAULT 0,
       total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_pbi_bill (purchase_bill_id),
@@ -129,7 +130,8 @@ async function migrate() {
     { name: 'purchase_margin', def: 'DECIMAL(6,2) NULL AFTER landing_cost' },
     { name: 'landing_margin', def: 'DECIMAL(6,2) NULL AFTER purchase_margin' },
     { name: 'manufacturing_date', def: 'DATE NULL AFTER landing_margin' },
-    { name: 'expiry_date', def: 'DATE NULL AFTER manufacturing_date' }
+    { name: 'expiry_date', def: 'DATE NULL AFTER manufacturing_date' },
+    { name: 'stock_applied_qty', def: 'INT NOT NULL DEFAULT 0 AFTER expiry_date' }
   ];
   for (const column of itemCostingColumns) {
     if (!(await columnExists('purchase_bill_items', column.name))) {

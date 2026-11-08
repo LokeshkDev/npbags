@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
 import { Icon } from '../../components/Icons';
 import { useAdminAuth } from '../../lib/auth';
+import useScannerInput from '../../hooks/useScannerInput';
 import {
   getAdminVendors,
   createAdminVendor,
@@ -23,7 +24,10 @@ import {
   addAdminPurchaseBillPayment,
   deleteAdminPurchaseBill,
   getAdminProducts,
-  getAdminBranches
+  getAdminBranches,
+  scanPurchaseBarcode,
+  createProductFromScan,
+  applyScannedStock
 } from '../../lib/api';
 
 const money = (value) => Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -218,6 +222,17 @@ export default function AdminVendorsPage() {
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
   const [recordingPayment, setRecordingPayment] = useState(false);
 
+  const scanInputRef = useRef(null);
+  const newProductNameRef = useRef(null);
+  const scanStockRef = useRef([]);
+  const billSavingRef = useRef(false);
+  const [scanCode, setScanCode] = useState('');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const [pendingNewProduct, setPendingNewProduct] = useState(null);
+  const [savingScannedProduct, setSavingScannedProduct] = useState(false);
+
   const showToast = (text, type = 'success') => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 3200);
@@ -326,6 +341,14 @@ export default function AdminVendorsPage() {
             restoredForm = JSON.parse(savedDraft);
           }
 
+          const withStockApplied = (form) => ({
+            ...form,
+            items: (form.items || []).map(it => {
+              const applied = Math.max(0, Number(it.stock_applied_qty) || 0);
+              return { ...it, stock_applied_qty: applied, stock_scan_applied: applied };
+            })
+          });
+
           if (newlyCreatedRaw) {
             const newProd = JSON.parse(newlyCreatedRaw);
             const newItem = {
@@ -348,7 +371,7 @@ export default function AdminVendorsPage() {
             if (restoredForm) {
               const cleanItems = (restoredForm.items || []).filter(it => it.product_name && it.product_name.trim());
               restoredForm.items = [...cleanItems, newItem];
-              setBillForm(restoredForm);
+              setBillForm(withStockApplied(restoredForm));
             } else {
               setBillForm(prev => ({
                 ...prev,
@@ -356,7 +379,25 @@ export default function AdminVendorsPage() {
               }));
             }
           } else if (restoredForm) {
-            setBillForm(restoredForm);
+            setBillForm(withStockApplied(restoredForm));
+          }
+
+          if (restoredForm) {
+            const restoredBranch = Number(restoredForm.branch_id || 1);
+            (restoredForm.items || []).forEach(item => {
+              const applied = Number(item.stock_applied_qty) || 0;
+              if (applied > 0) {
+                scanStockRef.current.push({
+                  key: item.key,
+                  product_id: item.product_id,
+                  variant_id: item.variant_id || null,
+                  quantity: applied,
+                  branch_id: restoredBranch,
+                  scanned_code: item.barcode || '',
+                  applied: true
+                });
+              }
+            });
           }
 
           setIsBillModalOpen(true);
@@ -524,6 +565,8 @@ export default function AdminVendorsPage() {
   const openNewBill = async (vendorId = '') => {
     setEditingBill(null);
     setBillError('');
+    reverseScanStockAdjustments();
+    resetScanState();
     await resetBillForm(vendorId);
     setIsBillModalOpen(true);
   };
@@ -532,6 +575,8 @@ export default function AdminVendorsPage() {
     const id = typeof billOrId === 'object' ? billOrId.id : billOrId;
     if (!id) return;
     setBillError('');
+    reverseScanStockAdjustments();
+    resetScanState();
     try {
       const detail = await getAdminPurchaseBillById(id);
       setEditingBill(detail);
@@ -559,7 +604,10 @@ export default function AdminVendorsPage() {
           discount_type: item.discount_type === 'percent' ? 'percent' : 'flat',
           discount_value: item.discount_value !== null && item.discount_value !== undefined && Number(item.discount_value) !== 0 ? String(item.discount_value) : '',
           manufacturing_date: toDateInput(item.manufacturing_date),
-          expiry_date: toDateInput(item.expiry_date)
+          expiry_date: toDateInput(item.expiry_date),
+          barcode: item.barcode || '',
+          stock_applied_qty: Math.max(0, Number(item.stock_applied_qty) || 0),
+          stock_scan_applied: 0
         }))
       });
       setIsBillModalOpen(true);
@@ -568,9 +616,120 @@ export default function AdminVendorsPage() {
     }
   };
 
+  const billBranchId = () => Number(
+    billForm.branch_id
+    || (isSuperAdmin ? (selectedBranchId !== 'all' ? selectedBranchId : 1) : userBranchId)
+    || 1
+  );
+
+  const bumpLocalProductStock = (productId, variantId, delta) => {
+    if (!productId || !delta) return;
+    setProducts(prev => prev.map(product => {
+      if (String(product.id) !== String(productId)) return product;
+      const variants = Array.isArray(product.variants) ? product.variants : [];
+      if (variants.length === 0) {
+        return { ...product, stock: Math.max(0, (Number(product.stock) || 0) + delta) };
+      }
+      const matched = variantId
+        ? variants.find(v => String(v.id) === String(variantId))
+        : null;
+      const targetId = String((matched || variants[0]).id);
+      const nextVariants = variants.map(v => String(v.id) === targetId
+        ? { ...v, stock_quantity: Math.max(0, (Number(v.stock_quantity) || 0) + delta) }
+        : v);
+      const stock = nextVariants.reduce((sum, v) => sum + (Number(v.stock_quantity) || 0), 0);
+      return { ...product, variants: nextVariants, stock };
+    }));
+  };
+
+  const revertScanStock = async (entry) => {
+    if (!entry || !entry.applied) return;
+    try {
+      await applyScannedStock({
+        product_id: entry.product_id,
+        variant_id: entry.variant_id || null,
+        quantity: entry.quantity,
+        direction: -1,
+        branch_id: entry.branch_id,
+        scanned_code: entry.scanned_code || ''
+      });
+      bumpLocalProductStock(entry.product_id, entry.variant_id, -entry.quantity);
+    } catch (err) {
+      console.warn('Could not revert scanned stock:', err);
+    }
+  };
+
+  const reverseScanStockAdjustments = async () => {
+    const entries = scanStockRef.current;
+    scanStockRef.current = [];
+    for (const entry of entries) {
+      await revertScanStock(entry);
+    }
+  };
+
+  const trackScanStock = (item, quantity, applied, scannedCode, branchId) => {
+    if (!applied) return;
+    scanStockRef.current.push({
+      key: item.key,
+      product_id: item.product_id,
+      variant_id: item.variant_id || null,
+      quantity,
+      branch_id: branchId || billBranchId(),
+      scanned_code: scannedCode || item.barcode || '',
+      applied: true
+    });
+  };
+
+  const releaseScanStockForItem = (item) => {
+    if (!item || !item.key || Number(item.stock_applied_qty) <= 0) return;
+    const entryIdx = scanStockRef.current.findIndex(entry => entry.key === item.key);
+    if (entryIdx < 0) return;
+    const [entry] = scanStockRef.current.splice(entryIdx, 1);
+    revertScanStock(entry);
+  };
+
+  const closeBillModal = () => {
+    if (!billSavingRef.current) reverseScanStockAdjustments();
+    resetScanState();
+    setIsBillModalOpen(false);
+  };
+
+  const handleBillBranchChange = (value) => {
+    const nextBranch = Number(value) || 1;
+    if (nextBranch === Number(billForm.branch_id)) return;
+    reverseScanStockAdjustments();
+    setBillForm(prev => ({
+      ...prev,
+      branch_id: nextBranch,
+      items: prev.items.map(item => ({ ...item, stock_applied_qty: 0, stock_scan_applied: 0 }))
+    }));
+  };
+
+  const handleConfirmToggle = (checked) => {
+    if (!checked && billForm.confirm) reverseScanStockAdjustments();
+    setBillForm(prev => ({
+      ...prev,
+      confirm: checked,
+      items: checked
+        ? prev.items
+        : prev.items.map(item => ({ ...item, stock_applied_qty: 0, stock_scan_applied: 0 }))
+    }));
+  };
+
   const updateBillItem = (index, updates) => {
+    const current = billForm.items[index];
+    const productChanged =
+      (updates.product_id !== undefined && String(updates.product_id) !== String(current?.product_id || '')) ||
+      (updates.variant_id !== undefined && String(updates.variant_id) !== String(current?.variant_id || ''));
+
+    let nextUpdates = updates;
+    if (productChanged && current && (Number(current.stock_applied_qty) > 0 || Number(current.stock_scan_applied) > 0)) {
+      releaseScanStockForItem(current);
+      nextUpdates = { ...updates, stock_applied_qty: 0, stock_scan_applied: 0 };
+    }
+
     setBillForm(prev => {
-      const items = prev.items.map((item, idx) => idx === index ? { ...item, ...updates } : item);
+      const items = prev.items.map((item, idx) => idx === index ? { ...item, ...nextUpdates } : item);
       return { ...prev, items };
     });
   };
@@ -600,10 +759,250 @@ export default function AdminVendorsPage() {
   };
 
   const addBillItem = () => setBillForm(prev => ({ ...prev, items: [...prev.items, newBillItem()] }));
-  const removeBillItem = (index) => setBillForm(prev => {
-    const items = prev.items.filter((_, idx) => idx !== index);
-    return { ...prev, items: items.length > 0 ? items : [newBillItem()] };
+  const removeBillItem = (index) => {
+    const current = billForm.items[index];
+    if (current) releaseScanStockForItem(current);
+    setBillForm(prev => {
+      const items = prev.items.filter((_, idx) => idx !== index);
+      return { ...prev, items: items.length > 0 ? items : [newBillItem()] };
+    });
+  };
+
+  const resetScanState = () => {
+    setScanCode('');
+    setScanResult(null);
+    setScanError('');
+    setPendingNewProduct(null);
+    setScanLoading(false);
+  };
+
+  const performScan = async (rawCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code) {
+      setScanError('Enter or scan a barcode / QR code first.');
+      return;
+    }
+    setScanLoading(true);
+    setScanError('');
+    try {
+      const res = await scanPurchaseBarcode(code, adminUser?.branch_id || null);
+      if (res && res.found) {
+        setScanResult(res);
+        setPendingNewProduct(null);
+        showToast(`Found: ${res.product_name}`, 'success');
+        setTimeout(() => scanInputRef.current?.focus(), 0);
+      } else {
+        setScanResult(null);
+        setPendingNewProduct({
+          scanned_code: res?.scanned_code || code,
+          name: res?.payload?.name || '',
+          purchase_rate: '',
+          mrp: '',
+          sale_price: '',
+          gst_type: 'exclusive',
+          gst_rate: '18',
+          hsn_code: '4202',
+          stock: 0,
+          quantity: 1,
+          description: ''
+        });
+        showToast('New product detected. Fill in details to add it to the catalog.', 'info');
+        setTimeout(() => newProductNameRef.current?.focus(), 0);
+      }
+    } catch (err) {
+      setScanResult(null);
+      setScanError(err.message || 'Could not scan the product.');
+      showToast(err.message || 'Could not scan the product', 'error');
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const buildItemFromScanDefaults = (defaults) => ({
+    key: `item-${billItemKey++}`,
+    product_id: defaults?.product_id || '',
+    product_name: defaults?.product_name || '',
+    variant_id: defaults?.variant_id || '',
+    variant_info: defaults?.variant_info || '',
+    quantity: 1,
+    purchase_rate: defaults?.purchase_rate || '',
+    mrp: defaults?.mrp || '',
+    gst_type: defaults?.gst_type || 'exclusive',
+    gst_rate: defaults?.gst_rate || '18',
+    discount_type: 'flat',
+    discount_value: '',
+    manufacturing_date: defaults?.manufacturing_date || '',
+    expiry_date: defaults?.expiry_date || '',
+    barcode: defaults?.barcode || '',
+    stock_applied_qty: Number(defaults?.stock_applied_qty) || 0,
+    stock_scan_applied: Number(defaults?.stock_scan_applied) || 0
   });
+
+  const addScannedResultToBill = async () => {
+    const result = scanResult;
+    if (!result || !result.found || !result.item) return false;
+
+    const newItem = buildItemFromScanDefaults(result.item);
+    const branchId = billBranchId();
+    const scannedCode = newItem.barcode || result.scanned_code || result.barcode || '';
+    let appliedQty = 0;
+
+    try {
+      const stockRes = await applyScannedStock({
+        product_id: newItem.product_id,
+        variant_id: newItem.variant_id ? Number(newItem.variant_id) : null,
+        quantity: newItem.quantity,
+        direction: 1,
+        branch_id: branchId,
+        scanned_code: scannedCode
+      });
+      appliedQty = newItem.quantity;
+      bumpLocalProductStock(newItem.product_id, newItem.variant_id, appliedQty);
+      if (stockRes && typeof stockRes.stock === 'number') {
+        setScanResult(prev => prev
+          ? { ...prev, stock: stockRes.stock, branch_stock: stockRes.branch_stock ?? prev.branch_stock }
+          : prev);
+      }
+    } catch (err) {
+      console.warn('Could not update stock immediately:', err);
+    }
+
+    newItem.stock_applied_qty = appliedQty;
+    newItem.stock_scan_applied = appliedQty;
+    trackScanStock(newItem, newItem.quantity, appliedQty, scannedCode, branchId);
+
+    setBillForm(prev => {
+      const items = [...prev.items];
+      const emptyIdx = items.findIndex(it => !it.product_name && !it.product_id);
+      if (emptyIdx >= 0) items[emptyIdx] = newItem;
+      else items.push(newItem);
+      return { ...prev, items };
+    });
+    showToast(
+      appliedQty > 0
+        ? `Added ${result.product_name} to the bill. Stock updated.`
+        : `Added ${result.product_name} to the bill. Stock will update when the bill is confirmed.`,
+      appliedQty > 0 ? 'success' : 'info'
+    );
+    setScanResult(null);
+    setScanCode('');
+    setTimeout(() => scanInputRef.current?.focus(), 0);
+    return true;
+  };
+
+  const handleScanKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (pendingNewProduct) {
+      newProductNameRef.current?.focus();
+      return;
+    }
+    if (scanResult && scanResult.found) {
+      addScannedResultToBill();
+      return;
+    }
+    performScan(scanCode);
+  };
+
+  const addScannedProductToBill = async (product, quantity = 1) => {
+    const itemDefaults = {
+      product_id: product.id,
+      product_name: product.name,
+      purchase_rate: product.purchased_rate !== null && product.purchased_rate !== undefined && String(product.purchased_rate).trim() !== ''
+        ? String(product.purchased_rate)
+        : (product.purchase_price !== null && product.purchase_price !== undefined ? String(product.purchase_price) : ''),
+      mrp: product.mrp !== null && product.mrp !== undefined ? String(product.mrp) : '',
+      gst_type: product.gst_type || 'exclusive',
+      gst_rate: product.gst_rate !== null && product.gst_rate !== undefined ? String(product.gst_rate) : '18',
+      manufacturing_date: toDateInput(product.manufacturing_date),
+      expiry_date: toDateInput(product.expiry_date),
+      barcode: product.barcode || ''
+    };
+    const qty = Math.max(1, parseInt(quantity, 10) || 1);
+    const newItem = { ...buildItemFromScanDefaults(itemDefaults), quantity: qty };
+    const branchId = billBranchId();
+    const scannedCode = product.barcode || '';
+    let appliedQty = 0;
+
+    try {
+      await applyScannedStock({
+        product_id: newItem.product_id,
+        variant_id: newItem.variant_id ? Number(newItem.variant_id) : null,
+        quantity: qty,
+        direction: 1,
+        branch_id: branchId,
+        scanned_code: scannedCode
+      });
+      appliedQty = qty;
+      bumpLocalProductStock(newItem.product_id, newItem.variant_id, appliedQty);
+    } catch (err) {
+      console.warn('Could not update stock immediately:', err);
+    }
+
+    newItem.stock_applied_qty = appliedQty;
+    newItem.stock_scan_applied = appliedQty;
+    trackScanStock(newItem, qty, appliedQty, scannedCode, branchId);
+
+    setBillForm(prev => {
+      const items = [...prev.items];
+      const emptyIdx = items.findIndex(it => !it.product_name && !it.product_id);
+      if (emptyIdx >= 0) items[emptyIdx] = newItem;
+      else items.push(newItem);
+      return { ...prev, items };
+    });
+
+    return appliedQty;
+  };
+
+  const handleCreateScannedProduct = async () => {
+    if (!pendingNewProduct) return;
+    if (!String(pendingNewProduct.name || '').trim()) {
+      showToast('Product name is required.', 'error');
+      return;
+    }
+    try {
+      setSavingScannedProduct(true);
+      const res = await createProductFromScan({
+        ...pendingNewProduct,
+        vendor_id: billForm.vendor_id || null
+      });
+      const product = res?.product || res;
+      if (!product || !product.id) throw new Error('Product could not be created.');
+      setProducts(prev => [product, ...prev.filter(p => String(p.id) !== String(product.id))]);
+      const appliedQty = await addScannedProductToBill(
+        { ...product, barcode: res?.barcode || pendingNewProduct.scanned_code },
+        pendingNewProduct.quantity
+      );
+      showToast(
+        appliedQty > 0
+          ? `"${product.name}" added to catalog and bill. Stock updated.`
+          : `"${product.name}" added to catalog and bill.`,
+        appliedQty > 0 ? 'success' : 'info'
+      );
+      resetScanState();
+      setTimeout(() => scanInputRef.current?.focus(), 0);
+    } catch (err) {
+      showToast(err.message || 'Failed to add scanned product', 'error');
+    } finally {
+      setSavingScannedProduct(false);
+    }
+  };
+
+  const handleHardwareScan = useCallback((code) => {
+    if (!isBillModalOpen) return;
+    if (pendingNewProduct) return;
+    performScan(code);
+  }, [isBillModalOpen, pendingNewProduct, performScan]);
+
+  useScannerInput(handleHardwareScan, { enabled: isBillModalOpen, maxLength: 512 });
+
+  useEffect(() => {
+    return () => {
+      if (!billSavingRef.current) reverseScanStockAdjustments();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const billTotals = useMemo(() => {
     return billForm.items.reduce((acc, item) => {
@@ -663,6 +1062,9 @@ export default function AdminVendorsPage() {
           product_name: item.product_name,
           variant_id: item.variant_id ? Number(item.variant_id) : null,
           variant_info: item.variant_info || null,
+          scanned_barcode: item.barcode || null,
+          stock_applied_qty: Math.max(0, Number(item.stock_applied_qty) || 0),
+          stock_scan_applied: Math.max(0, Number(item.stock_scan_applied) || 0),
           quantity: Number(item.quantity) || 1,
           purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
           rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0,
@@ -685,6 +1087,7 @@ export default function AdminVendorsPage() {
 
     try {
       setSavingBill(true);
+      billSavingRef.current = true;
       setBillError('');
       if (editingBill?.id) {
         await updateAdminPurchaseBill(editingBill.id, payload);
@@ -693,12 +1096,14 @@ export default function AdminVendorsPage() {
         await createAdminPurchaseBill(payload);
         showToast('Purchase bill created successfully.');
       }
+      scanStockRef.current = [];
       setIsBillModalOpen(false);
       refreshAll();
     } catch (err) {
       setBillError(err.message || 'Failed to save purchase bill');
     } finally {
       setSavingBill(false);
+      billSavingRef.current = false;
     }
   };
 
@@ -1397,7 +1802,7 @@ export default function AdminVendorsPage() {
           </Modal>
 
           {/* PURCHASE BILL CREATE / EDIT MODAL */}
-          <Modal isOpen={isBillModalOpen} onClose={() => setIsBillModalOpen(false)} title={editingBill ? `Edit Purchase Bill: ${editingBill.bill_number}` : 'New Purchase Bill'} maxWidth="95vw" maxHeight="95vh" height="95vh">
+          <Modal isOpen={isBillModalOpen} onClose={closeBillModal} title={editingBill ? `Edit Purchase Bill: ${editingBill.bill_number}` : 'New Purchase Bill'} maxWidth="95vw" maxHeight="95vh" height="95vh">
             <form onSubmit={handleSaveBill} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {billError && <div style={{ padding: '10px 14px', borderRadius: '8px', background: '#fee2e2', color: '#b91c1c', fontSize: '12.5px', fontWeight: 700 }}>{billError}</div>}
 
@@ -1414,7 +1819,7 @@ export default function AdminVendorsPage() {
                   {isSuperAdmin ? (
                     <select
                       value={billForm.branch_id || 1}
-                      onChange={(e) => setBillForm(prev => ({ ...prev, branch_id: Number(e.target.value) }))}
+                      onChange={(e) => handleBillBranchChange(e.target.value)}
                       style={{ width: '100%', padding: '9px 11px', borderRadius: '7px', border: '1.5px solid #0ea5e9', fontSize: '13px', background: '#fff', fontWeight: 700 }}
                     >
                       {branches.map(b => (
@@ -1437,6 +1842,125 @@ export default function AdminVendorsPage() {
                   <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 800, color: '#475569', marginBottom: '5px' }}>PURCHASE DATE</label>
                   <input type="date" value={billForm.purchase_date} onChange={(e) => setBillForm(prev => ({ ...prev, purchase_date: e.target.value }))} style={{ width: '100%', padding: '9px 11px', borderRadius: '7px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
                 </div>
+              </div>
+
+              <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '16px' }}>📷</span>
+                  <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Scan Product Barcode / QR</span>
+                  <span style={{ fontSize: '10.5px', color: '#a16207' }}>Scan or type the code, press Enter — added items update stock immediately</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input
+                    ref={scanInputRef}
+                    id="vendor-bill-scan-input"
+                    data-scan-capture="true"
+                    type="text"
+                    value={scanCode}
+                    onChange={(e) => { setScanCode(e.target.value); if (scanResult) setScanResult(null); }}
+                    onKeyDown={handleScanKeyDown}
+                    placeholder="Scan or type barcode / QR code..."
+                    style={{ flex: '1 1 280px', padding: '9px 11px', borderRadius: '7px', border: '1.5px solid #fbbf24', fontSize: '13px', fontFamily: 'monospace', background: '#fff' }}
+                  />
+                  <button type="button" onClick={() => performScan(scanCode)} disabled={scanLoading} style={{ padding: '9px 16px', borderRadius: '7px', border: 'none', background: '#b45309', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: scanLoading ? 'not-allowed' : 'pointer' }}>
+                    {scanLoading ? 'Scanning...' : 'Scan / Find'}
+                  </button>
+                  {(scanCode || scanResult || pendingNewProduct) && (
+                    <button type="button" onClick={resetScanState} style={{ padding: '9px 12px', borderRadius: '7px', border: '1px solid #fcd34d', background: '#fff', color: '#92400e', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>Clear</button>
+                  )}
+                </div>
+                {scanError && (
+                  <div style={{ padding: '7px 10px', borderRadius: '6px', background: '#fee2e2', color: '#b91c1c', fontSize: '11.5px', fontWeight: 700 }}>{scanError}</div>
+                )}
+                {scanResult && scanResult.found && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '7px', padding: '8px 10px' }}>
+                    <div>
+                      <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#14532d' }}>{scanResult.product_name}</div>
+                      <div style={{ fontSize: '10.5px', color: '#475569', marginTop: '2px' }}>
+                        {scanResult.barcode ? `Barcode: ${scanResult.barcode} • ` : ''}
+                        {scanResult.variant && scanResult.variant.sku ? `SKU: ${scanResult.variant.sku} • ` : ''}
+                        {scanResult.variant ? `${[scanResult.variant.color_name, scanResult.variant.size_name].filter(Boolean).join(' / ')} • ` : ''}
+                        Current stock: {scanResult.branch_stock !== undefined && scanResult.branch_stock !== null ? scanResult.branch_stock : scanResult.stock}
+                      </div>
+                      <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                        MRP: {scanResult.mrp !== null && scanResult.mrp !== undefined && Number(scanResult.mrp) > 0 ? `₹${money(scanResult.mrp)}` : '—'}
+                        {' • '}Purchase: {scanResult.purchased_rate !== null && scanResult.purchased_rate !== undefined && String(scanResult.purchased_rate).trim() !== '' ? `₹${scanResult.purchased_rate}` : (scanResult.purchase_price !== null && scanResult.purchase_price !== undefined ? `₹${money(scanResult.purchase_price)}` : '—')}
+                        {' • '}Selling: {scanResult.sale_price !== null && scanResult.sale_price !== undefined && Number(scanResult.sale_price) > 0 ? `₹${money(scanResult.sale_price)}` : (scanResult.price !== null && scanResult.price !== undefined ? `₹${money(scanResult.price)}` : '—')}
+                        {' • '}GST: {Number(scanResult.gst_rate || 0)}% ({scanResult.gst_type || 'exclusive'})
+                      </div>
+                    </div>
+                    <button type="button" onClick={addScannedResultToBill} style={{ padding: '8px 14px', borderRadius: '6px', border: 'none', background: '#065935', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>
+                      Add to Bill (Enter)
+                    </button>
+                  </div>
+                )}
+                {pendingNewProduct && (
+                  <div
+                    style={{ border: '1px solid #fcd34d', background: '#fff', borderRadius: '7px', padding: '10px' }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#92400e' }}>New product detected — capture details to add it to the catalog</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '11px', color: '#b45309', background: '#fef3c7', borderRadius: '4px', padding: '2px 7px' }}>{pendingNewProduct.scanned_code}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Product Name *</label>
+                        <input type="text" value={pendingNewProduct.name} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Leather Tote Bag" ref={newProductNameRef} style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Purchase Rate</label>
+                        <input type="number" min="0" step="0.01" value={pendingNewProduct.purchase_rate} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, purchase_rate: e.target.value }))} placeholder="0.00" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>MRP (₹)</label>
+                        <input type="number" min="0" step="0.01" value={pendingNewProduct.mrp} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, mrp: e.target.value }))} placeholder="0.00" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Selling Price</label>
+                        <input type="number" min="0" step="0.01" value={pendingNewProduct.sale_price} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, sale_price: e.target.value }))} placeholder="0.00" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '0.9fr 0.8fr 1fr 0.7fr 0.8fr', gap: '8px', marginBottom: '8px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>GST Mode</label>
+                        <select value={pendingNewProduct.gst_type} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, gst_type: e.target.value }))} style={{ width: '100%', padding: '7px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff' }}>
+                          <option value="exclusive">Exclusive</option>
+                          <option value="inclusive">Inclusive</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>GST %</label>
+                        <select value={String(pendingNewProduct.gst_rate)} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, gst_rate: e.target.value }))} style={{ width: '100%', padding: '7px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff' }}>
+                          <option value="0">0%</option>
+                          <option value="3">3%</option>
+                          <option value="5">5%</option>
+                          <option value="12">12%</option>
+                          <option value="18">18%</option>
+                          <option value="28">28%</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>HSN Code</label>
+                        <input type="text" value={pendingNewProduct.hsn_code} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, hsn_code: e.target.value }))} placeholder="4202" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', fontFamily: 'monospace' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Qty</label>
+                        <input type="number" min="1" value={pendingNewProduct.quantity} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, quantity: e.target.value }))} style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Opening Stock</label>
+                        <input type="number" min="0" value={pendingNewProduct.stock} onChange={(e) => setPendingNewProduct(prev => ({ ...prev, stock: e.target.value }))} style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center' }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                      <button type="button" onClick={resetScanState} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
+                      <button type="button" onClick={handleCreateScannedProduct} disabled={savingScannedProduct} style={{ padding: '7px 14px', borderRadius: '6px', border: 'none', background: '#065935', color: '#fff', fontSize: '11.5px', fontWeight: 800, cursor: savingScannedProduct ? 'not-allowed' : 'pointer' }}>
+                        {savingScannedProduct ? 'Adding...' : 'Add Product & Bill'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
@@ -1470,7 +1994,9 @@ export default function AdminVendorsPage() {
                         : (Number(variantSource.stock) || 0);
                     }
                     const addQty = parseInt(item.quantity, 10) || 0;
-                    const newTotalStock = currentStock + addQty;
+                    const appliedQty = Math.min(addQty, Math.max(0, Number(item.stock_applied_qty) || 0));
+                    const pendingAddQty = Math.max(0, addQty - appliedQty);
+                    const newTotalStock = currentStock + pendingAddQty;
                     const itemCosting = computeBillItemCosting(item, variantSource);
 
                     return (
@@ -1629,14 +2155,22 @@ export default function AdminVendorsPage() {
                                 Current Stock: <strong style={{ color: '#0f172a', fontSize: '12px' }}>{currentStock}</strong>
                               </span>
                               <span style={{ color: '#b45309', fontWeight: 700 }}>
-                                + Adding: <strong style={{ fontSize: '12px' }}>{addQty}</strong>
+                                {appliedQty > 0 ? 'Applied on scan: ' : '+ Adding: '}
+                                <strong style={{ fontSize: '12px' }}>{appliedQty > 0 ? appliedQty : addQty}</strong>
                               </span>
+                              {appliedQty > 0 && pendingAddQty > 0 && (
+                                <span style={{ color: '#0369a1', fontWeight: 700 }}>
+                                  + On confirm: <strong style={{ fontSize: '12px' }}>{pendingAddQty}</strong>
+                                </span>
+                              )}
                               <span style={{ padding: '2px 8px', borderRadius: '10px', background: '#dcfce7', color: '#15803d', fontWeight: 800 }}>
                                 ➔ New Total Stock: {newTotalStock} units
                               </span>
                             </div>
                             <span style={{ color: '#64748b', fontSize: '10.5px' }}>
-                              (Stock will increase from {currentStock} to {newTotalStock} upon bill confirmation)
+                              {appliedQty > 0
+                                ? `Stock already updated for ${appliedQty} scanned unit(s)${pendingAddQty > 0 ? `; the remaining ${pendingAddQty} will be applied on confirmation` : ''}.`
+                                : `(Stock will increase from ${currentStock} to ${newTotalStock} upon bill confirmation)`}
                             </span>
                           </div>
                         )}
@@ -1707,7 +2241,7 @@ export default function AdminVendorsPage() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
-                <button type="button" onClick={() => setIsBillModalOpen(false)} style={{ padding: '9px 18px', borderRadius: '8px', background: '#f1f5f9', border: '1px solid #cbd5e1', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+                <button type="button" onClick={closeBillModal} style={{ padding: '9px 18px', borderRadius: '8px', background: '#f1f5f9', border: '1px solid #cbd5e1', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
                 <button type="submit" disabled={savingBill} style={{ padding: '9px 24px', borderRadius: '8px', background: '#b45309', color: '#fff', border: 'none', fontSize: '13px', fontWeight: 800, cursor: savingBill ? 'not-allowed' : 'pointer' }}>{savingBill ? 'Saving Bill...' : (editingBill ? 'Update Purchase Bill' : 'Create Purchase Bill')}</button>
               </div>
             </form>

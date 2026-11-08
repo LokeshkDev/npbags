@@ -377,6 +377,25 @@ export async function lookupBarcode(code, branchId = null) {
   return adminFetch(`/admin/barcodes/lookup?code=${encodeURIComponent(code)}${branchParam}`);
 }
 
+export async function scanPurchaseBarcode(code, branchId = null) {
+  const branchParam = branchId ? `&branch_id=${encodeURIComponent(branchId)}` : '';
+  return adminFetch(`/admin/purchase-bills/scan?code=${encodeURIComponent(code)}${branchParam}`);
+}
+
+export async function createProductFromScan(data) {
+  return adminFetch('/admin/purchase-bills/scan/new-product', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function applyScannedStock(data) {
+  return adminFetch('/admin/purchase-bills/scan/apply-stock', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
 export async function deactivateBarcode(id) {
   return adminFetch(`/admin/barcodes/${id}/deactivate`, {
     method: 'PUT'

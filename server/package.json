@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "test": "node --test",
     "db:setup": "node src/scripts/setup-db.js",
     "db:seed": "node src/scripts/seed-db.js",
     "db:migrate:vendor": "node src/scripts/migrate-vendor-purchase-billing.js",

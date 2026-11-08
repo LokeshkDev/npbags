@@ -20,6 +20,7 @@ const salespersonController = require('../controllers/salespersonController');
 const auditLogController = require('../controllers/auditLogController');
 const agingController = require('../controllers/agingController');
 const purchaseBillController = require('../controllers/purchaseBillController');
+const purchaseScanController = require('../controllers/purchaseScanController');
 const heldBillController = require('../controllers/heldBillController');
 
 // All admin routes require authentication and admin role
@@ -122,6 +123,9 @@ router.delete('/vendors/:id', vendorController.deleteVendor);
 // Purchase Bills
 router.get('/purchase-bills/outstanding', purchaseBillController.getOutstandingPurchaseBills);
 router.get('/purchase-bills/next-number', purchaseBillController.getSuggestedBillNumber);
+router.get('/purchase-bills/scan', purchaseScanController.scanPurchaseItem);
+router.post('/purchase-bills/scan/new-product', purchaseScanController.createPurchaseScanProduct);
+router.post('/purchase-bills/scan/apply-stock', purchaseScanController.applyScanStock);
 router.get('/purchase-bills', purchaseBillController.getAllPurchaseBills);
 router.get('/purchase-bills/:id', purchaseBillController.getPurchaseBillById);
 router.post('/purchase-bills', purchaseBillController.createPurchaseBill);

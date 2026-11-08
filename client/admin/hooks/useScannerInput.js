@@ -62,8 +62,8 @@ export default function useScannerInput(onScan, options = {}) {
       return;
     }
 
-    // Capture alphanumeric & barcode punctuation
-    if (e.key && e.key.length === 1 && /[0-9a-zA-Z\-_./#]/.test(e.key)) {
+    // Capture alphanumeric & barcode / QR punctuation
+    if (e.key && e.key.length === 1 && /[0-9a-zA-Z\-_./#:?=&%{}",@+~]/.test(e.key)) {
       bufferRef.current += e.key;
       timestampsRef.current.push(now);
 
