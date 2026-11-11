@@ -24,12 +24,14 @@ import {
   getProductBarcodes,
   generateProductBarcodes,
   deleteBarcode,
+  scanPurchaseBarcode,
   getAdminProductPurchaseRateHistory,
   getAdminBranches,
   getAdminBranchStocks,
   updateAdminBranchProductStock
 } from '../../lib/api';
 import { useAdminAuth } from '../../lib/auth';
+import useScannerInput from '../../hooks/useScannerInput';
 
 const toDateInput = (value) => {
   if (!value) return '';
@@ -74,6 +76,12 @@ export default function AdminProductsPage() {
   const [pendingAddCategory, setPendingAddCategory] = useState(null);
   const [vendorBillContext, setVendorBillContext] = useState(null);
 
+  // Barcode scan capture in Add Product modal
+  const [scanCode, setScanCode] = useState('');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanStatus, setScanStatus] = useState(null);
+  const scanInputRef = useRef(null);
+
   // Filter & sorting states
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [genderFilter, setGenderFilter] = useState('all');
@@ -102,6 +110,7 @@ export default function AdminProductsPage() {
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
+    barcode: '',
     category_id: '',
     gender: 'none',
     price: '',
@@ -382,11 +391,21 @@ export default function AdminProductsPage() {
     }
   }, [pendingAddCategory, categories]);
 
+  // Focus the scan field automatically when the Add Product modal opens
+  useEffect(() => {
+    if (!modalOpen || editingProduct) return undefined;
+    const timer = setTimeout(() => scanInputRef.current?.focus(), 150);
+    return () => clearTimeout(timer);
+  }, [modalOpen, editingProduct]);
+
   const openAddModal = (presetCategoryId = null, extraDefaults = {}) => {
     setEditingProduct(null);
     setProductImages([]);
+    setScanCode('');
+    setScanStatus(null);
+    setScanLoading(false);
     setVariants([
-      { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
+      { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
     ]);
     const presetCat = presetCategoryId
       ? categories.find(c => String(c.id) === String(presetCategoryId))
@@ -395,6 +414,7 @@ export default function AdminProductsPage() {
     setFormData({
       name: extraDefaults.name || '',
       slug: extraDefaults.name ? extraDefaults.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '',
+      barcode: '',
       category_id: firstCat?.id || '',
       gender: firstCat?.gender || 'none',
       price: '',
@@ -459,6 +479,9 @@ export default function AdminProductsPage() {
 
   const openEditModal = async (p) => {
     setEditingProduct(p);
+    setScanCode('');
+    setScanStatus(null);
+    setScanLoading(false);
     const targetBranchId = selectedBranchId || '3';
     const activeBranchStocks = Array.isArray(p.branch_stocks) ? p.branch_stocks : [];
     const currentBranchStock = activeBranchStocks.find(bs => String(bs.branch_id) === String(targetBranchId));
@@ -486,6 +509,7 @@ export default function AdminProductsPage() {
     setFormData({
       name: p.name || '',
       slug: p.slug || p.id || '',
+      barcode: '',
       category_id: p.category_id || '',
       gender: p.gender || 'none',
       price: p.price || '',
@@ -768,7 +792,7 @@ export default function AdminProductsPage() {
   const handleAddVariant = () => {
     setVariants([
       ...variants,
-      { color_name: '', color_hex: '#1e293b', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
+      { color_name: '', color_hex: '#1e293b', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
     ]);
   };
 
@@ -949,6 +973,127 @@ export default function AdminProductsPage() {
     }
   };
 
+  // Auto-fill the Add Product form from a scanned barcode
+  const applyScannedProductDetails = (details, code) => {
+    const p = details || {};
+    const next = {
+      name: p.name || '',
+      slug: p.slug || generateSlug(p.name || ''),
+      barcode: code,
+      category_id: p.category_id ? String(p.category_id) : '',
+      gender: p.gender || 'none',
+      price: p.price !== null && p.price !== undefined ? String(p.price) : '',
+      sale_price: p.sale_price !== null && p.sale_price !== undefined ? String(p.sale_price) : '',
+      badge: p.badge || '',
+      tagline: p.tagline || '',
+      description: p.description || '',
+      materials: p.materials || '',
+      care_instructions: p.care_instructions || '',
+      dimension_w: p.dimension_w !== null && p.dimension_w !== undefined ? p.dimension_w : '',
+      dimension_h: p.dimension_h !== null && p.dimension_h !== undefined ? p.dimension_h : '',
+      dimension_l: p.dimension_l !== null && p.dimension_l !== undefined ? p.dimension_l : '',
+      dimensions: p.dimensions || '',
+      shipping_info: p.shipping_info || '',
+      manufacturing_date: toDateInput(p.manufacturing_date),
+      expiry_date: toDateInput(p.expiry_date),
+      seo_title: p.seo_title || (p.name ? `${p.name} | NP Grand Shopping` : ''),
+      seo_description: p.seo_description || '',
+      seo_keywords: p.seo_keywords || '',
+      is_featured: true,
+      is_new_arrival: false,
+      is_best_selling: false,
+      is_active: true,
+      is_online: true,
+      vendor_id: p.vendor_id ? String(p.vendor_id) : '',
+      purchase_price: p.purchase_price !== null && p.purchase_price !== undefined ? String(p.purchase_price) : '',
+      purchased_rate: p.purchased_rate !== null && p.purchased_rate !== undefined ? String(p.purchased_rate) : '',
+      mrp: p.mrp !== null && p.mrp !== undefined ? String(p.mrp) : (p.price !== null && p.price !== undefined ? String(p.price) : ''),
+      gst_type: p.gst_type || 'exclusive',
+      gst_rate: p.gst_rate !== null && p.gst_rate !== undefined ? String(p.gst_rate) : '18',
+      landing_cost: '',
+      purchase_margin: '',
+      landing_margin: ''
+    };
+
+    const costing = computeProductCosting(next);
+    next.landing_cost = costing.landing_cost;
+    next.purchase_margin = costing.purchase_margin;
+    next.landing_margin = costing.landing_margin;
+    setFormData(next);
+
+    const sourceVariants = Array.isArray(p.variants) && p.variants.length > 0
+      ? p.variants
+      : (Array.isArray(p.colors) ? p.colors.map(c => ({
+        color_name: c.name,
+        color_hex: c.hex,
+        size_name: '',
+        sku: '',
+        image_url: c.img || c.image_url || ''
+      })) : []);
+
+    if (sourceVariants.length > 0) {
+      setVariants(sourceVariants.map(v => ({
+        color_name: v.color_name || 'Standard',
+        color_hex: v.color_hex || '#111827',
+        size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
+        stock_quantity: 0,
+        sku: v.sku || '',
+        image_url: v.image_url || ''
+      })));
+    } else {
+      setVariants([
+        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
+      ]);
+    }
+
+  };
+
+  const handleBarcodeScanned = async (rawCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code || editingProduct) return;
+    setScanCode(code);
+    setScanLoading(true);
+    setScanStatus(null);
+    try {
+      const res = await scanPurchaseBarcode(code);
+      if (res && res.found && res.product_id) {
+        let details = res;
+        try {
+          const full = await getAdminProductById(res.product_id);
+          if (full && full.id) details = full;
+        } catch (_) {
+          // Fall back to the scan response fields
+        }
+        applyScannedProductDetails(details, code);
+        setScanStatus({
+          type: 'success',
+          message: `Detected "${res.product_name || details.name}". Details filled automatically. This barcode already exists, so a fresh barcode will be generated when you save.`
+        });
+      } else {
+        setFormData(prev => ({ ...prev, barcode: code }));
+        setScanStatus({
+          type: 'info',
+          message: `New barcode "${code}" captured. Fill in the product details and save.`
+        });
+      }
+    } catch (err) {
+      if (/not found|No item|No matching/i.test(err.message || '')) {
+        setFormData(prev => ({ ...prev, barcode: code }));
+        setScanStatus({ type: 'info', message: `New barcode "${code}" captured. Fill in the product details and save.` });
+      } else {
+        setScanStatus({ type: 'error', message: err.message || 'Could not detect the barcode.' });
+      }
+    } finally {
+      setScanLoading(false);
+      setTimeout(() => scanInputRef.current?.focus(), 0);
+    }
+  };
+
+  useScannerInput(handleBarcodeScanned, {
+    enabled: modalOpen && !editingProduct && !saving,
+    maxLength: 512
+  });
+
   // Form Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -986,6 +1131,8 @@ export default function AdminProductsPage() {
         createdRes = await createAdminProduct(data);
       }
       setModalOpen(false);
+      setScanCode('');
+      setScanStatus(null);
       loadData();
 
       // If product creation was triggered from Vendor Management Purchase Bill, automatically insert into bill!
@@ -1714,6 +1861,91 @@ export default function AdminProductsPage() {
             </div>
           )}
 
+          {/* Scan Barcode to Auto-Detect & Fill Product Details */}
+          {!editingProduct && (
+            <div style={{ background: '#eef6ff', border: '1.5px solid #bfdbfe', borderRadius: '10px', padding: '16px 18px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                <div>
+                  <strong style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Icon name="barcode" size={16} />
+                    <span>Scan Barcode to Auto-Detect Product</span>
+                  </strong>
+                  <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
+                    Scan with a USB/Bluetooth scanner or type the barcode and press Enter. Existing products auto-fill the fields below; new barcodes are saved with this product.
+                  </div>
+                </div>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '3px 9px', borderRadius: '12px' }}>
+                  {scanLoading ? 'Detecting…' : 'Ready'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+                <input
+                  ref={scanInputRef}
+                  type="text"
+                  data-scan-capture="true"
+                  className="form-control"
+                  placeholder="Scan barcode / QR code here…"
+                  value={scanCode}
+                  disabled={scanLoading}
+                  onChange={(e) => setScanCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleBarcodeScanned(scanCode);
+                  }}
+                  style={{ flex: '1 1 260px', height: '40px', fontSize: '14px', fontFamily: 'monospace', borderColor: '#93c5fd' }}
+                />
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  disabled={scanLoading || !scanCode.trim()}
+                  onClick={() => handleBarcodeScanned(scanCode)}
+                  style={{ height: '40px', padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Icon name="search" size={14} />
+                  <span>{scanLoading ? 'Detecting...' : 'Detect'}</span>
+                </button>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '10px', marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '12px' }}>Barcode / QR Code to Save with this Product</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Scanned barcode will appear here"
+                  value={formData.barcode || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData(prev => ({ ...prev, barcode: val }));
+                  }}
+                  style={{ height: '38px', fontSize: '13px', fontFamily: 'monospace' }}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
+                  Leave blank to auto-generate an NP-XXXX barcode later. New products are saved with 0 quantity by default.
+                </span>
+              </div>
+
+              {scanStatus && (
+                <div
+                  style={{
+                    marginTop: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12.5px',
+                    fontWeight: 600,
+                    background: scanStatus.type === 'success' ? '#dcfce7' : scanStatus.type === 'error' ? '#fee2e2' : '#fef9c3',
+                    color: scanStatus.type === 'success' ? '#166534' : scanStatus.type === 'error' ? '#991b1b' : '#854d0e',
+                    border: `1px solid ${scanStatus.type === 'success' ? '#86efac' : scanStatus.type === 'error' ? '#fecaca' : '#fde68a'}`
+                  }}
+                >
+                  {scanStatus.message}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Basic Details */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
             <div className="form-group">
@@ -2387,7 +2619,7 @@ export default function AdminProductsPage() {
                       type="number"
                       min="0"
                       className="form-control"
-                      placeholder="50"
+                      placeholder="0"
                       style={{ height: '36px', fontSize: '13px' }}
                       value={v.stock_quantity}
                       onChange={(e) => handleVariantChange(idx, 'stock_quantity', parseInt(e.target.value, 10) || 0)}

@@ -3,6 +3,7 @@ const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { processUploadedFile, deleteUploadedFile } = require('../middleware/upload');
 const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
+const { generateProductBarcodes } = require('../utils/barcode');
 
 function normalizePurchaseRate(value) {
   if (value === undefined || value === null) return null;
@@ -515,6 +516,8 @@ async function createProduct(req, res, next) {
       landing_cost,
       purchase_margin,
       landing_margin,
+      barcode,
+      scanned_code,
       variants
     } = req.body;
 
@@ -619,6 +622,13 @@ async function createProduct(req, res, next) {
       ]
     );
 
+    // Newly added products start with zero quantity (no default stock).
+    try {
+      await query('UPDATE products SET stock = 0 WHERE id = ?', [id]);
+    } catch (stockError) {
+      console.warn('[Product Create] Could not reset default stock:', stockError.message);
+    }
+
     if (normalizePurchaseRate(purchased_rate) !== null) {
       await recordPurchaseRateHistory(id, null, purchased_rate, req.user?.id || null);
     }
@@ -655,7 +665,7 @@ async function createProduct(req, res, next) {
           v.color_name || 'Standard',
           v.color_hex || '#000000',
           (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null,
-          v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 50,
+          v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 0,
           v.sku || null,
           v.image_url || null
         ]
@@ -678,6 +688,32 @@ async function createProduct(req, res, next) {
             `UPDATE product_images SET color_name = COALESCE(?, color_name) WHERE id = ?`,
             [v.color_name || null, existingImg[0].id]
           );
+        }
+      }
+    }
+
+    // Attach the scanned barcode to the new product. If the barcode is already
+    // linked to another product, generate a fresh unique primary barcode instead.
+    const scannedBarcode = String(barcode || scanned_code || '').trim();
+    if (scannedBarcode) {
+      try {
+        const existingBarcode = await query('SELECT id FROM product_barcodes WHERE barcode = ? LIMIT 1', [scannedBarcode]);
+        if (existingBarcode.length === 0) {
+          const sequenceRows = await query('SELECT COALESCE(MAX(barcode_sequence), 0) AS max_sequence FROM product_barcodes');
+          const nextSequence = (parseInt(sequenceRows?.[0]?.max_sequence, 10) || 0) + 1;
+          await query(
+            `INSERT INTO product_barcodes (product_id, barcode, barcode_sequence, is_primary, status, created_by)
+             VALUES (?, ?, ?, 1, 'active', ?)`,
+            [id, scannedBarcode, nextSequence, req.user?.id || null]
+          );
+        } else {
+          await generateProductBarcodes(id, parsedVariants, req.user?.id || null, { query });
+        }
+      } catch (barcodeError) {
+        if (barcodeError.code === 'ER_DUP_ENTRY') {
+          await generateProductBarcodes(id, parsedVariants, req.user?.id || null, { query });
+        } else {
+          console.warn('[Product Create] Could not attach scanned barcode:', barcodeError.message);
         }
       }
     }
