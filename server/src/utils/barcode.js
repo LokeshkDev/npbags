@@ -55,14 +55,16 @@ function encodeCode128(text) {
 }
 
 /**
- * Generates lightweight SVG barcode
+ * Generates lightweight, high-contrast, laser-scannable Code 128B SVG barcode
+ * Optimized for physical thermal label printers (TSC, Zebra, etc.)
  */
 function generateBarcodeSVG(text, options = {}) {
   const {
     height = 50,
-    moduleWidth = 2,
-    quietZone = 10,
+    moduleWidth = 1,
+    quietZone = 12,
     barColor = '#000000',
+    bgColor = '#FFFFFF'
   } = options;
 
   const encoding = encodeCode128(text);
@@ -71,7 +73,7 @@ function generateBarcodeSVG(text, options = {}) {
   const totalModules = encoding.length + (quietZone * 2);
   const calculatedWidth = totalModules * moduleWidth;
 
-  let rects = '';
+  let rects = `<rect width="100%" height="100%" fill="${bgColor}" />`;
   let currentX = quietZone * moduleWidth;
   let inBar = false;
   let barStart = 0;
@@ -85,7 +87,7 @@ function generateBarcodeSVG(text, options = {}) {
     } else {
       if (inBar) {
         const barW = currentX - barStart;
-        rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="${barColor}" />`;
+        rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="${barColor}" stroke="none" shape-rendering="crispEdges" />`;
         inBar = false;
       }
     }
@@ -93,10 +95,10 @@ function generateBarcodeSVG(text, options = {}) {
   }
   if (inBar) {
     const barW = currentX - barStart;
-    rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="${barColor}" />`;
+    rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="${barColor}" stroke="none" shape-rendering="crispEdges" />`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${calculatedWidth} ${height}" width="100%" height="${height}" preserveAspectRatio="none">${rects}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${calculatedWidth} ${height}" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges">${rects}</svg>`;
 }
 
 /**

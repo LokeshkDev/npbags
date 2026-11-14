@@ -1,3 +1,91 @@
+// Canonical ISO/IEC 15417 Code 128 Symbol Widths (Indices 0 to 106)
+const CODE128_WIDTHS = [
+  '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
+  '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132',
+  '221231', '213212', '223112', '312131', '311222', '321122', '321221', '312212', '322112', '322211',
+  '212123', '212321', '232121', '111323', '131123', '131321', '112313', '132113', '132311', '211313',
+  '231113', '231311', '112133', '112331', '132131', '113123', '113321', '133121', '313121', '211331',
+  '231131', '213113', '213311', '213131', '311123', '311321', '331121', '312113', '312311', '332111',
+  '314111', '221411', '431111', '111224', '111422', '121124', '121421', '141122', '141221', '112214',
+  '112412', '122114', '122411', '142112', '142211', '241211', '221114', '413111', '241112', '134111',
+  '111242', '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141',
+  '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311', '113141',
+  '114131', '311141', '411131', '211412', '211214', '211232', '2331112'
+];
+
+const CODE128_PATTERNS = CODE128_WIDTHS.map((w) => {
+  let res = '';
+  let isBar = true;
+  for (const digit of w) {
+    res += (isBar ? '1' : '0').repeat(parseInt(digit, 10));
+    isBar = !isBar;
+  }
+  return res;
+});
+
+/**
+ * Generates an ISO/IEC 15417 compliant Code 128B SVG barcode.
+ * Includes a pure white background and crispEdges styling for instant hardware scanner recognition.
+ */
+export function generateCode128SVG(text, options = {}) {
+  if (!text) return '';
+  const clean = String(text).trim();
+  const START_B = 104;
+  const STOP = 106;
+
+  let checkDigit = START_B;
+  let encoding = CODE128_PATTERNS[START_B];
+
+  for (let i = 0; i < clean.length; i++) {
+    const charCode = clean.charCodeAt(i);
+    const value = charCode - 32;
+    if (value < 0 || value > 95) continue;
+    encoding += CODE128_PATTERNS[value];
+    checkDigit = (checkDigit + (i + 1) * value) % 103;
+  }
+
+  encoding += CODE128_PATTERNS[checkDigit];
+  encoding += CODE128_PATTERNS[STOP];
+
+  const height = options.height || 50;
+  const quietZone = options.quietZone !== undefined ? options.quietZone : 12;
+  const totalModules = encoding.length + (quietZone * 2);
+
+  let rects = `<rect width="100%" height="100%" fill="#ffffff" />`;
+  let currentX = quietZone;
+  let inBar = false;
+  let barStart = 0;
+
+  for (let i = 0; i < encoding.length; i++) {
+    if (encoding[i] === '1') {
+      if (!inBar) {
+        inBar = true;
+        barStart = currentX;
+      }
+    } else {
+      if (inBar) {
+        const barW = currentX - barStart;
+        rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="#000000" stroke="none" shape-rendering="crispEdges" />`;
+        inBar = false;
+      }
+    }
+    currentX += 1;
+  }
+  if (inBar) {
+    const barW = currentX - barStart;
+    rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="#000000" stroke="none" shape-rendering="crispEdges" />`;
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalModules} ${height}" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges">${rects}</svg>`;
+}
+
+export function getCleanBarcodeSVG(item, options = {}) {
+  if (item?.barcode) {
+    return generateCode128SVG(item.barcode, options);
+  }
+  return item?.svg || '';
+}
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     if (value !== null && value !== undefined && value !== '') return value;
@@ -61,12 +149,13 @@ export function renderNormalSticker(item, options = {}) {
     ? `<span class="rate-text">${rateLabel}${label.rate}</span>`
     : '<span class="rate-text"></span>';
   const sequenceHtml = label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : '';
-  const storeName = options.storeName || 'NP Grand';
+  const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
+  const svgHtml = getCleanBarcodeSVG(item, { height: 50, quietZone: 12 });
 
   return `
     <div class="barcode-sticker">
-      <div class="store-name">${storeName}</div>
-      <div class="barcode-svg-container">${item.svg || ''}</div>
+      ${storeNameHtml}
+      <div class="barcode-svg-container">${svgHtml}</div>
       <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}${sequenceHtml}</span>${rateHtml}</div>
       <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
     </div>
@@ -80,6 +169,7 @@ export function renderJewellerySticker(item, options = {}) {
   const rateHtml = label.rate ? `<div class="jewel-rate-row">${label.rate}</div>` : '';
   const rawName = label.productName || item.barcode || 'JEWELLERY';
   const cleanName = rawName.length > 22 ? rawName.slice(0, 20) + '..' : rawName;
+  const svgHtml = getCleanBarcodeSVG(item, { height: 42, quietZone: 10 });
 
   return `
     <div class="jewel-sticker-wrapper">
@@ -87,7 +177,7 @@ export function renderJewellerySticker(item, options = {}) {
         <!-- LEFT FLAP (30mm x 12mm) - Front Face of Tag (Barcode) -->
         <div class="jewel-flap jewel-flap-left">
           <div class="jewel-store">${storeName}</div>
-          <div class="jewel-barcode-svg">${item.svg || ''}</div>
+          <div class="jewel-barcode-svg">${svgHtml}</div>
           <div class="jewel-code">${item.barcode || 'NO BARCODE'}${sequenceHtml}</div>
         </div>
 
@@ -135,6 +225,8 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
   body {
     margin: 0;
@@ -214,21 +306,23 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   }
   .jewel-barcode-svg {
     width: 27mm;
-    height: 5mm;
-    max-height: 5.2mm;
+    height: 5.2mm;
     display: flex;
     align-items: center;
     justify-content: center;
+    background: #ffffff !important;
     overflow: hidden;
   }
   .jewel-barcode-svg svg {
     width: 100% !important;
     height: 100% !important;
-    max-width: 100% !important;
-    max-height: 100% !important;
     display: block;
-    fill: #000000 !important;
-    stroke: #000000 !important;
+    background: #ffffff !important;
+  }
+  .jewel-barcode-svg svg rect {
+    stroke: none !important;
+    stroke-width: 0 !important;
+    shape-rendering: crispEdges !important;
   }
   .jewel-code {
     font-size: 5pt;
@@ -348,6 +442,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     page-break-inside: avoid;
     overflow: hidden;
     color: #000000 !important;
+    background: #ffffff !important;
   }
   .store-name {
     font-size: 7.5pt;
@@ -356,17 +451,23 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     color: #000000 !important;
   }
   .barcode-svg-container {
-    width: 30mm;
-    height: 10mm;
+    width: 32mm;
+    height: 13.5mm;
     display: flex;
     align-items: center;
     justify-content: center;
+    background: #ffffff !important;
   }
   .barcode-svg-container svg {
-    width: 100%;
-    height: 100%;
-    fill: #000000 !important;
-    stroke: #000000 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+    background: #ffffff !important;
+  }
+  .barcode-svg-container svg rect {
+    stroke: none !important;
+    stroke-width: 0 !important;
+    shape-rendering: crispEdges !important;
   }
   .info-row {
     width: 100%;

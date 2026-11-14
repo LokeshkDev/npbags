@@ -1013,8 +1013,7 @@ export default function AdminBarcodesPage() {
               ) : (
                 /* Normal 35x25mm single sticker */
                 <div style={{ width: '130px', height: '94px', border: '1px solid #000', borderRadius: '4px', background: '#fff', padding: '5px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
-                  <div style={{ fontSize: '8px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
-                  <div style={{ height: '34px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
+                  <div style={{ height: '42px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
                   <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '7.5px', fontFamily: 'monospace', fontWeight: 700, padding: '0 2px' }}>
                     <span>{customPrintItem.barcode}</span>
                     <span>{customPrintItem.purchase_rate_alias || (customPrintItem.purchased_rate ? `₹${customPrintItem.purchased_rate}` : '')}</span>
