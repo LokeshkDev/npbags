@@ -103,7 +103,7 @@ async function lookupBarcode(req, res, next) {
     // 1. Direct barcode match in product_barcodes
     const barcodeRows = await query(
       `SELECT pb.*, p.name AS product_name, p.slug, p.price, p.sale_price, p.hsn_code,
-              p.barcode_short_name, p.mrp, p.purchase_price, p.purchased_rate,
+              p.barcode_short_name, p.mrp, p.purchase_price, p.purchased_rate, p.stock AS product_stock,
               pv.id AS variant_id, pv.sku, pv.color_name, pv.color_hex,
               pv.size_name, pv.stock_quantity, pv.image_url AS variant_image
        FROM product_barcodes pb
@@ -141,7 +141,10 @@ async function lookupBarcode(req, res, next) {
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
       const branchStockVal = await getBranchStock(row.product_id);
-      const effectiveStock = branchStockVal !== null ? branchStockVal : (row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 50);
+      const baseStock = row.variant_id ? row.stock_quantity : row.product_stock;
+      const effectiveStock = branchStockVal !== null
+        ? branchStockVal
+        : (baseStock !== undefined && baseStock !== null ? baseStock : 0);
 
       return sendSuccess(res, {
         found_by: 'barcode',
@@ -206,7 +209,7 @@ async function lookupBarcode(req, res, next) {
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
       const branchStockVal = await getBranchStock(row.product_id);
-      const effectiveStock = branchStockVal !== null ? branchStockVal : (row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 50);
+      const effectiveStock = branchStockVal !== null ? branchStockVal : (row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 0);
 
       return sendSuccess(res, {
         found_by: 'sku',
@@ -269,7 +272,7 @@ async function lookupBarcode(req, res, next) {
       const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
       const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
       const branchStockVal = await getBranchStock(p.id);
-      const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock || 50);
+      const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock !== null && p.stock !== undefined ? p.stock : 0);
 
       return sendSuccess(res, {
         found_by: 'product',
@@ -327,7 +330,7 @@ async function lookupBarcode(req, res, next) {
         const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
         const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
         const branchStockVal = await getBranchStock(p.id);
-        const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock || 50);
+        const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock !== null && p.stock !== undefined ? p.stock : 0);
 
         return sendSuccess(res, {
           found_by: 'name_match',

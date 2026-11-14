@@ -80,6 +80,7 @@ export default function AdminProductsPage() {
   const [scanCode, setScanCode] = useState('');
   const [scanLoading, setScanLoading] = useState(false);
   const [scanStatus, setScanStatus] = useState(null);
+  const [detectedProduct, setDetectedProduct] = useState(null);
   const scanInputRef = useRef(null);
 
   // Filter & sorting states
@@ -403,6 +404,7 @@ export default function AdminProductsPage() {
     setProductImages([]);
     setScanCode('');
     setScanStatus(null);
+    setDetectedProduct(null);
     setScanLoading(false);
     setVariants([
       { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
@@ -441,6 +443,7 @@ export default function AdminProductsPage() {
       is_online: true,
       vendor_id: extraDefaults.vendor_id || '',
       purchase_price: '',
+      purchased_rate: '',
       mrp: '',
       gst_type: 'exclusive',
       gst_rate: '18',
@@ -481,6 +484,7 @@ export default function AdminProductsPage() {
     setEditingProduct(p);
     setScanCode('');
     setScanStatus(null);
+    setDetectedProduct(null);
     setScanLoading(false);
     const targetBranchId = selectedBranchId || '3';
     const activeBranchStocks = Array.isArray(p.branch_stocks) ? p.branch_stocks : [];
@@ -1048,12 +1052,23 @@ export default function AdminProductsPage() {
 
   };
 
+  const applyDetectedField = (field, value) => {
+    if (value === undefined || value === null) return;
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const applyAllDetectedFields = (item) => {
+    if (!item) return;
+    applyScannedProductDetails(item, item.scanned_barcode || scanCode);
+  };
+
   const handleBarcodeScanned = async (rawCode) => {
     const code = String(rawCode || '').trim();
-    if (!code || editingProduct) return;
+    if (!code) return;
     setScanCode(code);
     setScanLoading(true);
     setScanStatus(null);
+    setDetectedProduct(null);
     try {
       const res = await scanPurchaseBarcode(code);
       if (res && res.found && res.product_id) {
@@ -1064,22 +1079,23 @@ export default function AdminProductsPage() {
         } catch (_) {
           // Fall back to the scan response fields
         }
-        applyScannedProductDetails(details, code);
+        setDetectedProduct({ ...details, scanned_barcode: code });
+        setFormData(prev => ({ ...prev, barcode: code }));
         setScanStatus({
           type: 'success',
-          message: `Detected "${res.product_name || details.name}". Details filled automatically. This barcode already exists, so a fresh barcode will be generated when you save.`
+          message: `Detected "${res.product_name || details.name}". Review the detected details below and click "Pick" to apply specific fields or "Apply All".`
         });
       } else {
         setFormData(prev => ({ ...prev, barcode: code }));
         setScanStatus({
           type: 'info',
-          message: `New barcode "${code}" captured. Fill in the product details and save.`
+          message: `External / New barcode "${code}" captured and linked to this product.`
         });
       }
     } catch (err) {
       if (/not found|No item|No matching/i.test(err.message || '')) {
         setFormData(prev => ({ ...prev, barcode: code }));
-        setScanStatus({ type: 'info', message: `New barcode "${code}" captured. Fill in the product details and save.` });
+        setScanStatus({ type: 'info', message: `External / New barcode "${code}" captured and linked to this product.` });
       } else {
         setScanStatus({ type: 'error', message: err.message || 'Could not detect the barcode.' });
       }
@@ -1090,7 +1106,7 @@ export default function AdminProductsPage() {
   };
 
   useScannerInput(handleBarcodeScanned, {
-    enabled: modalOpen && !editingProduct && !saving,
+    enabled: modalOpen && !saving,
     maxLength: 512
   });
 
@@ -1862,89 +1878,133 @@ export default function AdminProductsPage() {
           )}
 
           {/* Scan Barcode to Auto-Detect & Fill Product Details */}
-          {!editingProduct && (
-            <div style={{ background: '#eef6ff', border: '1.5px solid #bfdbfe', borderRadius: '10px', padding: '16px 18px', marginBottom: '18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
-                <div>
-                  <strong style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Icon name="barcode" size={16} />
-                    <span>Scan Barcode to Auto-Detect Product</span>
-                  </strong>
-                  <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
-                    Scan with a USB/Bluetooth scanner or type the barcode and press Enter. Existing products auto-fill the fields below; new barcodes are saved with this product.
-                  </div>
+          <div style={{ background: '#eef6ff', border: '1.5px solid #bfdbfe', borderRadius: '10px', padding: '16px 18px', marginBottom: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <div>
+                <strong style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Icon name="barcode" size={16} />
+                  <span>Scan Barcode to Auto-Detect Product</span>
+                </strong>
+                <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
+                  Scan with a USB/Bluetooth scanner or type internal / external barcode. Detected details can be picked or auto-filled.
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '3px 9px', borderRadius: '12px' }}>
-                  {scanLoading ? 'Detecting…' : 'Ready'}
-                </span>
               </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
-                <input
-                  ref={scanInputRef}
-                  type="text"
-                  data-scan-capture="true"
-                  className="form-control"
-                  placeholder="Scan barcode / QR code here…"
-                  value={scanCode}
-                  disabled={scanLoading}
-                  onChange={(e) => setScanCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleBarcodeScanned(scanCode);
-                  }}
-                  style={{ flex: '1 1 260px', height: '40px', fontSize: '14px', fontFamily: 'monospace', borderColor: '#93c5fd' }}
-                />
-                <button
-                  type="button"
-                  className="admin-btn admin-btn-primary"
-                  disabled={scanLoading || !scanCode.trim()}
-                  onClick={() => handleBarcodeScanned(scanCode)}
-                  style={{ height: '40px', padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Icon name="search" size={14} />
-                  <span>{scanLoading ? 'Detecting...' : 'Detect'}</span>
-                </button>
-              </div>
-
-              <div className="form-group" style={{ marginTop: '10px', marginBottom: 0 }}>
-                <label className="form-label" style={{ fontSize: '12px' }}>Barcode / QR Code to Save with this Product</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Scanned barcode will appear here"
-                  value={formData.barcode || ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setFormData(prev => ({ ...prev, barcode: val }));
-                  }}
-                  style={{ height: '38px', fontSize: '13px', fontFamily: 'monospace' }}
-                />
-                <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', display: 'block' }}>
-                  Leave blank to auto-generate an NP-XXXX barcode later. New products are saved with 0 quantity by default.
-                </span>
-              </div>
-
-              {scanStatus && (
-                <div
-                  style={{
-                    marginTop: '10px',
-                    padding: '9px 12px',
-                    borderRadius: '6px',
-                    fontSize: '12.5px',
-                    fontWeight: 600,
-                    background: scanStatus.type === 'success' ? '#dcfce7' : scanStatus.type === 'error' ? '#fee2e2' : '#fef9c3',
-                    color: scanStatus.type === 'success' ? '#166534' : scanStatus.type === 'error' ? '#991b1b' : '#854d0e',
-                    border: `1px solid ${scanStatus.type === 'success' ? '#86efac' : scanStatus.type === 'error' ? '#fecaca' : '#fde68a'}`
-                  }}
-                >
-                  {scanStatus.message}
-                </div>
-              )}
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '3px 9px', borderRadius: '12px' }}>
+                {scanLoading ? 'Detecting…' : 'Ready'}
+              </span>
             </div>
-          )}
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+              <input
+                ref={scanInputRef}
+                type="text"
+                data-scan-capture="true"
+                className="form-control"
+                placeholder="Scan barcode / QR code here…"
+                value={scanCode}
+                disabled={scanLoading}
+                onChange={(e) => setScanCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleBarcodeScanned(scanCode);
+                }}
+                style={{ flex: '1 1 260px', height: '40px', fontSize: '14px', fontFamily: 'monospace', borderColor: '#93c5fd' }}
+              />
+              <button
+                type="button"
+                className="admin-btn admin-btn-primary"
+                disabled={scanLoading || !scanCode.trim()}
+                onClick={() => handleBarcodeScanned(scanCode)}
+                style={{ height: '40px', padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Icon name="search" size={14} />
+                <span>{scanLoading ? 'Detecting...' : 'Detect'}</span>
+              </button>
+            </div>
+
+            {formData.barcode && (
+              <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#1e3a8a', background: '#dbeafe', padding: '6px 12px', borderRadius: '6px' }}>
+                <Icon name="barcode" size={14} />
+                <span>Active / Scanned Barcode:</span>
+                <strong style={{ fontFamily: 'monospace', fontSize: '13px' }}>{formData.barcode}</strong>
+              </div>
+            )}
+
+            {scanStatus && (
+              <div
+                style={{
+                  marginTop: '10px',
+                  padding: '9px 12px',
+                  borderRadius: '6px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  background: scanStatus.type === 'success' ? '#dcfce7' : scanStatus.type === 'error' ? '#fee2e2' : '#fef9c3',
+                  color: scanStatus.type === 'success' ? '#166534' : scanStatus.type === 'error' ? '#991b1b' : '#854d0e',
+                  border: `1px solid ${scanStatus.type === 'success' ? '#86efac' : scanStatus.type === 'error' ? '#fecaca' : '#fde68a'}`
+                }}
+              >
+                {scanStatus.message}
+              </div>
+            )}
+
+            {detectedProduct && (
+              <div style={{ marginTop: '12px', padding: '12px 14px', background: '#ffffff', border: '1.5px solid #93c5fd', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
+                  <strong style={{ fontSize: '12.5px', color: '#1e3a8a' }}>Detected Product Details</strong>
+                  <button
+                    type="button"
+                    onClick={() => applyAllDetectedFields(detectedProduct)}
+                    style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    ✓ Apply All Fields
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '12px' }}>
+                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ overflow: 'hidden', marginRight: '6px' }}>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>NAME</div>
+                      <div style={{ fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detectedProduct.name || detectedProduct.product_name || '—'}</div>
+                    </div>
+                    <button type="button" onClick={() => applyDetectedField('name', detectedProduct.name || detectedProduct.product_name)} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                  </div>
+                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>PRICE / SALE</div>
+                      <div style={{ fontWeight: 800, color: '#0f172a' }}>₹{detectedProduct.price || detectedProduct.sale_price || '—'}</div>
+                    </div>
+                    <button type="button" onClick={() => { if (detectedProduct.price) applyDetectedField('price', String(detectedProduct.price)); if (detectedProduct.sale_price) applyDetectedField('sale_price', String(detectedProduct.sale_price)); }} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                  </div>
+                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>MRP</div>
+                      <div style={{ fontWeight: 800, color: '#0f172a' }}>₹{detectedProduct.mrp || '—'}</div>
+                    </div>
+                    <button type="button" onClick={() => applyDetectedField('mrp', String(detectedProduct.mrp || ''))} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                  </div>
+                  {detectedProduct.category_id && (
+                    <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>CATEGORY</div>
+                        <div style={{ fontWeight: 800, color: '#0f172a' }}>ID #{detectedProduct.category_id}</div>
+                      </div>
+                      <button type="button" onClick={() => applyDetectedField('category_id', String(detectedProduct.category_id))} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                    </div>
+                  )}
+                  {detectedProduct.description && (
+                    <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gridColumn: '1 / -1' }}>
+                      <div style={{ overflow: 'hidden', marginRight: '6px' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>DESCRIPTION</div>
+                        <div style={{ fontSize: '11px', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detectedProduct.description}</div>
+                      </div>
+                      <button type="button" onClick={() => applyDetectedField('description', detectedProduct.description)} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Basic Details */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
@@ -2093,6 +2153,69 @@ export default function AdminProductsPage() {
                 value={formData.badge}
                 onChange={(e) => setFormData({ ...formData, badge: e.target.value })}
               />
+            </div>
+          </div>
+
+          {/* Internal Purchase & Costing */}
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '14px 16px', marginTop: '16px' }}>
+            <div>
+              <strong style={{ fontSize: '14px', color: '#92400e' }}>Internal Purchase &amp; Costing</strong>
+              <p style={{ fontSize: '12px', color: '#a16207', margin: '2px 0 0' }}>
+                Purchase rate is for internal use only. It appears on internal barcode labels, not on the storefront.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginTop: '12px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Purchase Rate (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="form-control"
+                  value={formData.purchased_rate}
+                  placeholder="0.00"
+                  onChange={(e) => updateCostingFields({ purchased_rate: e.target.value, purchase_price: e.target.value })}
+                />
+                <span style={{ fontSize: '11px', color: '#a16207' }}>Internal only</span>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">MRP (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="form-control"
+                  value={formData.mrp}
+                  placeholder="0.00"
+                  onChange={(e) => updateCostingFields({ mrp: e.target.value })}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">GST Type</label>
+                <select
+                  className="form-control"
+                  value={formData.gst_type}
+                  onChange={(e) => updateCostingFields({ gst_type: e.target.value })}
+                >
+                  <option value="exclusive">Exclusive</option>
+                  <option value="inclusive">Inclusive</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">GST Rate (%)</label>
+                <select
+                  className="form-control"
+                  value={String(formData.gst_rate ?? '')}
+                  onChange={(e) => updateCostingFields({ gst_rate: e.target.value })}
+                >
+                  {[0, 5, 12, 18, 28].map(rate => (
+                    <option key={rate} value={String(rate)}>{rate}%</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '10px', fontSize: '12px', color: '#92400e', fontWeight: 700 }}>
+              <span>Landing Cost: {formData.landing_cost ? `₹${formData.landing_cost}` : '—'}</span>
+              <span>Purchase Margin: {formData.purchase_margin ? `${formData.purchase_margin}%` : '—'}</span>
+              <span>Landing Margin: {formData.landing_margin ? `${formData.landing_margin}%` : '—'}</span>
             </div>
           </div>
 

@@ -503,6 +503,10 @@ export async function getAdminPurchaseBillById(id) {
   return adminFetch(`/admin/purchase-bills/${id}`);
 }
 
+export async function getAdminPurchaseBillBarcodes(id) {
+  return adminFetch(`/admin/purchase-bills/${id}/barcodes`);
+}
+
 export async function getNextPurchaseBillNumber() {
   return adminFetch('/admin/purchase-bills/next-number');
 }

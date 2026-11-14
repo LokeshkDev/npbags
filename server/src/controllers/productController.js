@@ -1073,6 +1073,27 @@ async function updateProduct(req, res, next) {
       }
     }
 
+    // Attach/ensure the scanned barcode if provided during edit
+    const scannedBarcode = String(req.body.barcode || req.body.scanned_code || '').trim();
+    if (scannedBarcode) {
+      try {
+        const existingBarcode = await query('SELECT id, product_id FROM product_barcodes WHERE barcode = ? LIMIT 1', [scannedBarcode]);
+        if (existingBarcode.length === 0) {
+          const sequenceRows = await query('SELECT COALESCE(MAX(barcode_sequence), 0) AS max_sequence FROM product_barcodes');
+          const nextSequence = (parseInt(sequenceRows?.[0]?.max_sequence, 10) || 0) + 1;
+          await query(
+            `INSERT INTO product_barcodes (product_id, barcode, barcode_sequence, is_primary, status, created_by)
+             VALUES (?, ?, ?, 1, 'active', ?)`,
+            [id, scannedBarcode, nextSequence, req.user?.id || null]
+          );
+        } else if (String(existingBarcode[0].product_id) === String(id)) {
+          await query('UPDATE product_barcodes SET status = \'active\' WHERE id = ?', [existingBarcode[0].id]);
+        }
+      } catch (barcodeError) {
+        console.warn('[Product Update] Could not link scanned barcode:', barcodeError.message);
+      }
+    }
+
     // Record audit log for update / price changes
     try {
       const { recordAuditLog } = require('./auditLogController');
@@ -1155,6 +1176,13 @@ async function duplicateProduct(req, res, next) {
         orig.is_online !== undefined && orig.is_online !== null ? (orig.is_online ? 1 : 0) : 1
       ]
     );
+
+    // Duplicated products start with zero stock instead of the schema default.
+    try {
+      await query('UPDATE products SET stock = 0 WHERE id = ?', [newId]);
+    } catch (stockError) {
+      console.warn('[Product Duplicate] Could not reset default stock:', stockError.message);
+    }
 
     // Clone images
     const images = await query(`SELECT * FROM product_images WHERE product_id = ?`, [id]);

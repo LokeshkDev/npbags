@@ -120,7 +120,8 @@ async function migrate() {
   `);
 
   const itemCostingColumns = [
-    { name: 'mrp', def: 'DECIMAL(12,2) NULL AFTER rate_value' },
+    { name: 'purchase_rate_alias', def: 'VARCHAR(64) NULL AFTER rate_value' },
+    { name: 'mrp', def: 'DECIMAL(12,2) NULL AFTER purchase_rate_alias' },
     { name: 'gst_type', def: "ENUM('inclusive', 'exclusive') NULL DEFAULT 'exclusive' AFTER mrp" },
     { name: 'gst_rate', def: 'DECIMAL(5,2) NULL DEFAULT 18.00 AFTER gst_type' },
     { name: 'discount_type', def: "ENUM('flat', 'percent') NOT NULL DEFAULT 'flat' AFTER gst_rate" },

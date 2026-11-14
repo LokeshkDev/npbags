@@ -8,6 +8,7 @@ import { Modal } from '../../components/Modal';
 import { Icon } from '../../components/Icons';
 import { useAdminAuth } from '../../lib/auth';
 import useScannerInput from '../../hooks/useScannerInput';
+import { printBarcodeLabels } from '../../lib/barcodeLabel';
 import {
   getAdminVendors,
   createAdminVendor,
@@ -17,6 +18,7 @@ import {
   getAdminPurchaseBills,
   getAdminOutstandingPurchaseBills,
   getAdminPurchaseBillById,
+  getAdminPurchaseBillBarcodes,
   getNextPurchaseBillNumber,
   createAdminPurchaseBill,
   updateAdminPurchaseBill,
@@ -81,6 +83,7 @@ const newBillItem = () => ({
   variant_info: '',
   quantity: 1,
   purchase_rate: '',
+  purchase_rate_alias: '',
   mrp: '',
   gst_type: 'exclusive',
   gst_rate: '18',
@@ -104,7 +107,7 @@ const computeBillItemCosting = (item, product) => {
     ? Math.round(rate * (1 + gstPct / 100) * 100) / 100
     : rate;
 
-  const gross = Math.round(rate * qty * 100) / 100;
+  const gross = Math.round(landingUnit * qty * 100) / 100;
   const discountType = item.discount_type === 'percent' ? 'percent' : 'flat';
   const rawDiscount = Math.max(0, parseAmount(item.discount_value));
   const discountAmount = discountType === 'percent'
@@ -219,6 +222,11 @@ export default function AdminVendorsPage() {
 
   const [selectedBill, setSelectedBill] = useState(null);
   const [loadingBillDetail, setLoadingBillDetail] = useState(false);
+  const [barcodePrintBill, setBarcodePrintBill] = useState(null);
+  const [barcodePrintItems, setBarcodePrintItems] = useState([]);
+  const [loadingBarcodePrint, setLoadingBarcodePrint] = useState(false);
+  const [barcodePrintMode, setBarcodePrintMode] = useState('quantity');
+  const [barcodePrintCopies, setBarcodePrintCopies] = useState(1);
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
   const [recordingPayment, setRecordingPayment] = useState(false);
 
@@ -598,6 +606,7 @@ export default function AdminVendorsPage() {
           variant_info: item.variant_info || '',
           quantity: Number(item.quantity) || 1,
           purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
+          purchase_rate_alias: item.purchase_rate_alias || '',
           mrp: item.mrp !== null && item.mrp !== undefined ? String(item.mrp) : '',
           gst_type: item.gst_type || 'exclusive',
           gst_rate: item.gst_rate !== null && item.gst_rate !== undefined ? String(item.gst_rate) : '18',
@@ -1068,6 +1077,7 @@ export default function AdminVendorsPage() {
           quantity: Number(item.quantity) || 1,
           purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
           rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0,
+          purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
           mrp: costing.mrpValue || null,
           gst_type: item.gst_type || 'exclusive',
           gst_rate: parseFloat(item.gst_rate) || 0,
@@ -1125,6 +1135,64 @@ export default function AdminVendorsPage() {
     } finally {
       setLoadingBillDetail(false);
     }
+  };
+
+  const openBarcodePrint = async (bill) => {
+    if (!bill?.id) return;
+    setBarcodePrintBill(bill);
+    setBarcodePrintItems([]);
+    setBarcodePrintMode('quantity');
+    setBarcodePrintCopies(1);
+    setLoadingBarcodePrint(true);
+    try {
+      const res = await getAdminPurchaseBillBarcodes(bill.id);
+      const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
+      if (res?.bill) {
+        setBarcodePrintBill(prev => ({ ...(prev || {}), ...res.bill }));
+      }
+      setBarcodePrintItems(items);
+      if (items.length === 0) {
+        showToast('No items found on this purchase bill.', 'error');
+      } else if (items.some(item => !item.barcode)) {
+        showToast('Some items could not be linked to a barcode.', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to load bill barcodes', 'error');
+      setBarcodePrintBill(null);
+    } finally {
+      setLoadingBarcodePrint(false);
+    }
+  };
+
+  const barcodeCopiesForItem = (item) => {
+    if (barcodePrintMode === 'quantity') return Math.max(1, parseInt(item.quantity, 10) || 1);
+    if (barcodePrintMode === 'custom') return Math.max(1, parseInt(barcodePrintCopies, 10) || 1);
+    return 1;
+  };
+
+  const barcodePrintTotal = barcodePrintItems
+    .filter(item => item.barcode)
+    .reduce((sum, item) => sum + barcodeCopiesForItem(item), 0);
+
+  const handlePrintBillBarcodes = () => {
+    const printable = barcodePrintItems.filter(item => item.barcode);
+    if (printable.length === 0) {
+      showToast('No printable barcodes found for this bill.', 'error');
+      return;
+    }
+    if (printable.length !== barcodePrintItems.length) {
+      showToast('Skipped items without a barcode.', 'error');
+    }
+    const items = printable.map(item => ({
+      ...item,
+      copies: barcodeCopiesForItem(item)
+    }));
+    printBarcodeLabels(items, 1, {
+      title: `Purchase Bill ${barcodePrintBill?.bill_number || ''} Barcodes`,
+      purchaseRateLabel: 'P.RATE',
+      storeName: 'NP Grand'
+    });
+    setBarcodePrintBill(null);
   };
 
   const handleConfirmBill = async (bill) => {
@@ -1269,6 +1337,7 @@ export default function AdminVendorsPage() {
                 <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                   <div style={{ display: 'inline-flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button type="button" onClick={() => openBillDetail(bill)} style={{ padding: '4px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>View</button>
+                    <button type="button" onClick={() => openBarcodePrint(bill)} title="Print barcodes for items in this bill" style={{ padding: '4px 9px', borderRadius: '5px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>Barcode</button>
                     {bill.status === 'draft' && (
                       <button type="button" onClick={() => handleConfirmBill(bill)} style={{ padding: '4px 9px', borderRadius: '5px', border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>Confirm</button>
                     )}
@@ -2127,7 +2196,7 @@ export default function AdminVendorsPage() {
                               <div style={{ padding: '6px 7px', borderRadius: '5px', background: itemCosting.landingMargin < 0 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${itemCosting.landingMargin < 0 ? '#fecaca' : '#bbf7d0'}`, fontSize: '11.5px', fontWeight: 800, color: itemCosting.landingMargin < 0 ? '#b91c1c' : '#15803d' }}>{itemCosting.landingMargin.toFixed(1)}%</div>
                             </div>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 4fr', gap: '8px', alignItems: 'end', marginTop: '8px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.3fr 2.7fr', gap: '8px', alignItems: 'end', marginTop: '8px' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Manufacturing Date</label>
                               <input type="date" value={item.manufacturing_date || ''} onChange={(e) => updateBillItem(index, { manufacturing_date: e.target.value })} style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
@@ -2136,8 +2205,21 @@ export default function AdminVendorsPage() {
                               <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Expiry Date</label>
                               <input type="date" value={item.expiry_date || ''} onChange={(e) => updateBillItem(index, { expiry_date: e.target.value })} style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
                             </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>
+                                Rate Alias (Arrival Code)
+                              </label>
+                              <input
+                                type="text"
+                                value={item.purchase_rate_alias || ''}
+                                onChange={(e) => updateBillItem(index, { purchase_rate_alias: e.target.value })}
+                                placeholder="e.g. ARR-01 / NA-25"
+                                title="Printed on barcode stickers instead of revealing purchase rate"
+                                style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', fontWeight: 700 }}
+                              />
+                            </div>
                             <div style={{ fontSize: '10px', color: '#64748b', paddingBottom: '7px' }}>
-                              Saved on the purchase bill and synced to the linked product record.
+                              Rate alias is printed on barcode stickers instead of actual purchase price.
                             </div>
                           </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginTop: '5px', fontSize: '10.5px', color: '#475569' }}>
@@ -2177,6 +2259,28 @@ export default function AdminVendorsPage() {
                       </div>
                     );
                   })}
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '10px', marginBottom: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={addBillItem}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: '#065935',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 20px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 4px rgba(6, 89, 53, 0.2)'
+                      }}
+                    >
+                      + Add Product Item
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -2378,9 +2482,108 @@ export default function AdminVendorsPage() {
                   {selectedBill.status === 'draft' && (
                     <button type="button" onClick={() => handleConfirmBill(selectedBill)} style={{ padding: '8px 14px', borderRadius: '7px', border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CONFIRM &amp; ADD STOCK</button>
                   )}
+                  <button type="button" onClick={() => openBarcodePrint(selectedBill)} style={{ padding: '8px 14px', borderRadius: '7px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>PRINT BARCODES</button>
                   <button type="button" onClick={() => { setSelectedBill(null); openEditBill(selectedBill); }} style={{ padding: '8px 14px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>EDIT BILL</button>
                   <button type="button" onClick={() => handleDeleteBill(selectedBill)} style={{ padding: '8px 14px', borderRadius: '7px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>DELETE</button>
                   <button type="button" onClick={() => setSelectedBill(null)} style={{ padding: '8px 18px', borderRadius: '7px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CLOSE</button>
+                </div>
+              </div>
+            )}
+          </Modal>
+
+          {/* PURCHASE BILL BARCODE PRINT MODAL */}
+          <Modal
+            isOpen={Boolean(barcodePrintBill)}
+            onClose={() => setBarcodePrintBill(null)}
+            title={barcodePrintBill ? `Print Barcodes - ${barcodePrintBill.bill_number}` : 'Print Barcodes'}
+            maxWidth="860px"
+          >
+            {loadingBarcodePrint ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                Preparing barcodes for this bill...
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px 14px', fontSize: '12.5px', color: '#1e3a8a' }}>
+                  <strong>{barcodePrintBill?.vendor_name || 'Vendor'}</strong>
+                  {' '}· {barcodePrintItems.length} item line(s) · Purchase rate is printed for internal use only.
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[
+                    { key: 'quantity', label: 'One per unit (bill qty)' },
+                    { key: 'one', label: 'One per item' },
+                    { key: 'custom', label: 'Custom copies' }
+                  ].map(option => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setBarcodePrintMode(option.key)}
+                      style={{
+                        padding: '7px 12px',
+                        borderRadius: '6px',
+                        border: barcodePrintMode === option.key ? '1.5px solid #1d4ed8' : '1px solid #cbd5e1',
+                        background: barcodePrintMode === option.key ? '#dbeafe' : '#ffffff',
+                        color: barcodePrintMode === option.key ? '#1d4ed8' : '#334155',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                  {barcodePrintMode === 'custom' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', color: '#475569', fontWeight: 700 }}>Copies per item</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={barcodePrintCopies}
+                        onChange={(e) => setBarcodePrintCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        style={{ width: '80px', padding: '7px 9px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                      />
+                    </div>
+                  )}
+                  <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 800, color: '#0f172a' }}>
+                    Total labels: {barcodePrintTotal}
+                  </span>
+                </div>
+
+                <div style={{ maxHeight: '320px', overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc' }}>
+                      <tr>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Product</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Variant</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Barcode</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>P. Rate</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>MRP</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Labels</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {barcodePrintItems.map((item, index) => (
+                        <tr key={`${item.bill_item_id || item.product_id}-${index}`} style={{ borderTop: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '7px 10px', fontWeight: 700 }}>{item.product_name}</td>
+                          <td style={{ padding: '7px 10px', color: '#64748b' }}>{item.variant_info || '—'}</td>
+                          <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 700, color: item.barcode ? '#065935' : '#b91c1c' }}>
+                            {item.barcode || 'NOT GENERATED'}
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>{item.quantity || 1}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right' }}>{item.purchase_rate ? `₹${money(item.purchase_rate)}` : '—'}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right' }}>{item.mrp ? `₹${money(item.mrp)}` : '—'}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 800 }}>{item.barcode ? barcodeCopiesForItem(item) : 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                  <button type="button" onClick={() => setBarcodePrintBill(null)} style={{ padding: '8px 16px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CANCEL</button>
+                  <button type="button" onClick={handlePrintBillBarcodes} style={{ padding: '8px 18px', borderRadius: '7px', border: 'none', background: '#1d4ed8', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>PRINT {barcodePrintTotal} LABELS</button>
                 </div>
               </div>
             )}

@@ -128,6 +128,7 @@ router.post('/purchase-bills/scan/new-product', purchaseScanController.createPur
 router.post('/purchase-bills/scan/apply-stock', purchaseScanController.applyScanStock);
 router.get('/purchase-bills', purchaseBillController.getAllPurchaseBills);
 router.get('/purchase-bills/:id', purchaseBillController.getPurchaseBillById);
+router.get('/purchase-bills/:id/barcodes', purchaseBillController.getPurchaseBillBarcodes);
 router.post('/purchase-bills', purchaseBillController.createPurchaseBill);
 router.put('/purchase-bills/:id', purchaseBillController.updatePurchaseBill);
 router.post('/purchase-bills/:id/confirm', purchaseBillController.confirmPurchaseBill);

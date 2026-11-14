@@ -2,6 +2,7 @@ const slugify = require('slugify');
 const { query, withTransaction } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { normalizeScanCode } = require('../utils/purchaseScan');
+const { generateBarcodeSVG, generateProductBarcodes } = require('../utils/barcode');
 const {
   isLegacyFullyAppliedBill,
   isBillFullyStockApplied,
@@ -69,7 +70,7 @@ function computeLineCosting({
     ? toMoney(rate * (1 + gstPct / 100))
     : rate;
 
-  const grossAmount = toMoney(rate * qty);
+  const grossAmount = toMoney(landingUnit * qty);
   const type = normalizeDiscountType(discountType);
   const value = Math.max(0, toMoney(discountValue));
   const discountAmount = type === 'percent'
@@ -427,6 +428,129 @@ async function loadItems(tx, billId) {
   );
 }
 
+// Ensure every product on a purchase bill has its primary (and variant) barcodes
+// so the labels can be printed and the same codes work in POS billing.
+async function ensureBarcodesForBillItems(billId, userId = null) {
+  const productRows = await query(
+    `SELECT DISTINCT product_id
+     FROM purchase_bill_items
+     WHERE purchase_bill_id = ? AND product_id IS NOT NULL`,
+    [billId]
+  );
+
+  for (const row of productRows) {
+    const productId = row.product_id;
+    if (!productId) continue;
+    try {
+      const variants = await query('SELECT * FROM product_variants WHERE product_id = ?', [productId]);
+      await generateProductBarcodes(productId, variants, userId, { query });
+    } catch (barcodeError) {
+      console.warn(`[PurchaseBill] Could not generate barcodes for product ${productId}:`, barcodeError.message);
+    }
+  }
+}
+
+// GET /api/admin/purchase-bills/:id/barcodes
+async function getPurchaseBillBarcodes(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const bills = await query(
+      `SELECT pb.id, pb.bill_number, pb.vendor_id, v.name AS vendor_name
+       FROM purchase_bills pb
+       JOIN vendors v ON pb.vendor_id = v.id
+       WHERE pb.id = ?`,
+      [id]
+    );
+    if (bills.length === 0) return sendError(res, 'Purchase bill not found', 404);
+    const bill = bills[0];
+
+    try {
+      await ensureBarcodesForBillItems(id, req.user ? req.user.id : null);
+    } catch (barcodeError) {
+      console.warn('[PurchaseBill] Could not ensure barcodes for bill items:', barcodeError.message);
+    }
+
+    const items = await query(
+      `SELECT pbi.id AS bill_item_id, pbi.product_id, pbi.variant_id, pbi.product_name,
+              pbi.variant_info, pbi.quantity, pbi.purchase_rate, pbi.rate_value, pbi.purchase_rate_alias, pbi.mrp,
+              p.name AS catalog_name, p.price, p.sale_price, p.mrp AS catalog_mrp,
+              p.purchase_price, p.purchased_rate,
+              pv.color_name, pv.size_name, pv.sku
+       FROM purchase_bill_items pbi
+       LEFT JOIN products p ON pbi.product_id = p.id
+       LEFT JOIN product_variants pv ON pbi.variant_id = pv.id
+       WHERE pbi.purchase_bill_id = ?
+       ORDER BY pbi.id ASC`,
+      [id]
+    );
+
+    const productIds = [...new Set(items.map(item => item.product_id).filter(Boolean))];
+    let barcodes = [];
+    if (productIds.length > 0) {
+      const placeholders = productIds.map(() => '?').join(',');
+      barcodes = await query(
+        `SELECT pb.*, pv.sku, pv.color_name, pv.size_name
+         FROM product_barcodes pb
+         LEFT JOIN product_variants pv ON pb.variant_id = pv.id
+         WHERE pb.product_id IN (${placeholders}) AND pb.status = 'active'
+         ORDER BY pb.is_primary DESC, pb.id ASC`,
+        productIds
+      );
+    }
+
+    const barcodesByProduct = new Map();
+    for (const barcode of barcodes) {
+      if (!barcodesByProduct.has(barcode.product_id)) barcodesByProduct.set(barcode.product_id, []);
+      barcodesByProduct.get(barcode.product_id).push(barcode);
+    }
+
+    const labels = items.map(item => {
+      const productBarcodes = barcodesByProduct.get(item.product_id) || [];
+      const variantMatch = item.variant_id
+        ? productBarcodes.find(barcode => String(barcode.variant_id) === String(item.variant_id))
+        : null;
+      const primaryMatch = productBarcodes.find(barcode => Number(barcode.is_primary) === 1);
+      const chosen = variantMatch || primaryMatch || productBarcodes[0] || null;
+      const purchaseRate = item.purchase_rate || item.rate_value || item.purchased_rate || item.purchase_price || null;
+
+      return {
+        bill_item_id: item.bill_item_id,
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        product_name: item.product_name || item.catalog_name || 'Item',
+        variant_info: item.variant_info || [item.color_name, item.size_name].filter(Boolean).join(' / ') || '',
+        sku: item.sku || null,
+        barcode: chosen ? chosen.barcode : null,
+        barcode_sequence: chosen ? chosen.barcode_sequence : null,
+        is_primary: chosen ? chosen.is_primary : 0,
+        svg: chosen ? generateBarcodeSVG(chosen.barcode, { height: 45, moduleWidth: 2 }) : '',
+        quantity: parseInt(item.quantity, 10) || 1,
+        mrp: item.mrp !== null && item.mrp !== undefined && item.mrp !== '' ? item.mrp : item.catalog_mrp,
+        price: item.price,
+        sale_price: item.sale_price,
+        purchase_rate: purchaseRate,
+        purchased_rate: purchaseRate,
+        purchase_price: item.purchase_price,
+        purchase_rate_alias: item.purchase_rate_alias || null,
+        rate_alias: item.purchase_rate_alias || null
+      };
+    });
+
+    return sendSuccess(res, {
+      bill: {
+        id: bill.id,
+        bill_number: bill.bill_number,
+        vendor_id: bill.vendor_id,
+        vendor_name: bill.vendor_name
+      },
+      items: labels
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 // GET /api/admin/purchase-bills
 async function getAllPurchaseBills(req, res, next) {
   try {
@@ -730,6 +854,7 @@ async function createPurchaseBill(req, res, next) {
           stock_applied_qty: stockAppliedQty,
           purchase_rate: purchaseRate,
           rate_value: rateValue,
+          purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
           mrp: mrpValue,
           gst_type: gstType,
           gst_rate: gstRate,
@@ -813,11 +938,11 @@ async function createPurchaseBill(req, res, next) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
-            quantity, purchase_rate, rate_value, mrp, gst_type, gst_rate,
+            quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
             landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
             stock_applied_qty, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             billId,
             item.product_id,
@@ -827,6 +952,7 @@ async function createPurchaseBill(req, res, next) {
             item.quantity,
             item.purchase_rate || null,
             item.rate_value || 0,
+            item.purchase_rate_alias || null,
             item.mrp || null,
             item.gst_type || null,
             item.gst_rate !== undefined ? item.gst_rate : null,
@@ -866,6 +992,12 @@ async function createPurchaseBill(req, res, next) {
 
       return { id: billId, bill_number: billNo, grand_total: grandTotal };
     });
+
+    try {
+      await ensureBarcodesForBillItems(result.id, userId);
+    } catch (barcodeError) {
+      console.warn('[PurchaseBill] Could not generate barcodes after create:', barcodeError.message);
+    }
 
     const created = await query('SELECT * FROM purchase_bills WHERE id = ?', [result.id]);
     return sendSuccess(res, created[0], 'Purchase bill created successfully', 201);
@@ -955,6 +1087,7 @@ async function updatePurchaseBill(req, res, next) {
           stock_applied_qty: stockAppliedQty,
           purchase_rate: purchaseRate,
           rate_value: rateValue,
+          purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
           mrp: mrpValue,
           gst_type: gstType,
           gst_rate: gstRate,
@@ -1035,11 +1168,11 @@ async function updatePurchaseBill(req, res, next) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
-            quantity, purchase_rate, rate_value, mrp, gst_type, gst_rate,
+            quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
             landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
             stock_applied_qty, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             item.product_id,
@@ -1049,6 +1182,7 @@ async function updatePurchaseBill(req, res, next) {
             item.quantity,
             item.purchase_rate || null,
             item.rate_value || 0,
+            item.purchase_rate_alias || null,
             item.mrp || null,
             item.gst_type || null,
             item.gst_rate !== undefined ? item.gst_rate : null,
@@ -1090,6 +1224,12 @@ async function updatePurchaseBill(req, res, next) {
       return bill;
     });
 
+    try {
+      await ensureBarcodesForBillItems(result.id, userId);
+    } catch (barcodeError) {
+      console.warn('[PurchaseBill] Could not generate barcodes after update:', barcodeError.message);
+    }
+
     const updated = await query('SELECT * FROM purchase_bills WHERE id = ?', [result.id]);
     return sendSuccess(res, updated[0], 'Purchase bill updated successfully');
   } catch (error) {
@@ -1125,6 +1265,12 @@ async function confirmPurchaseBill(req, res, next) {
         [id]
       );
     });
+
+    try {
+      await ensureBarcodesForBillItems(id, userId);
+    } catch (barcodeError) {
+      console.warn('[PurchaseBill] Could not generate barcodes after confirm:', barcodeError.message);
+    }
 
     const updated = await query('SELECT * FROM purchase_bills WHERE id = ?', [id]);
     return sendSuccess(res, updated[0], 'Purchase bill confirmed and stock updated');
@@ -1269,6 +1415,7 @@ module.exports = {
   getAllPurchaseBills,
   getOutstandingPurchaseBills,
   getPurchaseBillById,
+  getPurchaseBillBarcodes,
   createPurchaseBill,
   updatePurchaseBill,
   confirmPurchaseBill,
