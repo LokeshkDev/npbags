@@ -230,6 +230,7 @@ export default function AdminVendorsPage() {
   const [loadingBarcodePrint, setLoadingBarcodePrint] = useState(false);
   const [barcodePrintMode, setBarcodePrintMode] = useState('quantity');
   const [barcodePrintCopies, setBarcodePrintCopies] = useState(1);
+  const [barcodeStickerFormat, setBarcodeStickerFormat] = useState('normal_35x25');
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
   const [recordingPayment, setRecordingPayment] = useState(false);
 
@@ -1192,6 +1193,7 @@ export default function AdminVendorsPage() {
     }));
     printBarcodeLabels(items, 1, {
       title: `Purchase Bill ${barcodePrintBill?.bill_number || ''} Barcodes`,
+      stickerType: barcodeStickerFormat,
       purchaseRateLabel: 'P.RATE',
       storeName: 'NP Grand'
     });
@@ -2827,6 +2829,66 @@ export default function AdminVendorsPage() {
                   {' '}· {barcodePrintItems.length} item line(s) · Purchase rate is printed for internal use only.
                 </div>
 
+                {/* STICKER FORMAT SELECTOR */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      STICKER ROLL FORMAT:
+                    </span>
+                    <span style={{
+                      background: barcodeStickerFormat === 'jewellery_80x12' ? '#fffbeb' : '#ecfdf5',
+                      color: barcodeStickerFormat === 'jewellery_80x12' ? '#92400e' : '#065935',
+                      border: barcodeStickerFormat === 'jewellery_80x12' ? '1px solid #fde68a' : '1px solid #a7f3d0',
+                      padding: '2px 8px',
+                      borderRadius: '5px',
+                      fontSize: '11px',
+                      fontWeight: 800
+                    }}>
+                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm (1-Up Dumbbell)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setBarcodeStickerFormat('normal_35x25')}
+                      style={{
+                        padding: '9px 12px',
+                        borderRadius: '7px',
+                        border: barcodeStickerFormat === 'normal_35x25' ? '2px solid #1d4ed8' : '1px solid #cbd5e1',
+                        background: barcodeStickerFormat === 'normal_35x25' ? '#eff6ff' : '#ffffff',
+                        color: barcodeStickerFormat === 'normal_35x25' ? '#1d4ed8' : '#334155',
+                        textAlign: 'left',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ fontWeight: 800, fontSize: '12px' }}>🏷️ Normal Sticker (35×25mm · 3-Up)</div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                        Standard 3 stickers per row on 105mm thermal roll.
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBarcodeStickerFormat('jewellery_80x12')}
+                      style={{
+                        padding: '9px 12px',
+                        borderRadius: '7px',
+                        border: barcodeStickerFormat === 'jewellery_80x12' ? '2px solid #b45309' : '1px solid #cbd5e1',
+                        background: barcodeStickerFormat === 'jewellery_80x12' ? '#fffbeb' : '#ffffff',
+                        color: barcodeStickerFormat === 'jewellery_80x12' ? '#92400e' : '#334155',
+                        textAlign: 'left',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ fontWeight: 800, fontSize: '12px' }}>💍 Jewellery Tag (80×12mm · 1-Up)</div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                        Continuous 1-up dumbbell roll with 3mm tail. Barcode front, Alias & MRP back.
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
                     { key: 'quantity', label: 'One per unit (bill qty)' },
@@ -2901,7 +2963,22 @@ export default function AdminVendorsPage() {
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
                   <button type="button" onClick={() => setBarcodePrintBill(null)} style={{ padding: '8px 16px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CANCEL</button>
-                  <button type="button" onClick={handlePrintBillBarcodes} style={{ padding: '8px 18px', borderRadius: '7px', border: 'none', background: '#1d4ed8', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>PRINT {barcodePrintTotal} LABELS</button>
+                  <button
+                    type="button"
+                    onClick={handlePrintBillBarcodes}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '7px',
+                      border: 'none',
+                      background: barcodeStickerFormat === 'jewellery_80x12' ? '#b45309' : '#1d4ed8',
+                      color: '#fff',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    PRINT {barcodePrintTotal} {barcodeStickerFormat === 'jewellery_80x12' ? 'JEWELLERY' : 'NORMAL'} LABELS
+                  </button>
                 </div>
               </div>
             )}

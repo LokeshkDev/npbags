@@ -72,13 +72,9 @@ async function getCustomerByIdAdmin(req, res, next) {
     const itemsByOrderId = {};
     if (orderIds.length > 0) {
       const items = await query(
-        `SELECT oi.*, 
-          COALESCE(
-            (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1),
-            p.image
-          ) AS product_image
+        `SELECT oi.*,
+          (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, display_order ASC, id ASC LIMIT 1) AS product_image
          FROM order_items oi
-         LEFT JOIN products p ON p.id = oi.product_id
          WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})`,
         orderIds
       );

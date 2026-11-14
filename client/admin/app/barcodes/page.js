@@ -4,39 +4,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { lookupBarcode, getAdminProducts, getProductBarcodes, generateProductBarcodes, getAdminAllBarcodes } from '../../lib/api';
-
-function formatLabelMoney(value, fallback = '') {
-  if (value === null || value === undefined || value === '') return fallback;
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value);
-  return num.toLocaleString('en-IN');
-}
-
-function getLabelDetails(item) {
-  const mrpValue = item?.mrp !== null && item?.mrp !== undefined
-    ? item.mrp
-    : (item?.price !== null && item?.price !== undefined ? item.price : item?.sale_price);
-  const rateValue = item?.purchased_rate !== null && item?.purchased_rate !== undefined && item?.purchased_rate !== ''
-    ? item.purchased_rate
-    : item?.purchase_price;
-  const sequence = item?.barcode_sequence !== null && item?.barcode_sequence !== undefined
-    ? String(item.barcode_sequence).padStart(6, '0')
-    : '';
-
-  return {
-    mrp: formatLabelMoney(mrpValue, '—'),
-    rate: rateValue !== null && rateValue !== undefined && rateValue !== ''
-      ? (Number.isFinite(Number(rateValue)) ? `₹${formatLabelMoney(rateValue)}` : String(rateValue))
-      : '—',
-    sequence
-  };
-}
+import { printBarcodeLabels, getLabelDetails } from '../../lib/barcodeLabel';
 
 export default function AdminBarcodesPage() {
   const [searchInput, setSearchInput] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
   const [loadingLookup, setLoadingLookup] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Default sticker format: 'normal_35x25' (3-Up) vs 'jewellery_80x12' (1-Up)
+  const [stickerFormat, setStickerFormat] = useState('normal_35x25');
 
   // Product selector for bulk barcode management
   const [products, setProducts] = useState([]);
@@ -54,10 +31,12 @@ export default function AdminBarcodesPage() {
   const [selectedBarcodeIds, setSelectedBarcodeIds] = useState(new Set());
   const [batchCopiesModalOpen, setBatchCopiesModalOpen] = useState(false);
   const [batchCopiesInput, setBatchCopiesInput] = useState(3);
+  const [batchModalFormat, setBatchModalFormat] = useState('normal_35x25');
 
   // Sticker custom copies modal (single item)
   const [customPrintItem, setCustomPrintItem] = useState(null);
   const [customPrintCopies, setCustomPrintCopies] = useState(3);
+  const [customPrintFormat, setCustomPrintFormat] = useState('normal_35x25');
 
   const searchInputRef = useRef(null);
 
@@ -173,302 +152,18 @@ export default function AdminBarcodesPage() {
     setSelectedBarcodeIds(new Set());
   };
 
-  // Open thermal sticker print dialog (Standard 33x24mm 3-up roll) - Full Solid Pure Black #000000
-  const printStickers = (barcodeItem, copies = 3) => {
-    const label = getLabelDetails(barcodeItem);
-    const printHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Print Barcode Stickers - ${barcodeItem.barcode}</title>
-<style>
-  @page {
-    size: 105mm 25mm;
-    margin: 0;
-  }
-  * {
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    box-sizing: border-box;
-  }
-  body {
-    margin: 0;
-    padding: 0;
-    font-family: Arial, Helvetica, sans-serif;
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    font-weight: 700;
-  }
-  .sticker-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2mm;
-    padding: 1mm 2mm;
-  }
-  .barcode-sticker {
-    width: 32mm;
-    height: 23mm;
-    border: 0.5px solid #000000;
-    padding: 1mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    align-items: center;
-    text-align: center;
-    page-break-inside: avoid;
-    color: #000000 !important;
-  }
-  .store-name {
-    font-size: 7.5pt;
-    font-weight: 900;
-    letter-spacing: 0.2px;
-    color: #000000 !important;
-  }
-  .barcode-svg-container {
-    width: 28mm;
-    height: 9mm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .barcode-svg-container svg {
-    width: 100%;
-    height: 100%;
-    fill: #000000 !important;
-    stroke: #000000 !important;
-  }
-  .info-row {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1mm;
-    padding: 0 0.5mm;
-    line-height: 1;
-    color: #000000 !important;
-  }
-  .code-text {
-    font-size: 5.5pt;
-    font-weight: 700;
-    font-family: monospace;
-    letter-spacing: 0.2px;
-    max-width: 55%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .code-text .seq-text {
-    font-size: 4.5pt;
-    letter-spacing: 0;
-  }
-  .rate-text {
-    font-size: 5.5pt;
-    font-weight: 700;
-    line-height: 1;
-    max-width: 45%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .mrp-text {
-    font-size: 11pt;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: -0.2px;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .mrp-text .mrp-label {
-    font-size: 6.5pt;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-</style>
-</head>
-<body>
-  <div class="sticker-row">
-    ${Array.from({ length: copies }).map(() => `
-      <div class="barcode-sticker">
-        <div class="store-name">NP Grand</div>
-        <div class="barcode-svg-container">${barcodeItem.svg || ''}</div>
-        <div class="info-row"><span class="code-text">${barcodeItem.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</span><span class="rate-text">${label.rate}</span></div>
-        <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
-      </div>
-    `).join('')}
-  </div>
-</body>
-</html>
-    `;
-
-    const printWin = window.open('', '_blank', 'width=600,height=400');
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(printHtml);
-      printWin.document.close();
-      setTimeout(() => {
-        printWin.focus();
-        printWin.print();
-        printWin.close();
-      }, 350);
-    }
+  // Open thermal sticker print dialog
+  const printStickers = (barcodeItem, copies = 3, format = stickerFormat) => {
+    printBarcodeLabels(barcodeItem, copies, { stickerType: format });
   };
 
-  // Batch Print Selected Barcode Stickers (Continuous Thermal Roll / 3-Up Sheet)
-  const printBatchStickers = (itemsToPrint, copiesPerItem = 3) => {
+  // Batch Print Selected Barcode Stickers
+  const printBatchStickers = (itemsToPrint, copiesPerItem = 3, format = stickerFormat) => {
     if (!itemsToPrint || itemsToPrint.length === 0) {
       alert('Please select at least one barcode sticker to print.');
       return;
     }
-
-    const printHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Batch Barcode Print (${itemsToPrint.length} Items x ${copiesPerItem})</title>
-<style>
-  @page {
-    size: 105mm auto;
-    margin: 0;
-  }
-  * {
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    box-sizing: border-box;
-  }
-  body {
-    margin: 0;
-    padding: 0;
-    font-family: Arial, Helvetica, sans-serif;
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    font-weight: 700;
-  }
-  .sticker-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2mm;
-    padding: 2mm;
-  }
-  .barcode-sticker {
-    width: 32mm;
-    height: 23mm;
-    border: 0.5px solid #000000;
-    padding: 1mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    align-items: center;
-    text-align: center;
-    page-break-inside: avoid;
-    margin-bottom: 1.5mm;
-    color: #000000 !important;
-  }
-  .store-name {
-    font-size: 7.5pt;
-    font-weight: 900;
-    letter-spacing: 0.2px;
-    color: #000000 !important;
-  }
-  .barcode-svg-container {
-    width: 28mm;
-    height: 9mm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .barcode-svg-container svg {
-    width: 100%;
-    height: 100%;
-    fill: #000000 !important;
-    stroke: #000000 !important;
-  }
-  .info-row {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1mm;
-    padding: 0 0.5mm;
-    line-height: 1;
-    color: #000000 !important;
-  }
-  .code-text {
-    font-size: 5.5pt;
-    font-weight: 700;
-    font-family: monospace;
-    letter-spacing: 0.2px;
-    max-width: 55%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .code-text .seq-text {
-    font-size: 4.5pt;
-    letter-spacing: 0;
-  }
-  .rate-text {
-    font-size: 5.5pt;
-    font-weight: 700;
-    line-height: 1;
-    max-width: 45%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .mrp-text {
-    font-size: 11pt;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: -0.2px;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .mrp-text .mrp-label {
-    font-size: 6.5pt;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-</style>
-</head>
-<body>
-  <div class="sticker-grid">
-    ${itemsToPrint.map(item => {
-      const label = getLabelDetails(item);
-      return Array.from({ length: copiesPerItem }).map(() => `
-        <div class="barcode-sticker">
-          <div class="store-name">NP Grand</div>
-          <div class="barcode-svg-container">${item.svg || ''}</div>
-          <div class="info-row"><span class="code-text">${item.barcode}${label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : ''}</span><span class="rate-text">${label.rate}</span></div>
-          <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
-        </div>
-      `).join('');
-    }).join('')}
-  </div>
-</body>
-</html>
-    `;
-
-    const printWin = window.open('', '_blank', 'width=750,height=600');
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(printHtml);
-      printWin.document.close();
-      setTimeout(() => {
-        printWin.focus();
-        printWin.print();
-        printWin.close();
-      }, 400);
-    }
+    printBarcodeLabels(itemsToPrint, copiesPerItem, { stickerType: format });
   };
 
   return (
@@ -477,13 +172,81 @@ export default function AdminBarcodesPage() {
       <div className="admin-main">
         <Topbar title="Barcode Lookup & Labels" />
         <div className="admin-content">
-          <div style={{ marginBottom: '24px' }}>
+          <div style={{ marginBottom: '20px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', margin: '0 0 6px' }}>
               Barcode Lookup & Thermal Label Printing
             </h1>
             <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
               Scan any <code style={{ color: '#065935', fontWeight: 700 }}>NP-XXXX</code> barcode, synchronize new barcodes, or print thermal stickers directly from the generated registry below.
             </p>
+          </div>
+
+          {/* Sticker Format Selector Bar */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '12px',
+            border: '1.5px solid #e2e8f0',
+            padding: '14px 18px',
+            marginBottom: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                ACTIVE STICKER ROLL FORMAT:
+              </span>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                Select the label roll currently loaded in your thermal barcode printer
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setStickerFormat('normal_35x25')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: stickerFormat === 'normal_35x25' ? '2px solid #065935' : '1px solid #cbd5e1',
+                  background: stickerFormat === 'normal_35x25' ? '#ecfdf5' : '#ffffff',
+                  color: stickerFormat === 'normal_35x25' ? '#065935' : '#334155',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>🏷️</span>
+                <span>Normal Sticker (35×25mm · 3-in-a-row)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStickerFormat('jewellery_80x12')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: stickerFormat === 'jewellery_80x12' ? '2px solid #92400e' : '1px solid #cbd5e1',
+                  background: stickerFormat === 'jewellery_80x12' ? '#fffbeb' : '#ffffff',
+                  color: stickerFormat === 'jewellery_80x12' ? '#92400e' : '#334155',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>💍</span>
+                <span>Jewellery Tag (80×12mm · 1-Up Dumbbell)</span>
+              </button>
+            </div>
           </div>
 
           {/* Grid: 2 Columns (Left: Scanner Search / Right: Product Barcode Generator) */}
@@ -583,12 +346,12 @@ export default function AdminBarcodesPage() {
                         </div>
                       )}
 
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          onClick={() => printStickers(lookupResult, 3)}
+                          onClick={() => printStickers(lookupResult, stickerFormat === 'jewellery_80x12' ? 1 : 3, stickerFormat)}
                           style={{
-                            background: '#065935',
+                            background: stickerFormat === 'jewellery_80x12' ? '#7c2d12' : '#065935',
                             color: '#ffffff',
                             border: 'none',
                             borderRadius: '6px',
@@ -598,11 +361,11 @@ export default function AdminBarcodesPage() {
                             cursor: 'pointer'
                           }}
                         >
-                          Print 3x Stickers
+                          {stickerFormat === 'jewellery_80x12' ? 'Print 1x Jewellery Tag' : 'Print 3x Stickers'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => printStickers(lookupResult, 1)}
+                          onClick={() => printStickers(lookupResult, 1, stickerFormat)}
                           style={{
                             background: '#ffffff',
                             border: '1px solid #cbd5e1',
@@ -615,6 +378,26 @@ export default function AdminBarcodesPage() {
                           }}
                         >
                           Print 1x
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomPrintItem(lookupResult);
+                            setCustomPrintCopies(stickerFormat === 'jewellery_80x12' ? 1 : 3);
+                            setCustomPrintFormat(stickerFormat);
+                          }}
+                          style={{
+                            background: '#f8fafc',
+                            border: '1px solid #cbd5e1',
+                            color: '#475569',
+                            borderRadius: '6px',
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Custom Copies / Format...
                         </button>
                       </div>
                     </div>
@@ -735,7 +518,7 @@ export default function AdminBarcodesPage() {
                                   ...b,
                                   product_name: p?.name,
                                   price: p?.sale_price || p?.price
-                                }, 3);
+                                }, stickerFormat === 'jewellery_80x12' ? 1 : 3, stickerFormat);
                               }}
                               style={{
                                 background: '#ffffff',
@@ -849,7 +632,7 @@ export default function AdminBarcodesPage() {
                     {selectedBarcodeIds.size} SELECTED
                   </span>
                   <span style={{ fontSize: '13px', color: '#166534', fontWeight: 700 }}>
-                    Ready for batch thermal printing
+                    Ready for batch printing ({stickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm 1-Up' : '🏷️ Normal 35×25mm 3-Up'})
                   </span>
                 </div>
 
@@ -858,10 +641,10 @@ export default function AdminBarcodesPage() {
                     type="button"
                     onClick={() => {
                       const selectedItems = allGeneratedBarcodes.filter(b => selectedBarcodeIds.has(b.id));
-                      printBatchStickers(selectedItems, 3);
+                      printBatchStickers(selectedItems, stickerFormat === 'jewellery_80x12' ? 1 : 3, stickerFormat);
                     }}
                     style={{
-                      background: '#065935',
+                      background: stickerFormat === 'jewellery_80x12' ? '#7c2d12' : '#065935',
                       color: '#ffffff',
                       border: 'none',
                       borderRadius: '6px',
@@ -869,17 +652,17 @@ export default function AdminBarcodesPage() {
                       fontSize: '12px',
                       fontWeight: 800,
                       cursor: 'pointer',
-                      boxShadow: '0 2px 6px rgba(6, 89, 53, 0.25)'
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
                     }}
                   >
-                    PRINT SELECTED (3x EACH / 3-UP)
+                    {stickerFormat === 'jewellery_80x12' ? 'PRINT SELECTED (1x JEWELLERY TAG)' : 'PRINT SELECTED (3x EACH / 3-UP)'}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
                       const selectedItems = allGeneratedBarcodes.filter(b => selectedBarcodeIds.has(b.id));
-                      printBatchStickers(selectedItems, 1);
+                      printBatchStickers(selectedItems, 1, stickerFormat);
                     }}
                     style={{
                       background: '#ffffff',
@@ -898,7 +681,8 @@ export default function AdminBarcodesPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setBatchCopiesInput(3);
+                      setBatchCopiesInput(stickerFormat === 'jewellery_80x12' ? 1 : 3);
+                      setBatchModalFormat(stickerFormat);
                       setBatchCopiesModalOpen(true);
                     }}
                     style={{
@@ -1034,9 +818,9 @@ export default function AdminBarcodesPage() {
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
                               <button
                                 type="button"
-                                onClick={() => printStickers(b, 3)}
+                                onClick={() => printStickers(b, stickerFormat === 'jewellery_80x12' ? 1 : 3, stickerFormat)}
                                 style={{
-                                  background: '#065935',
+                                  background: stickerFormat === 'jewellery_80x12' ? '#7c2d12' : '#065935',
                                   color: '#ffffff',
                                   border: 'none',
                                   borderRadius: '5px',
@@ -1045,13 +829,13 @@ export default function AdminBarcodesPage() {
                                   fontWeight: 800,
                                   cursor: 'pointer'
                                 }}
-                                title="Print standard 3-up thermal label strip"
+                                title={stickerFormat === 'jewellery_80x12' ? 'Print 1x jewellery tag' : 'Print standard 3-up thermal label strip'}
                               >
-                                Print 3x
+                                {stickerFormat === 'jewellery_80x12' ? 'Print Tag' : 'Print 3x'}
                               </button>
                               <button
                                 type="button"
-                                onClick={() => printStickers(b, 1)}
+                                onClick={() => printStickers(b, 1, stickerFormat)}
                                 style={{
                                   background: '#ffffff',
                                   border: '1px solid #cbd5e1',
@@ -1062,7 +846,7 @@ export default function AdminBarcodesPage() {
                                   fontWeight: 700,
                                   cursor: 'pointer'
                                 }}
-                                title="Print 1 sticker"
+                                title="Print 1 label"
                               >
                                 Print 1x
                               </button>
@@ -1070,7 +854,8 @@ export default function AdminBarcodesPage() {
                                 type="button"
                                 onClick={() => {
                                   setCustomPrintItem(b);
-                                  setCustomPrintCopies(6);
+                                  setCustomPrintCopies(stickerFormat === 'jewellery_80x12' ? 1 : 3);
+                                  setCustomPrintFormat(stickerFormat);
                                 }}
                                 style={{
                                   background: '#f8fafc',
@@ -1082,7 +867,7 @@ export default function AdminBarcodesPage() {
                                   fontWeight: 700,
                                   cursor: 'pointer'
                                 }}
-                                title="Choose custom number of copies"
+                                title="Choose sticker format and copies"
                               >
                                 Custom...
                               </button>
@@ -1119,22 +904,131 @@ export default function AdminBarcodesPage() {
               background: '#ffffff',
               borderRadius: '12px',
               padding: '24px',
-              maxWidth: '380px',
+              maxWidth: '460px',
               width: '100%',
               boxShadow: '0 20px 50px rgba(0,0,0,0.25)'
             }}
           >
-            <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', margin: '0 0 8px' }}>
-              Print Thermal Stickers
-            </h3>
-            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                Print Barcode Label
+              </h3>
+              <span style={{
+                background: customPrintFormat === 'jewellery_80x12' ? '#fffbeb' : '#ecfdf5',
+                color: customPrintFormat === 'jewellery_80x12' ? '#92400e' : '#065935',
+                border: customPrintFormat === 'jewellery_80x12' ? '1px solid #fde68a' : '1px solid #a7f3d0',
+                padding: '2px 8px',
+                borderRadius: '5px',
+                fontSize: '11px',
+                fontWeight: 800
+              }}>
+                {customPrintFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm' : '🏷️ Normal 35×25mm'}
+              </span>
+            </div>
+
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 14px' }}>
               {customPrintItem.product_name} <br />
-              <strong style={{ color: '#065935' }}>{customPrintItem.barcode}</strong>
+              <strong style={{ color: '#065935', fontFamily: 'monospace' }}>{customPrintItem.barcode}</strong>
             </p>
 
+            {/* STICKER FORMAT SELECTOR */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 800, color: '#334155', marginBottom: '6px' }}>
+                STICKER FORMAT:
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCustomPrintFormat('normal_35x25')}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: customPrintFormat === 'normal_35x25' ? '2px solid #065935' : '1px solid #cbd5e1',
+                    background: customPrintFormat === 'normal_35x25' ? '#ecfdf5' : '#ffffff',
+                    color: customPrintFormat === 'normal_35x25' ? '#065935' : '#334155',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  🏷️ Normal Sticker
+                  <div style={{ fontSize: '10px', fontWeight: 500, color: '#64748b' }}>35×25mm · 3-in-a-row roll</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCustomPrintFormat('jewellery_80x12')}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: customPrintFormat === 'jewellery_80x12' ? '2px solid #92400e' : '1px solid #cbd5e1',
+                    background: customPrintFormat === 'jewellery_80x12' ? '#fffbeb' : '#ffffff',
+                    color: customPrintFormat === 'jewellery_80x12' ? '#92400e' : '#334155',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  💍 Jewellery Tag
+                  <div style={{ fontSize: '10px', fontWeight: 500, color: '#64748b' }}>80×12mm · 1-Up dumbbell</div>
+                </button>
+              </div>
+            </div>
+
+            {/* LIVE PREVIEW BOX */}
+            <div style={{ marginBottom: '14px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '8px' }}>
+                LIVE PREVIEW ({customPrintFormat === 'jewellery_80x12' ? 'Unfolded 80×12mm Dumbbell' : '35×25mm Sticker'})
+              </div>
+              {customPrintFormat === 'jewellery_80x12' ? (
+                /* Unfolded Jewellery dumbbell tag */
+                <div style={{ width: '100%', height: '52px', border: '1px solid #000', borderRadius: '4px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 6px', boxSizing: 'border-box' }}>
+                  {/* Left flap */}
+                  <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '0.5px dashed #cbd5e1', paddingRight: '4px' }}>
+                    <div style={{ fontSize: '7.5px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
+                    <div style={{ height: '20px', width: '100%', display: 'flex', alignItems: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
+                    <div style={{ fontSize: '7px', fontFamily: 'monospace', fontWeight: 700 }}>{customPrintItem.barcode}</div>
+                  </div>
+                  {/* Tail bridge */}
+                  <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '100%', height: '10px', borderTop: '1px dashed #64748b', borderBottom: '1px dashed #64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: '6px', color: '#94a3b8' }}>tail 3mm</span>
+                    </div>
+                  </div>
+                  {/* Right flap */}
+                  <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', textAlign: 'right', borderLeft: '0.5px dashed #cbd5e1', paddingLeft: '4px' }}>
+                    <div style={{ fontSize: '7.5px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                      {customPrintItem.product_name || 'ITEM'}
+                    </div>
+                    <div style={{ fontSize: '7.5px', fontWeight: 800, color: '#000' }}>
+                      {customPrintItem.purchase_rate_alias || (customPrintItem.purchased_rate ? `₹${customPrintItem.purchased_rate}` : '')}
+                    </div>
+                    <div style={{ fontSize: '9.5px', fontWeight: 900 }}>
+                      MRP ₹{customPrintItem.mrp || customPrintItem.price || '—'}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Normal 35x25mm single sticker */
+                <div style={{ width: '130px', height: '94px', border: '1px solid #000', borderRadius: '4px', background: '#fff', padding: '5px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
+                  <div style={{ fontSize: '8px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
+                  <div style={{ height: '34px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '7.5px', fontFamily: 'monospace', fontWeight: 700, padding: '0 2px' }}>
+                    <span>{customPrintItem.barcode}</span>
+                    <span>{customPrintItem.purchase_rate_alias || (customPrintItem.purchased_rate ? `₹${customPrintItem.purchased_rate}` : '')}</span>
+                  </div>
+                  <div style={{ fontSize: '10.5px', fontWeight: 900 }}>
+                    MRP ₹{customPrintItem.mrp || customPrintItem.price || '—'}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{ marginBottom: '18px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                NUMBER OF STICKERS TO PRINT:
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                NUMBER OF LABELS TO PRINT:
               </label>
               <input
                 type="number"
@@ -1142,10 +1036,10 @@ export default function AdminBarcodesPage() {
                 max="300"
                 value={customPrintCopies}
                 onChange={(e) => setCustomPrintCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '16px', fontWeight: 800 }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '15px', fontWeight: 800 }}
               />
               <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-                {[3, 6, 9, 12, 24].map(n => (
+                {[1, 3, 6, 9, 12, 24].map(n => (
                   <button
                     key={n}
                     type="button"
@@ -1180,12 +1074,22 @@ export default function AdminBarcodesPage() {
                 onClick={() => {
                   const it = customPrintItem;
                   const c = customPrintCopies;
+                  const f = customPrintFormat;
                   setCustomPrintItem(null);
-                  printStickers(it, c);
+                  printStickers(it, c, f);
                 }}
-                style={{ padding: '8px 18px', borderRadius: '6px', background: '#065935', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '6px',
+                  background: customPrintFormat === 'jewellery_80x12' ? '#7c2d12' : '#065935',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
               >
-                Print {customPrintCopies} Stickers
+                Print {customPrintCopies} {customPrintFormat === 'jewellery_80x12' ? 'Jewellery Tags' : 'Stickers'}
               </button>
             </div>
           </div>
@@ -1212,7 +1116,7 @@ export default function AdminBarcodesPage() {
               background: '#ffffff',
               borderRadius: '12px',
               padding: '24px',
-              maxWidth: '400px',
+              maxWidth: '430px',
               width: '100%',
               boxShadow: '0 20px 50px rgba(0,0,0,0.25)'
             }}
@@ -1221,11 +1125,57 @@ export default function AdminBarcodesPage() {
               Batch Thermal Sticker Printing
             </h3>
             <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>
-              Printing for <strong style={{ color: '#065935' }}>{selectedBarcodeIds.size} selected items</strong>. Choose how many copies to print for each barcode on the continuous roll.
+              Printing for <strong style={{ color: '#065935' }}>{selectedBarcodeIds.size} selected items</strong>. Choose format and copies per barcode.
             </p>
 
+            {/* BATCH FORMAT SELECTOR */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 800, color: '#334155', marginBottom: '6px' }}>
+                STICKER ROLL FORMAT:
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setBatchModalFormat('normal_35x25')}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: batchModalFormat === 'normal_35x25' ? '2px solid #065935' : '1px solid #cbd5e1',
+                    background: batchModalFormat === 'normal_35x25' ? '#ecfdf5' : '#ffffff',
+                    color: batchModalFormat === 'normal_35x25' ? '#065935' : '#334155',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  🏷️ Normal Sticker
+                  <div style={{ fontSize: '10px', fontWeight: 500, color: '#64748b' }}>35×25mm · 3-in-a-row roll</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBatchModalFormat('jewellery_80x12')}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: batchModalFormat === 'jewellery_80x12' ? '2px solid #92400e' : '1px solid #cbd5e1',
+                    background: batchModalFormat === 'jewellery_80x12' ? '#fffbeb' : '#ffffff',
+                    color: batchModalFormat === 'jewellery_80x12' ? '#92400e' : '#334155',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  💍 Jewellery Tag
+                  <div style={{ fontSize: '10px', fontWeight: 500, color: '#64748b' }}>80×12mm · 1-Up dumbbell</div>
+                </button>
+              </div>
+            </div>
+
             <div style={{ marginBottom: '18px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
                 COPIES PER SELECTED PRODUCT:
               </label>
               <input
@@ -1234,7 +1184,7 @@ export default function AdminBarcodesPage() {
                 max="100"
                 value={batchCopiesInput}
                 onChange={(e) => setBatchCopiesInput(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '16px', fontWeight: 800 }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '15px', fontWeight: 800 }}
               />
               <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
                 {[1, 2, 3, 6, 9].map(n => (
@@ -1258,7 +1208,7 @@ export default function AdminBarcodesPage() {
                 ))}
               </div>
               <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '8px' }}>
-                Total labels generated: <strong>{selectedBarcodeIds.size * batchCopiesInput} stickers</strong>
+                Total labels generated: <strong>{selectedBarcodeIds.size * batchCopiesInput} {batchModalFormat === 'jewellery_80x12' ? 'jewellery tags' : 'stickers'}</strong>
               </div>
             </div>
 
@@ -1275,12 +1225,22 @@ export default function AdminBarcodesPage() {
                 onClick={() => {
                   const selectedItems = allGeneratedBarcodes.filter(b => selectedBarcodeIds.has(b.id));
                   const copies = batchCopiesInput;
+                  const f = batchModalFormat;
                   setBatchCopiesModalOpen(false);
-                  printBatchStickers(selectedItems, copies);
+                  printBatchStickers(selectedItems, copies, f);
                 }}
-                style={{ padding: '8px 18px', borderRadius: '6px', background: '#065935', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '6px',
+                  background: batchModalFormat === 'jewellery_80x12' ? '#7c2d12' : '#065935',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
               >
-                Print {selectedBarcodeIds.size * batchCopiesInput} Total Stickers
+                Print {selectedBarcodeIds.size * batchCopiesInput} Total Labels
               </button>
             </div>
           </div>

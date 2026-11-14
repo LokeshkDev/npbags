@@ -219,6 +219,7 @@ export default function AdminCustomersPage() {
       const data = await getAdminCustomerById(cust.id);
       setCustomerDetail(data);
     } catch (err) {
+      showToast('error', err.message || 'Failed to load customer order history');
       setCustomerDetail(cust);
     } finally {
       setLoadingDetail(false);
