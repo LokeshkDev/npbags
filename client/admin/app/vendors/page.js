@@ -160,10 +160,10 @@ const emptyBillForm = {
 
 function StatCard({ label, value, hint, color = '#0f172a' }) {
   return (
-    <div className="admin-card" style={{ padding: '16px 20px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-      <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: '25px', fontWeight: 800, color, marginTop: '6px' }}>{value}</div>
-      {hint && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{hint}</div>}
+    <div className="admin-card" style={{ padding: '18px 20px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+      <div style={{ fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ fontSize: '28px', fontWeight: 800, color, marginTop: '6px' }}>{value}</div>
+      {hint && <div style={{ fontSize: '12.5px', color: '#64748b', marginTop: '4px' }}>{hint}</div>}
     </div>
   );
 }
@@ -245,6 +245,7 @@ export default function AdminVendorsPage() {
   const [datePaymentsFilter, setDatePaymentsFilter] = useState({ from_date: '', to_date: '', method: 'all' });
 
   const scanInputRef = useRef(null);
+  const vendorSearchRef = useRef(null);
   const newProductNameRef = useRef(null);
   const scanStockRef = useRef([]);
   const billSavingRef = useRef(false);
@@ -450,18 +451,6 @@ export default function AdminVendorsPage() {
     if (mainTab === 'purchase-bills') loadPurchaseBills();
     if (mainTab === 'outstanding') loadOutstanding();
   }, [mainTab]);
-
-  // Keyboard shortcut F2 or Alt+N to open New Purchase Bill
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.key === 'F2' || (e.altKey && (e.key === 'n' || e.key === 'N'))) && !isBillModalOpen) {
-        e.preventDefault();
-        openNewBill('');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBillModalOpen]);
 
   const refreshAll = () => {
     loadVendors();
@@ -1614,8 +1603,8 @@ export default function AdminVendorsPage() {
           <td style={{ padding: '14px 18px', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <button type="button" onClick={() => openNewBill(vendor.id)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #86efac', background: '#f0fdf4', color: '#065935', cursor: 'pointer', fontSize: '12px', fontWeight: 800 }}>+ Bill</button>
-              <button type="button" onClick={() => openEditModal(vendor)} title="Edit Vendor" style={{ padding: '6px 9px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}><Icon name="edit" size={13} /></button>
-              <button type="button" onClick={() => handleDeleteVendor(vendor)} title="Delete Vendor" style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#ef4444', cursor: 'pointer' }}><Icon name="trash" size={13} /></button>
+              <button type="button" onClick={() => openEditModal(vendor)} aria-label={`Edit vendor ${vendor.name}`} title="Edit Vendor" style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}><Icon name="edit" size={14} /></button>
+              <button type="button" onClick={() => handleDeleteVendor(vendor)} aria-label={`Delete vendor ${vendor.name}`} title="Delete Vendor" style={{ padding: '7px 9px', borderRadius: '6px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#ef4444', cursor: 'pointer' }}><Icon name="trash" size={14} /></button>
             </div>
           </td>
         </tr>
@@ -1650,7 +1639,7 @@ export default function AdminVendorsPage() {
                   ))}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button type="button" onClick={() => openDatePaymentsModal(vendor)} title="View all payments made to this vendor organized date-wise with filters" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>📅 Payment History (Date-wise)</button>
-                    <button type="button" onClick={() => openVendorPayModal(vendor.id, vendor.name)} disabled={outstandingBills.length === 0} title="Record one amount and auto-tally it across unpaid bills, oldest first" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #86efac', background: outstandingBills.length === 0 ? '#f8fafc' : '#f0fdf4', color: outstandingBills.length === 0 ? '#94a3b8' : '#065935', fontSize: '11.5px', fontWeight: 800, cursor: outstandingBills.length === 0 ? 'not-allowed' : 'pointer' }}>Record Payment / Auto-Tally</button>
+                    <button type="button" onClick={() => openVendorPayModal(vendor.id, vendor.name)} disabled={outstandingBills.length === 0} title="Record one amount and auto-tally it across unpaid bills, oldest first [Shortcut: F4]" style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #86efac', background: outstandingBills.length === 0 ? '#f8fafc' : '#f0fdf4', color: outstandingBills.length === 0 ? '#94a3b8' : '#065935', fontSize: '12.5px', fontWeight: 800, cursor: outstandingBills.length === 0 ? 'not-allowed' : 'pointer' }}>Record Payment / Auto-Tally</button>
                     <button type="button" onClick={() => openNewBill(vendor.id)} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#065935', color: '#fff', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>+ New Purchase Bill</button>
                   </div>
                 </div>
@@ -1733,12 +1722,109 @@ export default function AdminVendorsPage() {
     );
   };
 
+  // Accessibility: keyboard shortcuts across the Vendor & Supplier workspace
+  useEffect(() => {
+    const isEditableTarget = (target) => {
+      if (!target) return false;
+      const tag = String(target.tagName || '').toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable === true;
+    };
+
+    const focusVendorSearch = () => {
+      setMainTab('vendors');
+      setTimeout(() => {
+        vendorSearchRef.current?.focus();
+        vendorSearchRef.current?.select();
+      }, 40);
+    };
+
+    const handleKeyDown = (e) => {
+      const editable = isEditableTarget(e.target);
+
+      if (e.key === 'F2') {
+        e.preventDefault();
+        if (!isBillModalOpen && !isModalOpen) openNewBill('');
+        return;
+      }
+      if (e.key === 'F3') {
+        e.preventDefault();
+        if (!isModalOpen && !isBillModalOpen) openAddModal();
+        return;
+      }
+      if (e.key === 'F4') {
+        e.preventDefault();
+        if (expandedVendorId) {
+          const payable = getVendorPayableBills(expandedVendorId);
+          if (payable.length > 0) {
+            const vendor = safeVendors.find(v => String(v.id) === String(expandedVendorId));
+            openVendorPayModal(expandedVendorId, vendor?.name || '');
+            return;
+          }
+        }
+        setMainTab('outstanding');
+        showToast('Pick a vendor with outstanding bills, then press F4 to record a payment.');
+        return;
+      }
+      if (e.key === 'F5') {
+        e.preventDefault();
+        refreshAll();
+        showToast('Vendor data refreshed.');
+        return;
+      }
+      if (e.key === 'F6') {
+        e.preventDefault();
+        focusVendorSearch();
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (isModalOpen) { setIsModalOpen(false); return; }
+        if (isBillModalOpen) { setIsBillModalOpen(false); return; }
+        if (selectedBill) { setSelectedBill(null); return; }
+        if (barcodePrintBill) { setBarcodePrintBill(null); return; }
+        if (editingPayment) { setEditingPayment(null); return; }
+        if (vendorPayModal) {
+          setVendorPayModal(null);
+          setVendorPayAllocations({});
+          return;
+        }
+        if (expandedVendorId) { setExpandedVendorId(null); }
+        return;
+      }
+
+      if (editable || e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key === '1') { e.preventDefault(); setMainTab('vendors'); }
+      else if (e.key === '2') { e.preventDefault(); setMainTab('purchase-bills'); }
+      else if (e.key === '3') { e.preventDefault(); setMainTab('outstanding'); }
+      else if (e.key === '/' || e.key === '?') { e.preventDefault(); focusVendorSearch(); }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen, isBillModalOpen, selectedBill, barcodePrintBill, editingPayment, vendorPayModal, expandedVendorId, mainTab, selectedBranchId, safeVendors, vendorHistory]);
+
   return (
     <div className="admin-layout">
       <Sidebar />
       <div className="admin-main">
         <Topbar />
-        <main className="admin-content">
+        <main className="admin-content vendors-a11y">
+          <style>{`
+            .vendors-a11y { font-size: 15px; }
+            .vendors-a11y table { font-size: 14.5px !important; }
+            .vendors-a11y table thead tr { font-size: 12.5px !important; letter-spacing: 0.03em; }
+            .vendors-a11y table td div { font-size: 14px !important; }
+            .vendors-a11y table td span { font-size: 13px !important; }
+            .vendors-a11y input,
+            .vendors-a11y select,
+            .vendors-a11y textarea { font-size: 14.5px !important; }
+            .vendors-a11y button { font-size: 14px !important; }
+            .vendors-a11y label { font-size: 13px !important; }
+            .vendors-a11y :focus-visible { outline: 2px solid #065935; outline-offset: 2px; }
+            .vendors-a11y .shortcut-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px; background: #fff; border: 1px solid #cbd5e1; color: #334155; font-size: 12.5px !important; font-weight: 700; white-space: nowrap; }
+            .vendors-a11y .shortcut-chip kbd { background: #0f172a; color: #fff; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 900; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+          `}</style>
+
           {toastMessage && (
             <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 99999, padding: '12px 20px', borderRadius: '8px', backgroundColor: toastMessage.type === 'error' ? '#ef4444' : '#065935', color: '#fff', fontSize: '13px', fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>{toastMessage.type === 'error' ? '!' : '✓'}</span>
@@ -1746,20 +1832,37 @@ export default function AdminVendorsPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
-              <h1 className="admin-page-title" style={{ margin: 0, fontSize: '24px', fontWeight: 800, color: '#0f172a' }}>Vendor Management &amp; Purchases</h1>
-              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>Manage suppliers, purchase bills, payments and outstanding payables.</p>
+              <h1 className="admin-page-title" style={{ margin: 0, fontSize: '28px', fontWeight: 800, color: '#0f172a' }}>Vendor Management &amp; Purchases</h1>
+              <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '15px' }}>Manage suppliers, purchase bills, payments and outstanding payables.</p>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="button" onClick={() => openNewBill('')} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#b45309', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontWeight: 800, fontSize: '13px', cursor: 'pointer', border: 'none' }} title="Create new vendor purchase bill [Shortcut: F2 or Alt+N]">
+              <button type="button" onClick={() => openNewBill('')} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#b45309', color: '#fff', padding: '11px 18px', borderRadius: '8px', fontWeight: 800, fontSize: '14px', cursor: 'pointer', border: 'none' }} title="Create new vendor purchase bill [Shortcut: F2]">
                 + New Purchase Bill [F2]
               </button>
-              <button type="button" onClick={openAddModal} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#065935', color: '#fff', padding: '10px 18px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', border: 'none' }}>
+              <button type="button" onClick={openAddModal} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#065935', color: '#fff', padding: '11px 18px', borderRadius: '8px', fontWeight: 800, fontSize: '14px', cursor: 'pointer', border: 'none' }} title="Add a new vendor / supplier [Shortcut: F3]">
                 <Icon name="plus" size={16} />
-                <span>Add Vendor</span>
+                <span>Add Vendor [F3]</span>
               </button>
             </div>
+          </div>
+
+          <div role="note" aria-label="Keyboard shortcuts" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '16px', padding: '9px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shortcuts</span>
+            {[
+              ['F2', 'New Bill'],
+              ['F3', 'Add Vendor'],
+              ['F4', 'Record Payment'],
+              ['F5', 'Refresh'],
+              ['F6', 'Search'],
+              ['1', 'Vendors'],
+              ['2', 'Bills'],
+              ['3', 'Outstanding'],
+              ['Esc', 'Close']
+            ].map(([key, label]) => (
+              <span key={`${key}-${label}`} className="shortcut-chip"><kbd>{key}</kbd><span>{label}</span></span>
+            ))}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
@@ -1780,7 +1883,7 @@ export default function AdminVendorsPage() {
                     background: mainTab === tab.key ? '#065935' : '#ffffff',
                     color: mainTab === tab.key ? '#ffffff' : '#334155',
                     fontWeight: 800,
-                    fontSize: '12.5px',
+                    fontSize: '14.5px',
                     cursor: 'pointer'
                   }}
                 >
@@ -1792,7 +1895,7 @@ export default function AdminVendorsPage() {
             {/* Branch Selector Filter */}
             {isSuperAdmin ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>Filter Branch:</span>
+                <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#475569' }}>Filter Branch:</span>
                 <select
                   value={selectedBranchId}
                   onChange={(e) => setSelectedBranchId(e.target.value)}
@@ -1836,7 +1939,7 @@ export default function AdminVendorsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 320px' }}>
                   <div style={{ position: 'relative', width: '100%', maxWidth: '420px' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}><Icon name="search" size={16} /></span>
-                    <input type="text" placeholder="Search vendor, company, GSTIN, phone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ width: '100%', padding: '9px 12px 9px 38px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }} />
+                    <input ref={vendorSearchRef} type="text" aria-label="Search vendors" placeholder="Search vendor, company, GSTIN, phone... [F6]" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14.5px', outline: 'none' }} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1953,9 +2056,9 @@ export default function AdminVendorsPage() {
               </div>
 
               <div className="admin-card" style={{ padding: '14px 18px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '10px' }}>Outstanding by Vendor</div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '10px' }}>Outstanding by Vendor</div>
                 {safeOutstandingVendors.length === 0 ? (
-                  <div style={{ color: '#64748b', fontSize: '12.5px' }}>No outstanding vendor payables. Nice and clear.</div>
+                  <div style={{ color: '#64748b', fontSize: '14px' }}>No outstanding vendor payables. Nice and clear.</div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
                     {safeOutstandingVendors.map(v => (
