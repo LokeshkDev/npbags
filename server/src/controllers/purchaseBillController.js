@@ -252,6 +252,23 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
 async function applyStockForBill(tx, bill, items, direction, userId) {
   const legacyFull = isLegacyFullyAppliedBill(bill, items);
 
+  // Branch stock is tracked per product (not per variant), so every stock
+  // movement for a regional-branch bill must also update branch_stocks.
+  const syncBranchStock = async (productId, signedQty) => {
+    const targetBranchId = bill && bill.branch_id ? parseInt(bill.branch_id, 10) : 1;
+    if (!(targetBranchId > 1)) return;
+    try {
+      await tx.query(
+        `INSERT INTO branch_stocks (branch_id, product_id, stock, is_active)
+         VALUES (?, ?, ?, 1)
+         ON DUPLICATE KEY UPDATE stock = GREATEST(0, stock + ?)`,
+        [targetBranchId, productId, Math.max(0, signedQty), signedQty]
+      );
+    } catch (bsErr) {
+      console.warn('[PurchaseBill] branch_stocks sync warning:', bsErr.message);
+    }
+  };
+
   for (const item of items) {
     if (!item.product_id) continue;
 
@@ -293,6 +310,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
             userId || null
           ]
         );
+        await syncBranchStock(item.product_id, signedQty);
         continue;
       }
     }
@@ -338,6 +356,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
           userId || null
         ]
       );
+      await syncBranchStock(item.product_id, signedQty);
       continue;
     }
 
@@ -373,19 +392,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
     );
 
     // If purchase bill belongs to a regional branch (e.g. Manali Branch), update branch_stocks
-    const targetBranchId = bill.branch_id ? parseInt(bill.branch_id, 10) : 1;
-    if (targetBranchId > 1) {
-      try {
-        await tx.query(
-          `INSERT INTO branch_stocks (branch_id, product_id, stock, is_active)
-           VALUES (?, ?, ?, 1)
-           ON DUPLICATE KEY UPDATE stock = GREATEST(0, stock + ?)`,
-          [targetBranchId, item.product_id, Math.max(0, signedQty), signedQty]
-        );
-      } catch (bsErr) {
-        console.warn('[PurchaseBill] branch_stocks sync warning:', bsErr.message);
-      }
-    }
+    await syncBranchStock(item.product_id, signedQty);
   }
 }
 
@@ -524,7 +531,7 @@ async function getPurchaseBillBarcodes(req, res, next) {
         barcode: chosen ? chosen.barcode : null,
         barcode_sequence: chosen ? chosen.barcode_sequence : null,
         is_primary: chosen ? chosen.is_primary : 0,
-        svg: chosen ? generateBarcodeSVG(chosen.barcode, { height: 45, moduleWidth: 2 }) : '',
+        svg: chosen ? generateBarcodeSVG(chosen.barcode, { height: 50, moduleWidth: 1, quietZone: 12 }) : '',
         quantity: parseInt(item.quantity, 10) || 1,
         mrp: item.mrp !== null && item.mrp !== undefined && item.mrp !== '' ? item.mrp : item.catalog_mrp,
         price: item.price,

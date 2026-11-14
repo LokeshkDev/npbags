@@ -472,7 +472,9 @@ export function POSBillingModal() {
             sales_person_id: item.sales_person_id ? String(item.sales_person_id) : (editingOrder.sales_person_id ? String(editingOrder.sales_person_id) : ''),
             sales_person_name: item.sales_person_name || editingOrder.sales_person_name || null,
             quantity: Number(item.quantity) || 1,
-            stock_quantity: 50
+            stock_quantity: item.stock_quantity !== undefined && item.stock_quantity !== null
+              ? Number(item.stock_quantity)
+              : (item.stock !== undefined && item.stock !== null ? Number(item.stock) : 0)
           }))
         : [];
       setCart(parsedItems);
@@ -688,13 +690,25 @@ export function POSBillingModal() {
             is_custom: Boolean(item.is_custom) || String(item.product_id || '').startsWith('custom-'),
             variant: item.variant || null,
             quantity: Number(item.quantity) || 1,
-            stock_quantity: item.stock_quantity !== undefined ? item.stock_quantity : 50
+            stock_quantity: item.stock_quantity !== undefined && item.stock_quantity !== null
+              ? Number(item.stock_quantity)
+              : (item.stock !== undefined && item.stock !== null
+                ? Number(item.stock)
+                : (item.variant?.stock !== undefined && item.variant?.stock !== null
+                  ? Number(item.variant.stock)
+                  : (item.variant?.stock_quantity !== undefined && item.variant?.stock_quantity !== null
+                    ? Number(item.variant.stock_quantity)
+                    : 0)))
           }
         ];
       }
     });
 
-    showToast(`Added: ${resolvedName} [${item.barcode || 'ITEM'}]`, 'success', 2200);
+    const stockCount = item.stock_quantity !== undefined && item.stock_quantity !== null
+      ? item.stock_quantity
+      : (item.stock !== undefined && item.stock !== null ? item.stock : null);
+    const stockMsg = stockCount !== null ? ` • Stock: ${stockCount}` : '';
+    showToast(`Added: ${resolvedName} [${item.barcode || 'ITEM'}]${stockMsg}`, 'success', 2500);
 
     // Auto-advance focus to Sales Person field; pressing Enter then advances to Price, then Qty, then Next Product
     setTimeout(() => {
@@ -903,9 +917,15 @@ export function POSBillingModal() {
 
       const res = await lookupBarcode(code, adminUser?.branch_id || null);
       if (res && (res.product_id || res.product_name)) {
+        const effectiveStock = res.stock_quantity !== undefined && res.stock_quantity !== null
+          ? res.stock_quantity
+          : (res.stock !== undefined && res.stock !== null
+            ? res.stock
+            : (res.variant?.stock !== undefined && res.variant?.stock !== null ? res.variant.stock : 0));
         handleAddItemToCart({
           ...res,
-          product_name: res.product_name || res.barcode_short_name || res.name || res.barcode
+          product_name: res.product_name || res.barcode_short_name || res.name || res.barcode,
+          stock_quantity: effectiveStock
         });
         setSearchInput('');
         setRowInput('');
@@ -973,6 +993,13 @@ export function POSBillingModal() {
   const handlePickSuggestion = (prod, variant = null) => {
     const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
     const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
+    const effectiveStock = variant?.stock_quantity !== undefined && variant?.stock_quantity !== null
+      ? Number(variant.stock_quantity)
+      : (variant?.stock !== undefined && variant?.stock !== null
+        ? Number(variant.stock)
+        : (prod.stock_quantity !== undefined && prod.stock_quantity !== null
+          ? Number(prod.stock_quantity)
+          : (prod.stock !== undefined && prod.stock !== null ? Number(prod.stock) : 0)));
 
     handleAddItemToCart({
       product_id: prod.id,
@@ -986,7 +1013,8 @@ export function POSBillingModal() {
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
       variant: variant || null,
-      quantity: 1
+      quantity: 1,
+      stock_quantity: effectiveStock
     });
 
     setSearchInput('');
@@ -1080,6 +1108,13 @@ export function POSBillingModal() {
     const variant = match.matchedVariant;
     const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
     const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
+    const effectiveStock = variant?.stock_quantity !== undefined && variant?.stock_quantity !== null
+      ? Number(variant.stock_quantity)
+      : (variant?.stock !== undefined && variant?.stock !== null
+        ? Number(variant.stock)
+        : (prod.stock_quantity !== undefined && prod.stock_quantity !== null
+          ? Number(prod.stock_quantity)
+          : (prod.stock !== undefined && prod.stock !== null ? Number(prod.stock) : 0)));
 
     handleAddItemToCart({
       product_id: prod.id,
@@ -1093,7 +1128,8 @@ export function POSBillingModal() {
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
       variant: variant || null,
-      quantity: 1
+      quantity: 1,
+      stock_quantity: effectiveStock
     });
 
     setSearchModalQuery('');
@@ -2908,10 +2944,27 @@ export function POSBillingModal() {
                         <td style={{ padding: '12px 14px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
                         <td style={{ padding: '12px 14px' }}>
                           <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
-                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '8px' }}>
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span style={{ fontWeight: 700, color: '#065935' }}>{item.barcode}</span>
                             {item.variant?.color && <span>Color: {item.variant.color}</span>}
                             {item.variant?.size && <span>Size: {item.variant.size}</span>}
+                            {item.stock_quantity !== undefined && item.stock_quantity !== null && (
+                              <span
+                                style={{
+                                  background: Number(item.stock_quantity) > 0 ? '#ecfdf5' : '#fef2f2',
+                                  color: Number(item.stock_quantity) > 0 ? '#15803d' : '#b91c1c',
+                                  border: Number(item.stock_quantity) > 0 ? '1px solid #bbf7d0' : '1px solid #fecaca',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '10.5px',
+                                  fontWeight: 800,
+                                  display: 'inline-flex',
+                                  alignItems: 'center'
+                                }}
+                              >
+                                Stock: {item.stock_quantity}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td style={{ padding: '12px 14px' }}>
@@ -3393,7 +3446,7 @@ export function POSBillingModal() {
                                           {p.name} {v ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
                                         </div>
                                         <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
-                                          <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {v?.stock_quantity ?? p.stock_quantity ?? 50}
+                                          <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {v?.stock_quantity ?? v?.stock ?? p.stock_quantity ?? p.stock ?? 0}
                                         </div>
                                       </div>
                                       <div style={{ fontWeight: 900, fontSize: '13px', color: '#0f172a' }}>

@@ -56,7 +56,7 @@ async function getInventoryTransactions(req, res, next) {
 // Admin: Get live variant stock summary across all products
 async function getVariantStockSummary(req, res, next) {
   try {
-    const { low_stock_only, search } = req.query;
+    const { low_stock_only, search, barcode } = req.query;
 
     let sql = `
       SELECT pv.*, p.name AS product_name, p.slug AS product_slug, p.price, p.sale_price,
@@ -69,9 +69,26 @@ async function getVariantStockSummary(req, res, next) {
     const params = [];
 
     if (search && search.trim()) {
-      sql += ` AND (p.name LIKE ? OR pv.sku LIKE ? OR pv.color_name LIKE ? OR pv.size_name LIKE ?)`;
+      sql += ` AND (
+        p.name LIKE ? OR pv.sku LIKE ? OR pv.color_name LIKE ? OR pv.size_name LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM product_barcodes pb
+          WHERE pb.product_id = pv.product_id AND pb.status = 'active' AND pb.barcode LIKE ?
+        )
+      )`;
       const q = `%${search.trim()}%`;
-      params.push(q, q, q, q);
+      params.push(q, q, q, q, q);
+    }
+
+    if (barcode && barcode.trim()) {
+      sql += ` AND EXISTS (
+        SELECT 1 FROM product_barcodes pb
+        WHERE pb.product_id = pv.product_id
+          AND pb.status = 'active'
+          AND pb.barcode = ?
+          AND (pb.variant_id IS NULL OR pb.variant_id = pv.id)
+      )`;
+      params.push(barcode.trim());
     }
 
     if (low_stock_only === 'true' || low_stock_only === '1') {

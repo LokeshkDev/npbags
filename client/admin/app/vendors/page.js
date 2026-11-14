@@ -1193,9 +1193,7 @@ export default function AdminVendorsPage() {
     }));
     printBarcodeLabels(items, 1, {
       title: `Purchase Bill ${barcodePrintBill?.bill_number || ''} Barcodes`,
-      stickerType: barcodeStickerFormat,
-      purchaseRateLabel: 'P.RATE',
-      storeName: 'NP Grand'
+      stickerType: barcodeStickerFormat
     });
     setBarcodePrintBill(null);
   };

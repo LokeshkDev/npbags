@@ -337,6 +337,9 @@ async function getBranchStocks(req, res, next) {
       SELECT bs.id, bs.branch_id, bs.product_id, bs.stock, bs.low_stock_threshold, bs.is_active, bs.updated_at,
              p.name AS product_name, p.price, p.sale_price, p.mrp, p.barcode_short_name,
              COALESCE(p.stock, 0) AS main_branch_stock,
+             (SELECT barcode FROM product_barcodes WHERE product_id = p.id AND status = 'active' ORDER BY is_primary DESC, id ASC LIMIT 1) AS barcode,
+             (SELECT GROUP_CONCAT(barcode) FROM product_barcodes WHERE product_id = p.id AND status = 'active') AS barcodes,
+             (SELECT sku FROM product_variants WHERE product_id = p.id ORDER BY id ASC LIMIT 1) AS sku,
              (SELECT image_url FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image,
              c.name AS category_name, c.id AS category_id
       FROM branch_stocks bs

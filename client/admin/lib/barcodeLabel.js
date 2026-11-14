@@ -144,9 +144,9 @@ export function getLabelDetails(item, options = {}) {
 
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  const rateLabel = options.purchaseRateLabel ? `${options.purchaseRateLabel} ` : '';
+  // Only show the clean Rate Alias (Arrival Code) in simple font, never prefix with P.RATE
   const rateHtml = label.rate
-    ? `<span class="rate-text">${rateLabel}${label.rate}</span>`
+    ? `<span class="rate-text">${label.rate}</span>`
     : '<span class="rate-text"></span>';
   const sequenceHtml = label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : '';
   const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
@@ -495,10 +495,13 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     letter-spacing: 0;
   }
   .rate-text {
-    font-size: 5.5pt;
+    font-size: 6pt;
     font-weight: 700;
+    font-family: Arial, Helvetica, sans-serif;
+    letter-spacing: 0.2px;
     line-height: 1;
-    max-width: 45%;
+    max-width: 48%;
+    text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

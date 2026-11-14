@@ -11,7 +11,8 @@ import {
   getAdminBranches,
   getAdminBranchStocks,
   updateAdminBranchProductStock,
-  pushAdminStockToMainBranch
+  pushAdminStockToMainBranch,
+  lookupBarcode
 } from '../../lib/api';
 
 export default function AdminInventoryPage() {
@@ -41,10 +42,22 @@ export default function AdminInventoryPage() {
   const [adjustReason, setAdjustReason] = useState('Stock Count Correction');
   const [adjusting, setAdjusting] = useState(false);
 
+  // Barcode scan lookup
+  const [scanCode, setScanCode] = useState('');
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scannedBarcode, setScannedBarcode] = useState('');
+
   // Load variant stock
-  const loadStock = () => {
+  const loadStock = (overrides = {}) => {
+    const params = {
+      search: overrides.search !== undefined ? overrides.search : search,
+      low_stock_only: lowStockOnly
+    };
+    if (overrides.barcode) params.barcode = overrides.barcode;
     setLoading(true);
-    getAdminVariantStock({ search, low_stock_only: lowStockOnly })
+    getAdminVariantStock(params)
       .then(res => {
         if (Array.isArray(res)) setVariants(res);
       })
