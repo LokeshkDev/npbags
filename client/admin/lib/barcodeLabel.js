@@ -297,7 +297,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     `;
   }
 
-  // Normal 35x25mm (3-in-a-row / 3-Up roll)
+  // Normal 35x25mm (3-in-a-row / 3-Up roll) — TSC thermal barcode printer
   return `
 <!DOCTYPE html>
 <html>
@@ -306,13 +306,15 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
 <title>${options.title || 'Barcode Stickers (35x25mm)'}</title>
 <style>
   @page {
-    size: 105mm auto;
+    size: 105mm 25mm;
     margin: 0;
   }
   * {
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
   body {
     margin: 0;
@@ -323,36 +325,39 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     font-weight: 700;
+    width: 105mm;
   }
   .sticker-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 2mm;
-    padding: 2mm;
+    gap: 0;
+    padding: 0;
+    margin: 0;
+    width: 105mm;
   }
   .barcode-sticker {
-    width: 32mm;
-    height: 23mm;
-    border: 0.5px solid #000000;
-    padding: 1mm;
+    width: 35mm;
+    height: 25mm;
+    border: none;
+    padding: 1.2mm 1.5mm;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     align-items: center;
     text-align: center;
     page-break-inside: avoid;
-    margin-bottom: 1.5mm;
+    overflow: hidden;
     color: #000000 !important;
   }
   .store-name {
     font-size: 7.5pt;
     font-weight: 900;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.3px;
     color: #000000 !important;
   }
   .barcode-svg-container {
-    width: 28mm;
-    height: 9mm;
+    width: 30mm;
+    height: 10mm;
     display: flex;
     align-items: center;
     justify-content: center;
