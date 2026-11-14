@@ -83,6 +83,7 @@ export default function BranchesPage() {
   const [branchStocks, setBranchStocks] = useState([]);
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [showHiddenProducts, setShowHiddenProducts] = useState(true);
 
   // Category push state
   const [selectedCatId, setSelectedCatId] = useState('');
@@ -1164,25 +1165,36 @@ export default function BranchesPage() {
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
-                      Allocated Branch Inventory ({branchStocks.length} items)
+                      Allocated Branch Inventory ({branchStocks.filter(it => (showHiddenProducts || it.is_active !== 0) && (!stockSearchQuery || it.product_name?.toLowerCase().includes(stockSearchQuery.toLowerCase()))).length} items)
                     </h3>
                     <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
                       Live stock balance tracked for <strong>{branches.find(b => String(b.id) === String(targetBranchId))?.name || 'Selected Branch'}</strong>
                     </div>
                   </div>
-                  <input
-                    type="text"
-                    value={stockSearchQuery}
-                    onChange={(e) => setStockSearchQuery(e.target.value)}
-                    placeholder="Search allocated products..."
-                    style={{
-                      padding: '7px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '12px',
-                      width: '240px'
-                    }}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 700, color: '#334155', cursor: 'pointer', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '7px 10px' }}>
+                      <input
+                        type="checkbox"
+                        checked={showHiddenProducts}
+                        onChange={(e) => setShowHiddenProducts(e.target.checked)}
+                        style={{ width: '14px', height: '14px', accentColor: '#065935', cursor: 'pointer' }}
+                      />
+                      Show hidden
+                    </label>
+                    <input
+                      type="text"
+                      value={stockSearchQuery}
+                      onChange={(e) => setStockSearchQuery(e.target.value)}
+                      placeholder="Search allocated products..."
+                      style={{
+                        padding: '7px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '12px',
+                        width: '240px'
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
@@ -1213,7 +1225,7 @@ export default function BranchesPage() {
                       </tr>
                     ) : (
                       branchStocks
-                        .filter(it => !stockSearchQuery || it.product_name?.toLowerCase().includes(stockSearchQuery.toLowerCase()))
+                        .filter(it => (showHiddenProducts || it.is_active !== 0) && (!stockSearchQuery || it.product_name?.toLowerCase().includes(stockSearchQuery.toLowerCase())))
                         .map((item, idx) => {
                           const isEditing = editingStockId === item.product_id;
                           const isLow = item.stock <= item.low_stock_threshold;
@@ -1225,7 +1237,14 @@ export default function BranchesPage() {
                             <tr key={item.id || item.product_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '12px 18px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
                               <td style={{ padding: '12px 18px' }}>
-                                <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 800, color: '#0f172a', opacity: isBranchVisible ? 1 : 0.65 }}>{item.product_name}</span>
+                                  {!isBranchVisible && (
+                                    <span style={{ fontSize: '9.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3px', padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                      Hidden
+                                    </span>
+                                  )}
+                                </div>
                                 <div style={{ fontSize: '11px', color: '#64748b' }}>ID: {item.product_id}</div>
                               </td>
                               <td style={{ padding: '12px 18px', color: '#64748b', fontWeight: 600 }}>

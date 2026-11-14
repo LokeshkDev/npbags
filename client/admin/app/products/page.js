@@ -58,7 +58,7 @@ export default function AdminProductsPage() {
   const [branches, setBranches] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState('3');
   const [branchStockQty, setBranchStockQty] = useState('0');
-  const [isBranchActive, setIsBranchActive] = useState(true);
+  const [isBranchActive, setIsBranchActive] = useState(false);
   const [isUpdatingBranchStock, setIsUpdatingBranchStock] = useState(false);
 
   const [products, setProducts] = useState([]);

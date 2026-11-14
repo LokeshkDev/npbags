@@ -45,9 +45,9 @@ export default function useScannerInput(onScan, options = {}) {
         code.length <= maxLength &&
         (isFast || isScanCaptureEl || code.toUpperCase().startsWith('NP-') || code.toUpperCase().startsWith('SKU-'))
       ) {
+        e.preventDefault();
+        e.stopPropagation();
         if (now - lastScanTimeRef.current > debounceMs) {
-          e.preventDefault();
-          e.stopPropagation();
           lastScanTimeRef.current = now;
           if (typeof onScan === 'function') {
             onScan(code);

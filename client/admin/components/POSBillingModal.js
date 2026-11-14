@@ -50,6 +50,15 @@ function saveSalespersonId(id) {
   }
 }
 
+function looksLikeBarcode(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  if (/^(NP|SKU)-/i.test(text)) return true;
+  if (/\s/.test(text)) return false;
+  if (/^\d{4,}$/.test(text)) return true;
+  return /^[0-9A-Za-z][0-9A-Za-z\-_./#:?=&%{}",@+~]{3,}$/.test(text) && (text.match(/\d/g) || []).length >= 4;
+}
+
 function mergeProductLists(...lists) {
   const byId = new Map();
   lists.forEach(list => {
@@ -277,6 +286,7 @@ export function POSBillingModal() {
   const rowInputRef = useRef(null);
   const rowContainerRef = useRef(null);
   const draftRecoveryRef = useRef(false);
+  const lastProcessedScanRef = useRef({ code: '', time: 0 });
 
   // Inline Custom Item Entry in table footer
   const [isCustomEntryMode, setIsCustomEntryMode] = useState(false);
@@ -617,8 +627,37 @@ export function POSBillingModal() {
     }
   }, [customerPhone]);
 
+  // Resolve a catalog product from the loaded lists so a scanned barcode never
+  // ends up as the displayed product name.
+  const resolveCatalogItem = (item) => {
+    const productId = item?.product_id;
+    const barcode = String(item?.barcode || '').trim();
+    const pool = mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts);
+    let match = null;
+    if (productId) {
+      match = pool.find(p => String(p.id) === String(productId));
+    }
+    if (!match && barcode) {
+      match = pool.find(p => {
+        if (String(p.barcode || '') === barcode) return true;
+        return Array.isArray(p.variants) && p.variants.some(v => String(v.barcode || '') === barcode);
+      });
+    }
+    return match || null;
+  };
+
+  const resolveItemName = (item) => {
+    const barcode = String(item?.barcode || '').trim();
+    const provided = String(item?.product_name || item?.name || item?.barcode_short_name || '').trim();
+    if (provided && provided !== barcode) return provided;
+    const match = resolveCatalogItem(item);
+    if (match && match.name) return match.name;
+    return provided || barcode || 'Item';
+  };
+
   // Add product to cart helper with seamless keyboard focus advance (Product -> Staff -> Qty -> Next Product)
   const handleAddItemToCart = (item) => {
+    const resolvedName = resolveItemName(item);
     let targetIdx = 0;
     setCart(prev => {
       const existingIdx = prev.findIndex(ci =>
@@ -637,9 +676,9 @@ export function POSBillingModal() {
           ...prev,
           {
             product_id: item.product_id,
-            product_name: item.product_name,
+            product_name: resolvedName,
             barcode: item.barcode || `NP-${item.product_id}`,
-            barcode_short_name: item.barcode_short_name || item.product_name,
+            barcode_short_name: item.barcode_short_name || resolvedName,
             price: Number(item.price) || 0,
             regular_price: Number(item.regular_price) || Number(item.price) || 0,
             mrp: Number(item.mrp) || Number(item.regular_price) || Number(item.price) || 0,
@@ -655,7 +694,7 @@ export function POSBillingModal() {
       }
     });
 
-    showToast(`Added: ${item.product_name} [${item.barcode || 'ITEM'}]`, 'success', 2200);
+    showToast(`Added: ${resolvedName} [${item.barcode || 'ITEM'}]`, 'success', 2200);
 
     // Auto-advance focus to Sales Person field; pressing Enter then advances to Price, then Qty, then Next Product
     setTimeout(() => {
@@ -679,11 +718,44 @@ export function POSBillingModal() {
   };
 
   // Add Custom Product to cart (Supports Name, MRP, Selling Price, and instant Enter key submit)
-  const handleAddCustomProduct = (e) => {
+  const handleAddCustomProduct = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!customItem.name.trim()) {
       showToast('Please enter an item name / description', 'error');
       customItemNameRef.current?.focus();
+      return;
+    }
+
+    // Never let a barcode be saved as a custom product name. Resolve it against
+    // the catalog first so the real product name is displayed.
+    const rawName = customItem.name.trim();
+    if (looksLikeBarcode(rawName)) {
+      const localMatch = findExactProductMatch(
+        mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts),
+        rawName
+      );
+      if (localMatch?.product) {
+        handlePickSuggestion(localMatch.product, localMatch.matchedVariant);
+        setIsCustomModalOpen(false);
+        setCustomItem({ name: '', mrp: '', price: '', quantity: 1 });
+        return;
+      }
+      try {
+        const resolved = await lookupBarcode(rawName, adminUser?.branch_id || null);
+        if (resolved && (resolved.product_id || resolved.product_name)) {
+          handleAddItemToCart({
+            ...resolved,
+            product_name: resolved.product_name || resolved.barcode_short_name || resolved.name || resolved.barcode
+          });
+          showToast(`✓ Barcode "${rawName}" resolved to ${resolved.product_name || resolved.barcode}`, 'success');
+          setIsCustomModalOpen(false);
+          setCustomItem({ name: '', mrp: '', price: '', quantity: 1 });
+          return;
+        }
+      } catch (_) {
+        // fall through to the not-found message below
+      }
+      showToast(`Barcode not found: ${rawName}. Enter a product name to add a custom item.`, 'error');
       return;
     }
 
@@ -802,26 +874,55 @@ export function POSBillingModal() {
 
   // Barcode / Scanner Hook Handler
   const handleBarcodeScanned = async (scannedCode) => {
-    if (!scannedCode || !scannedCode.trim()) return;
-    const rowWasFocused = rowInputRef.current && document.activeElement === rowInputRef.current;
+    const code = String(scannedCode || '').trim();
+    if (!code) return;
+
+    const now = Date.now();
+    if (
+      lastProcessedScanRef.current.code.toLowerCase() === code.toLowerCase() &&
+      now - lastProcessedScanRef.current.time < 700
+    ) {
+      return;
+    }
+    lastProcessedScanRef.current = { code, time: now };
+    setRowInput('');
+    setSearchInput('');
     setSearching(true);
     setShowSuggestions(false);
     setShowRowSuggestions(false);
     try {
-      const res = await lookupBarcode(scannedCode.trim(), adminUser?.branch_id || null);
-      if (res) {
-        handleAddItemToCart(res);
+      // Resolve against the already-loaded catalog first (fast path).
+      const localPool = mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts);
+      const localMatch = findExactProductMatch(localPool, code);
+      if (localMatch?.product) {
+        handlePickSuggestion(localMatch.product, localMatch.matchedVariant);
+        setSearchInput('');
+        setRowInput('');
+        return;
+      }
+
+      const res = await lookupBarcode(code, adminUser?.branch_id || null);
+      if (res && (res.product_id || res.product_name)) {
+        handleAddItemToCart({
+          ...res,
+          product_name: res.product_name || res.barcode_short_name || res.name || res.barcode
+        });
         setSearchInput('');
         setRowInput('');
       } else {
-        showToast(`Barcode not found: ${scannedCode}`, 'error');
-        rowInputRef.current?.focus();
+        setRowInput(code);
+        showToast(`Barcode not found: ${code}`, 'error');
       }
     } catch (err) {
-      showToast(`Error: ${err.message || 'Item not found'}`, 'error');
-      rowInputRef.current?.focus();
+      setRowInput(code);
+      showToast(`Barcode not found: ${code}`, 'error');
     } finally {
       setSearching(false);
+      // Keep the scan field ready for the next barcode (overrides the staff autofocus).
+      setTimeout(() => {
+        rowInputRef.current?.focus();
+        rowInputRef.current?.select();
+      }, 120);
     }
   };
 
@@ -896,9 +997,25 @@ export function POSBillingModal() {
   // Inline editable table row: resolve typed name/barcode and append as a new line item
   const handleRowSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
+    const now = Date.now();
+    if (now - lastProcessedScanRef.current.time < 700) {
+      return;
+    }
     const q = rowInput.trim();
     if (!q) {
       rowInputRef.current?.focus();
+      return;
+    }
+
+    if (looksLikeBarcode(q)) {
+      if (
+        lastProcessedScanRef.current.code.toLowerCase() === q.toLowerCase() &&
+        now - lastProcessedScanRef.current.time < 1200
+      ) {
+        setRowInput('');
+        return;
+      }
+      await handleBarcodeScanned(q);
       return;
     }
 
@@ -925,28 +1042,19 @@ export function POSBillingModal() {
       setRowInput('');
       setShowRowSuggestions(false);
       setRowHighlightedIndex(-1);
+      setTimeout(() => rowInputRef.current?.focus(), 120);
       return;
     }
 
-    // Fallback: barcode lookup handles exact barcodes beyond the loaded product catalog
-    setSearching(true);
-    try {
-      const res = await lookupBarcode(q, adminUser?.branch_id || null);
-      if (res) {
-        handleAddItemToCart(res);
-        setRowInput('');
-        setShowRowSuggestions(false);
-        setRowHighlightedIndex(-1);
-      } else {
-        openCustomEntryMode(q);
-        showToast(`"${q}" not in catalog — enter price to add as custom item`, 'info', 3000);
-      }
-    } catch (err) {
-      openCustomEntryMode(q);
-      showToast(`"${q}" not in catalog — enter price to add as custom item`, 'info', 3000);
-    } finally {
-      setSearching(false);
+    // Barcode-like input must resolve through the barcode lookup, never fall
+    // through to a custom item (which would save the barcode as the name).
+    if (looksLikeBarcode(q)) {
+      await handleBarcodeScanned(q);
+      return;
     }
+
+    openCustomEntryMode(q);
+    showToast(`"${q}" not in catalog — enter price to add as custom item`, 'info', 3000);
   };
 
   // F2 quick product search popup
@@ -1576,63 +1684,146 @@ export function POSBillingModal() {
 
     const settings = { ...thermalSettings, ...(overrideSettings || {}) };
     const items = order.items || [];
-    const dateStr = new Date(order.created_at || Date.now()).toLocaleString('en-IN');
-    const orderNo = order.order_number || order.order?.order_number || `POS-${Date.now().toString().slice(-6)}`;
+    const orderNo = order.order_number || order.order?.order_number || `POS-${order.id || Date.now().toString().slice(-6)}`;
     const is58mm = settings.paperWidth === '58mm';
     const bodyWidth = is58mm ? '52mm' : '72mm';
-    const fontSize = is58mm ? '10px' : '11.5px';
+    const fontSize = is58mm ? '9.5px' : '11px';
     const is300Bol = settings.density === '300bol';
 
-    const totalItemsCount = items.reduce((s, i) => s + Number(i.quantity || 1), 0);
-    const totalMrp = Math.ceil(items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0));
-    const totalSellingPrice = Math.ceil(items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0));
-    const netPayable = Math.ceil(Number(order.total_amount || cartFinancials.grandTotal || totalSellingPrice));
+    // Store details (Physical receipt sample exact details)
+    const storeTitle = 'NP GRAND';
+    const addrLine1 = 'Rajaji saalai,Opp to';
+    const addrLine2 = 'kalaisangam,Theradi';
+    const addrLine3 = 'Thiruvallur - 602001';
+    const phoneStr = 'Mobile No : 9655858231';
+    const gstStr = 'GST No : 33AJCPN5984H1ZZ';
+    const webStr = 'Website : www.npgrandshopping.com';
+
+    // Date & Time formatting (DD/MM/YY & hh:mm A)
+    const orderDate = new Date(order.created_at || Date.now());
+    const dd = String(orderDate.getDate()).padStart(2, '0');
+    const mm = String(orderDate.getMonth() + 1).padStart(2, '0');
+    const yy = String(orderDate.getFullYear()).slice(-2);
+    const dateFormatted = `${dd}/${mm}/${yy}`;
+
+    let hours = orderDate.getHours();
+    const minutes = String(orderDate.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const hh = String(hours).padStart(2, '0');
+    const timeFormatted = `${hh}:${minutes} ${ampm}`;
+
+    // Customer Name / Mobile
+    const customerIdent = (order.customer_phone || customerPhone || order.customer_name || customerName || 'Walk-in').toUpperCase();
+
+    // Line totals & Summary
+    const totalQty = items.reduce((s, i) => s + Number(i.quantity || 1), 0);
+    const totalItemsCount = items.length;
+    const totalMrp = items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0);
+    const totalGross = items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+    const billDiscount = Number(order.discount || order.discount_amount || cartFinancials?.discountAmount || 0);
+    const netPayable = Math.max(0, Math.round(Number(order.total_amount || cartFinancials?.grandTotal || (totalGross - billDiscount))));
     const totalSavings = Math.max(0, totalMrp - netPayable);
 
-    const renderReceiptBody = (copyLabel = 'CUSTOMER COPY') => `
+    // GST Slabs breakdown (Dynamic slabs calculation)
+    const gstMap = {};
+    items.forEach(it => {
+      let rate = 0;
+      if (it.gst_rate !== undefined && it.gst_rate !== null && it.gst_rate !== '') {
+        rate = Number(it.gst_rate);
+      } else if (it.tax_rate !== undefined && it.tax_rate !== null && it.tax_rate !== '') {
+        rate = Number(it.tax_rate);
+      } else if (order.is_accountable === 0) {
+        rate = 0;
+      } else {
+        rate = 18;
+      }
+      if (isNaN(rate)) rate = 0;
+      const itQty = Number(it.quantity || 1);
+      const itPrice = Number(it.price || 0);
+      const itTotal = itQty * itPrice;
+
+      if (!gstMap[rate]) {
+        gstMap[rate] = { rate, gross: 0 };
+      }
+      gstMap[rate].gross += itTotal;
+    });
+
+    const slabRates = Object.keys(gstMap).map(Number).sort((a, b) => a - b);
+    const slabBreakup = slabRates.length > 0 ? slabRates.map(rate => {
+      const slab = gstMap[rate];
+      const fraction = totalGross > 0 ? (slab.gross / totalGross) : 0;
+      const slabDiscount = billDiscount * fraction;
+      const slabNet = Math.max(0, slab.gross - slabDiscount);
+
+      if (rate === 0) {
+        return { rate: 0, sgst: 0, cgst: 0, taxable: slabNet };
+      }
+      const taxable = slabNet / (1 + (rate / 100));
+      const totalTax = slabNet - taxable;
+      const halfTax = totalTax / 2;
+      return {
+        rate,
+        sgst: halfTax,
+        cgst: halfTax,
+        taxable
+      };
+    }) : [
+      { rate: 0, sgst: 0, cgst: 0, taxable: netPayable }
+    ];
+
+    // Loyalty Points
+    const loyaltyPts = order.customer_np_points !== undefined && order.customer_np_points !== null
+      ? order.customer_np_points
+      : (order.points_earned || cartFinancials?.pointsEarned || '');
+
+    const renderReceiptBody = (copyLabel) => `
       <div class="receipt-section">
         <div class="center">
-          <div class="store-title">${RECEIPT_STORE_NAME}</div>
-          <div class="subtext">Phone: ${storeSettings.phone}</div>
-          <div class="subtext">${storeSettings.website}</div>
+          <div class="store-title">${storeTitle}</div>
+          <div class="header-line">${addrLine1}</div>
+          <div class="header-line">${addrLine2}</div>
+          <div class="header-line">${addrLine3}</div>
+          <div class="header-line">${phoneStr}</div>
+          <div class="header-line">${gstStr}</div>
+          <div class="header-line">${webStr}</div>
           <div class="divider"></div>
-          <div class="bold" style="font-size: 12px; letter-spacing: 0.5px;">TAX INVOICE / POS RECEIPT</div>
-          <div class="subtext bold" style="font-size: 10px; margin-top: 2px;">[ ${copyLabel} ]</div>
+          <div class="doc-title">TAX INVOICE</div>
+          ${copyLabel && settings.copies === 2 ? `<div style="font-size: 9.5px; font-weight: 800; margin-top: 1px;">[ ${copyLabel} ]</div>` : ''}
         </div>
 
         <div class="divider"></div>
-        <div class="flex-row"><span>Bill No:</span><span class="bold">${orderNo}</span></div>
-        <div class="flex-row"><span>Date:</span><span class="bold">${dateStr}</span></div>
-        ${(order.customer_phone || customerPhone) ? `<div class="flex-row"><span>Phone:</span><span class="bold">${order.customer_phone || customerPhone}</span></div>` : ''}
-        <div class="flex-row"><span>Payment:</span><span class="bold">${(order.payment_method || paymentMethod).toUpperCase()}</span></div>
+        <div class="meta-row">
+          <div class="meta-left">NAME: ${customerIdent}</div>
+          <div class="meta-right"><div>Bill No: ${orderNo}</div><div>Date   : ${dateFormatted}</div><div>Time   : ${timeFormatted}</div></div>
+        </div>
         <div class="divider"></div>
 
         <table class="items-table">
           <thead>
             <tr>
-              <th style="width: 38%;">ITEM</th>
-              <th style="width: 10%;" class="right">QTY</th>
-              <th style="width: 17%;" class="right">MRP</th>
-              <th style="width: 17%;" class="right">PRICE</th>
-              <th style="width: 18%;" class="right">TOTAL</th>
+              <th class="col-item">Particulars</th>
+              <th class="col-qty">Qty</th>
+              <th class="col-mrp">MRP</th>
+              <th class="col-rate">Rate</th>
+              <th class="col-amt">Amount</th>
             </tr>
           </thead>
           <tbody>
             ${items.map(it => {
-              const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
-              const itPrice = Number(it.price || 0);
+              const itName = (it.product_name || it.name || 'ITEM').toUpperCase();
               const itQty = Number(it.quantity || 1);
-              const itTotal = itQty * itPrice;
+              const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
+              const itRate = Number(it.price || 0);
+              const itAmount = itQty * itRate;
               return `
                 <tr>
-                  <td>
-                    <div class="bold">${it.product_name}</div>
-                    <div class="subtext">[${it.barcode || it.sku || 'ITEM'}]</div>
-                  </td>
-                  <td class="right bold">${itQty}</td>
-                  <td class="right">${itMrp.toFixed(2)}</td>
-                  <td class="right bold">${itPrice.toFixed(2)}</td>
-                  <td class="right bold">${itTotal.toFixed(2)}</td>
+                  <td class="col-item">${itName}</td>
+                  <td class="col-qty">${itQty}</td>
+                  <td class="col-mrp">${itMrp.toFixed(2)}</td>
+                  <td class="col-rate">${itRate.toFixed(2)}</td>
+                  <td class="col-amt">${itAmount.toFixed(2)}</td>
                 </tr>
               `;
             }).join('')}
@@ -1640,47 +1831,60 @@ export function POSBillingModal() {
         </table>
 
         <div class="divider"></div>
-        <div class="flex-row"><span>Items Count:</span><span class="bold">${totalItemsCount}</span></div>
-        <div class="flex-row"><span>Total MRP:</span><span class="bold">Rs. ${totalMrp}</span></div>
-        <div class="flex-row"><span>Final Price (Selling Price):</span><span class="bold">Rs. ${totalSellingPrice}</span></div>
-        ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount || 0) > 0 ? `
-          <div class="flex-row bold"><span>Discount ${(order.discount_type === 'percent' || discountType === 'percent') ? `(${order.discount_value || discountInput}%)` : ''}:</span><span class="bold">- Rs. ${Number(order.discount || order.discount_amount || cartFinancials.discountAmount).toFixed(2)}</span></div>
-        ` : ''}
-        <div class="flex-row"><span>Taxable Value:</span><span class="bold">Rs. ${Number(order.taxable_amount || cartFinancials.taxableAmount).toFixed(2)}</span></div>
-        <div class="flex-row"><span>CGST (9%):</span><span class="bold">Rs. ${Number(order.cgst_amount || cartFinancials.cgstAmount).toFixed(2)}</span></div>
-        <div class="flex-row"><span>SGST (9%):</span><span class="bold">Rs. ${Number(order.sgst_amount || cartFinancials.sgstAmount).toFixed(2)}</span></div>
-        ${Number(order.points_discount || cartFinancials.pointsDiscount) > 0 ? `
-          <div class="flex-row"><span>NPPoints Redeemed:</span><span class="bold">-${Number(order.points_redeemed || cartFinancials.validRedeemPoints)} pts (-Rs. ${Number(order.points_discount || cartFinancials.pointsDiscount).toFixed(2)})</span></div>
-        ` : ''}
-        ${Number(order.points_earned || cartFinancials.pointsEarned) > 0 ? `
-          <div class="flex-row"><span>NPPoints Earned:</span><span class="bold">+${Number(order.points_earned || cartFinancials.pointsEarned)} pts</span></div>
-        ` : ''}
-        ${order.customer_np_points !== undefined ? `
-          <div class="flex-row"><span>Total NPPoints:</span><span class="bold">${order.customer_np_points} pts</span></div>
-        ` : ''}
-        <div class="double-divider"></div>
-        <div class="flex-row" style="font-size: ${is58mm ? '12px' : '14px'};">
-          <span class="bold">NET PAYABLE:</span>
-          <span class="bold">Rs. ${netPayable}</span>
-        </div>
-        <div class="double-divider"></div>
-
-        ${totalSavings > 0 ? `
-          <div class="center bold" style="font-size: ${is58mm ? '11px' : '12.5px'}; padding: 4px 2px; border: 1.5px dashed #000000; margin: 6px 0; letter-spacing: 0.5px;">
-            *** YOU SAVED: ₹${totalSavings} ***
+        <div class="summary-row">
+          <div class="summary-left">
+            <div>Tot Items: &nbsp;${totalItemsCount}</div>
+            <div>Tot Qty: &nbsp;&nbsp;&nbsp;${totalQty}</div>
           </div>
-        ` : ''}
+          <div class="summary-right">
+            <div class="flex-line"><span>Total MRP :</span><span>${totalMrp.toFixed(2)}</span></div>
+            ${billDiscount > 0 ? `
+              <div class="flex-line"><span>Bill Discount :</span><span>${billDiscount.toFixed(2)}</span></div>
+            ` : ''}
+            <div style="border-top: 1px dashed #000000; margin: 3px 0;"></div>
+            <div class="flex-line net-amt"><span>Net Amt :</span><span>${netPayable.toFixed(2)}</span></div>
+          </div>
+        </div>
 
-        ${paymentMethod === 'Cash' ? `
-          <div class="flex-row"><span>Cash Tendered:</span><span class="bold">Rs. ${Number(receivedAmount || order.total_amount || cartFinancials.grandTotal).toFixed(2)}</span></div>
-          <div class="flex-row bold"><span>Change Due:</span><span class="bold">Rs. ${Number(order.changeDue || cartFinancials.changeDue).toFixed(2)}</span></div>
+        <div class="divider"></div>
+        <div class="savings-banner">
+          YOU HAVE SAVED: &nbsp;${Math.max(0, Math.round(totalSavings))}
+        </div>
+        <div class="divider"></div>
+
+        <table class="gst-table">
+          <thead>
+            <tr>
+              <th class="gst-col-rate">GST %</th>
+              <th class="gst-col-sgst">SGST AMT</th>
+              <th class="gst-col-cgst">CGST AMT</th>
+              <th class="gst-col-tax">TAXABLE AMT</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${slabBreakup.map(s => `
+              <tr>
+                <td class="gst-col-rate">${s.rate}</td>
+                <td class="gst-col-sgst">${s.sgst.toFixed(2)}</td>
+                <td class="gst-col-cgst">${s.cgst.toFixed(2)}</td>
+                <td class="gst-col-tax">${s.taxable.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="divider"></div>
+
+        <div class="loyalty-row">
+          Total Loyalty Points : ${loyaltyPts !== '' ? loyaltyPts : ''}
+        </div>
+        <div class="divider"></div>
+
+        <div class="terms-footer">
+          <div class="terms-title">TERMS & CONDITIONS</div>
+          <div>Goods once sold can't be taken back</div>
+          <div>***No Exchange***No Return***</div>
           <div class="divider"></div>
-        ` : ''}
-
-        <div class="footer-note">
-          <div class="bold">${(order.is_accountable === 0 || (!isAccountable && order.is_accountable !== 1)) ? 'RETAIL ESTIMATE MEMO' : 'GST INCLUSIVE. ALL TAXES ACCOUNTED FOR.'}</div>
-          <div>Items exchangeable within 7 days with bill tag.</div>
-          <div class="bold" style="margin-top: 6px;">*** THANK YOU FOR SHOPPING WITH US! ***</div>
+          <div class="thank-you">*** Thank for Shopping Visit Again ***</div>
         </div>
       </div>
     `;
@@ -1705,16 +1909,16 @@ export function POSBillingModal() {
   body {
     width: ${bodyWidth};
     margin: 0 auto;
-    padding: 4mm 2mm;
+    padding: 3mm 2mm;
     font-family: 'Courier New', Courier, monospace, 'Lucida Console';
     font-size: ${fontSize};
-    line-height: 1.35;
+    line-height: 1.3;
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    font-weight: ${is300Bol ? '900' : '700'};
-    ${is300Bol ? 'text-shadow: 0 0 0.45px #000000; -webkit-font-smoothing: none;' : ''}
+    font-weight: 800;
+    ${is300Bol ? 'text-shadow: 0 0 0.35px #000000; -webkit-font-smoothing: none;' : ''}
   }
   .receipt-section {
     page-break-inside: avoid;
@@ -1722,24 +1926,184 @@ export function POSBillingModal() {
   .center { text-align: center; }
   .bold { font-weight: 900 !important; color: #000000 !important; }
   .store-title {
-    font-size: ${is58mm ? '13px' : '16px'};
+    font-size: ${is58mm ? '13px' : '15px'};
     font-weight: 900;
     letter-spacing: 0.5px;
     margin-bottom: 2px;
-    color: #000000 !important;
   }
-  .subtext {
-    font-size: 9.5px;
-    font-weight: 700;
-    color: #000000 !important;
+  .header-line {
+    font-size: ${is58mm ? '9px' : '10.5px'};
+    line-height: 1.25;
+  }
+  .doc-title {
+    font-size: ${is58mm ? '11px' : '12px'};
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin: 2px 0;
   }
   .divider {
-    border-top: 1.5px dashed #000000 !important;
-    margin: 5px 0;
+    border-top: 1px dashed #000000 !important;
+    margin: 4px 0;
   }
-  .double-divider {
-    border-top: 2.5px solid #000000 !important;
-    margin: 5px 0;
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: ${fontSize};
+    line-height: 1.35;
+    margin: 2px 0;
+  }
+  .meta-left {
+    text-align: left;
+    max-width: 48%;
+    word-break: break-word;
+  }
+  .meta-right {
+    text-align: right;
+    white-space: pre;
+  }
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: ${is58mm ? '9px' : '10.5px'};
+    margin: 2px 0;
+  }
+  .items-table th {
+    border-bottom: 1px dashed #000000;
+    padding: 3px 0;
+    font-weight: 800;
+  }
+  .items-table td {
+    padding: 2px 0;
+    vertical-align: top;
+  }
+  .col-item {
+    text-align: left;
+    width: 28%;
+    padding-left: 0 !important;
+    padding-right: 2px !important;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  .col-qty {
+    text-align: right;
+    width: 11%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 4px !important;
+  }
+  .col-mrp {
+    text-align: right;
+    width: 19%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 4px !important;
+  }
+  .col-rate {
+    text-align: right;
+    width: 19%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 4px !important;
+  }
+  .col-amt {
+    text-align: right;
+    width: 23%;
+    white-space: nowrap;
+    padding-left: 4px !important;
+    padding-right: 0 !important;
+  }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: ${fontSize};
+    margin: 2px 0;
+  }
+  .summary-left {
+    text-align: left;
+    line-height: 1.4;
+  }
+  .summary-right {
+    text-align: right;
+    min-width: 55%;
+    line-height: 1.4;
+  }
+  .flex-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .net-amt {
+    font-size: ${is58mm ? '12px' : '13.5px'};
+    font-weight: 900;
+  }
+  .savings-banner {
+    font-size: ${is58mm ? '11px' : '12px'};
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin: 3px 0;
+  }
+  .gst-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: ${is58mm ? '8.5px' : '9.5px'};
+    margin: 2px 0;
+  }
+  .gst-table th {
+    padding: 2px 0;
+    font-weight: 800;
+  }
+  .gst-table td {
+    padding: 2px 0;
+  }
+  .gst-col-rate {
+    text-align: left;
+    width: 18%;
+    padding-left: 0 !important;
+    padding-right: 2px !important;
+  }
+  .gst-col-sgst {
+    text-align: right;
+    width: 26%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 3px !important;
+  }
+  .gst-col-cgst {
+    text-align: right;
+    width: 26%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 3px !important;
+  }
+  .gst-col-tax {
+    text-align: right;
+    width: 30%;
+    white-space: nowrap;
+    padding-left: 3px !important;
+    padding-right: 0 !important;
+  }
+  .loyalty-row {
+    font-size: ${fontSize};
+    font-weight: 800;
+    margin: 3px 0;
+  }
+  .terms-footer {
+    text-align: center;
+    font-size: ${is58mm ? '9px' : '10px'};
+    line-height: 1.35;
+    margin-top: 4px;
+  }
+  .terms-title {
+    font-weight: 900;
+    letter-spacing: 0.5px;
+  }
+  .thank-you {
+    font-weight: 900;
+    margin-top: 2px;
   }
   .cut-divider {
     border-top: 2px dashed #000000 !important;
@@ -1753,39 +2117,6 @@ export function POSBillingModal() {
     font-weight: 900;
     position: relative;
     top: -7px;
-  }
-  .flex-row {
-    display: flex;
-    justify-content: space-between;
-    margin: 2px 0;
-    color: #000000 !important;
-  }
-  .items-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: ${fontSize};
-    margin: 4px 0;
-    color: #000000 !important;
-  }
-  .items-table th {
-    text-align: left;
-    border-bottom: 1.5px dashed #000000;
-    padding: 3px 0;
-    font-weight: 900;
-    color: #000000 !important;
-  }
-  .items-table td {
-    padding: 3px 0;
-    vertical-align: top;
-    color: #000000 !important;
-  }
-  .right { text-align: right; }
-  .footer-note {
-    font-size: 9.5px;
-    margin-top: 8px;
-    text-align: center;
-    line-height: 1.4;
-    color: #000000 !important;
   }
 </style>
 </head>

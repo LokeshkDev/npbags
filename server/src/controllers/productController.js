@@ -5,6 +5,30 @@ const { processUploadedFile, deleteUploadedFile } = require('../middleware/uploa
 const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
 const { generateProductBarcodes } = require('../utils/barcode');
 
+// Every regional branch gets a branch_stocks row for a product so it shows up
+// in the branch catalog as Hidden (is_active = 0) until explicitly made visible.
+// Existing rows are left untouched.
+async function ensureRegionalBranchProductRows(productId, db = { query }) {
+  if (!productId) return 0;
+  try {
+    const branches = await db.query(
+      "SELECT id FROM branches WHERE UPPER(CODE) <> 'MAIN' ORDER BY id ASC"
+    );
+    for (const branch of branches) {
+      await db.query(
+        `INSERT INTO branch_stocks (branch_id, product_id, stock, low_stock_threshold, is_active)
+         VALUES (?, ?, 0, 5, 0)
+         ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+        [branch.id, productId]
+      );
+    }
+    return branches.length;
+  } catch (error) {
+    console.warn('[Product] Could not ensure regional branch rows:', error.message);
+    return 0;
+  }
+}
+
 function normalizePurchaseRate(value) {
   if (value === undefined || value === null) return null;
   const trimmed = String(value).trim();
@@ -718,6 +742,9 @@ async function createProduct(req, res, next) {
       }
     }
 
+    // Make sure the product exists in every regional branch (hidden by default)
+    await ensureRegionalBranchProductRows(id);
+
     // Save initial branch stock allocation & visibility if provided
     if (req.body.branch_id) {
       try {
@@ -1048,6 +1075,9 @@ async function updateProduct(req, res, next) {
       }
     }
 
+    // Backfill regional branch rows for products created before this behaviour
+    await ensureRegionalBranchProductRows(id);
+
     // Save or update branch stock allocation & visibility if provided
     if (req.body.branch_id) {
       try {
@@ -1183,6 +1213,9 @@ async function duplicateProduct(req, res, next) {
     } catch (stockError) {
       console.warn('[Product Duplicate] Could not reset default stock:', stockError.message);
     }
+
+    // Duplicated products appear hidden in every regional branch until shown
+    await ensureRegionalBranchProductRows(newId);
 
     // Clone images
     const images = await query(`SELECT * FROM product_images WHERE product_id = ?`, [id]);

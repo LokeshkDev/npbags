@@ -115,6 +115,7 @@ router.post('/customers/:id/reset-password', customerController.resetCustomerPas
 // Vendors
 router.get('/vendors', vendorController.getAllVendors);
 router.get('/vendors/:id/purchase-history', purchaseBillController.getVendorPurchaseHistory);
+router.post('/vendors/:id/payments', purchaseBillController.recordVendorPayment);
 router.get('/vendors/:id', vendorController.getVendorById);
 router.post('/vendors', vendorController.createVendor);
 router.put('/vendors/:id', vendorController.updateVendor);
@@ -133,6 +134,8 @@ router.post('/purchase-bills', purchaseBillController.createPurchaseBill);
 router.put('/purchase-bills/:id', purchaseBillController.updatePurchaseBill);
 router.post('/purchase-bills/:id/confirm', purchaseBillController.confirmPurchaseBill);
 router.post('/purchase-bills/:id/payments', purchaseBillController.addPurchaseBillPayment);
+router.put('/purchase-bill-payments/:id', purchaseBillController.updatePurchaseBillPayment);
+router.delete('/purchase-bill-payments/:id', purchaseBillController.deletePurchaseBillPayment);
 router.delete('/purchase-bills/:id', purchaseBillController.deletePurchaseBill);
 
 // Held Bills (POS Billing Hold / Resume)

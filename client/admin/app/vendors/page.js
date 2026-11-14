@@ -24,6 +24,9 @@ import {
   updateAdminPurchaseBill,
   confirmAdminPurchaseBill,
   addAdminPurchaseBillPayment,
+  recordAdminVendorPayment,
+  updateAdminPurchaseBillPayment,
+  deleteAdminPurchaseBillPayment,
   deleteAdminPurchaseBill,
   getAdminProducts,
   getAdminBranches,
@@ -229,6 +232,17 @@ export default function AdminVendorsPage() {
   const [barcodePrintCopies, setBarcodePrintCopies] = useState(1);
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
   const [recordingPayment, setRecordingPayment] = useState(false);
+
+  const [vendorPayModal, setVendorPayModal] = useState(null);
+  const [vendorPayForm, setVendorPayForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
+  const [vendorPayAllocations, setVendorPayAllocations] = useState({});
+  const [savingVendorPayment, setSavingVendorPayment] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
+  const [savingEditPayment, setSavingEditPayment] = useState(false);
+
+  const [datePaymentsVendor, setDatePaymentsVendor] = useState(null);
+  const [datePaymentsFilter, setDatePaymentsFilter] = useState({ from_date: '', to_date: '', method: 'all' });
 
   const scanInputRef = useRef(null);
   const newProductNameRef = useRef(null);
@@ -1249,6 +1263,195 @@ export default function AdminVendorsPage() {
     }
   };
 
+  const getVendorPayableBills = (vendorId) => {
+    const history = vendorHistory[vendorId] || {};
+    const list = Array.isArray(history.bills) ? history.bills : [];
+    return list
+      .filter(b => b.status !== 'cancelled' && Number(b.outstanding_amount) > 0.009)
+      .sort((a, b) => {
+        const dateA = new Date(a.purchase_date).getTime() || 0;
+        const dateB = new Date(b.purchase_date).getTime() || 0;
+        if (dateA !== dateB) return dateA - dateB;
+        return Number(a.id) - Number(b.id);
+      });
+  };
+
+  const computeAutoAllocations = (vendorId, amountValue) => {
+    let remaining = parseAmount(amountValue);
+    const map = {};
+    if (remaining <= 0) return map;
+    const payable = getVendorPayableBills(vendorId);
+    for (const bill of payable) {
+      if (remaining <= 0.009) break;
+      const take = Math.min(remaining, Number(bill.outstanding_amount) || 0);
+      if (take <= 0) continue;
+      map[bill.id] = take.toFixed(2);
+      remaining = Math.round((remaining - take) * 100) / 100;
+    }
+    if (remaining > 0 && payable.length > 0) {
+      const last = payable[payable.length - 1];
+      const alreadyApplied = Number(map[last.id] || 0);
+      const room = Math.max(0, Number(last.outstanding_amount) - alreadyApplied);
+      const topUp = Math.min(remaining, room);
+      if (topUp > 0) {
+        map[last.id] = (alreadyApplied + topUp).toFixed(2);
+      }
+    }
+    return map;
+  };
+
+  const openVendorPayModal = async (vendorId, vendorName = '') => {
+    if (!vendorId) return;
+    await loadVendorHistory(vendorId);
+    setVendorPayModal({ vendor_id: vendorId, vendor_name: vendorName });
+    setVendorPayForm({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
+    setVendorPayAllocations({});
+  };
+
+  const handleVendorPayAmountChange = (value) => {
+    setVendorPayForm(prev => ({ ...prev, amount: value }));
+    if (vendorPayModal) {
+      setVendorPayAllocations(computeAutoAllocations(vendorPayModal.vendor_id, value));
+    }
+  };
+
+  const handleAutoTally = () => {
+    if (!vendorPayModal) return;
+    setVendorPayAllocations(computeAutoAllocations(vendorPayModal.vendor_id, vendorPayForm.amount));
+  };
+
+  const handleSubmitVendorPayment = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!vendorPayModal) return;
+    const amount = parseAmount(vendorPayForm.amount);
+    if (amount <= 0) {
+      showToast('Enter a payment amount greater than zero.', 'error');
+      return;
+    }
+    const allocations = Object.entries(vendorPayAllocations)
+      .map(([billId, value]) => ({ bill_id: Number(billId), amount: parseAmount(value) }))
+      .filter(allocation => allocation.amount > 0);
+    const allocated = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+    if (allocations.length > 0 && Math.abs(allocated - amount) > 0.01) {
+      showToast(`Allocated ₹${money(allocated)} must match ₹${money(amount)}. Adjust the split or auto-tally.`, 'error');
+      return;
+    }
+    try {
+      setSavingVendorPayment(true);
+      const result = await recordAdminVendorPayment(vendorPayModal.vendor_id, {
+        amount,
+        payment_date: vendorPayForm.payment_date,
+        payment_method: vendorPayForm.payment_method,
+        notes: vendorPayForm.notes,
+        allocations: allocations.length ? allocations : undefined
+      });
+      showToast(`Payment of ₹${money(result?.amount || amount)} tallied across ${result?.applied?.length || 0} bill(s).`);
+      const vendorId = vendorPayModal.vendor_id;
+      setVendorPayModal(null);
+      setVendorPayForm({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
+      setVendorPayAllocations({});
+      refreshAll();
+      await loadVendorHistory(vendorId);
+      if (selectedBill?.id) {
+        try {
+          const detail = await getAdminPurchaseBillById(selectedBill.id);
+          setSelectedBill(detail);
+        } catch (_) {}
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to record vendor payment', 'error');
+    } finally {
+      setSavingVendorPayment(false);
+    }
+  };
+
+  const openDatePaymentsModal = async (vendor) => {
+    setDatePaymentsVendor(vendor);
+    setDatePaymentsFilter({ from_date: '', to_date: '', method: 'all' });
+    if (!vendorHistory[vendor.id]) {
+      await loadVendorHistory(vendor.id);
+    }
+  };
+
+  const dateWisePaymentsList = useMemo(() => {
+    if (!datePaymentsVendor) return [];
+    const raw = vendorHistory[datePaymentsVendor.id]?.payments || [];
+    return raw.filter(p => {
+      const pDate = p.payment_date ? toDateInput(p.payment_date) : '';
+      if (datePaymentsFilter.from_date && pDate < datePaymentsFilter.from_date) return false;
+      if (datePaymentsFilter.to_date && pDate > datePaymentsFilter.to_date) return false;
+      if (datePaymentsFilter.method !== 'all' && p.payment_method !== datePaymentsFilter.method) return false;
+      return true;
+    }).sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
+  }, [datePaymentsVendor, vendorHistory, datePaymentsFilter]);
+
+  const totalDateWisePaid = useMemo(() => {
+    return dateWisePaymentsList.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  }, [dateWisePaymentsList]);
+
+  const openEditPayment = (payment) => {
+    setEditingPayment(payment);
+    setEditPaymentForm({
+      amount: String(payment.amount ?? ''),
+      payment_date: toDateInput(payment.payment_date) || today(),
+      payment_method: payment.payment_method || 'Cash',
+      notes: payment.notes || ''
+    });
+  };
+
+  const handleSubmitEditPayment = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!editingPayment?.id) return;
+    const amount = parseAmount(editPaymentForm.amount);
+    if (amount <= 0) {
+      showToast('Enter a payment amount greater than zero.', 'error');
+      return;
+    }
+    try {
+      setSavingEditPayment(true);
+      await updateAdminPurchaseBillPayment(editingPayment.id, {
+        amount,
+        payment_date: editPaymentForm.payment_date,
+        payment_method: editPaymentForm.payment_method,
+        notes: editPaymentForm.notes
+      });
+      showToast('Payment updated successfully.');
+      const vendorId = editingPayment.vendor_id;
+      setEditingPayment(null);
+      refreshAll();
+      if (vendorId) await loadVendorHistory(vendorId);
+      if (selectedBill?.id) {
+        try {
+          const detail = await getAdminPurchaseBillById(selectedBill.id);
+          setSelectedBill(detail);
+        } catch (_) {}
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to update payment', 'error');
+    } finally {
+      setSavingEditPayment(false);
+    }
+  };
+
+  const handleDeletePayment = async (payment) => {
+    if (!payment?.id) return;
+    if (!window.confirm(`Delete this ₹${money(payment.amount)} payment for bill ${payment.bill_number || ''}? The bill balance will be recalculated.`)) return;
+    try {
+      await deleteAdminPurchaseBillPayment(payment.id);
+      showToast('Payment deleted and bill balance recalculated.');
+      refreshAll();
+      if (payment.vendor_id) await loadVendorHistory(payment.vendor_id);
+      if (selectedBill?.id) {
+        try {
+          const detail = await getAdminPurchaseBillById(selectedBill.id);
+          setSelectedBill(detail);
+        } catch (_) {}
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to delete payment', 'error');
+    }
+  };
+
   const safeVendors = useMemo(() => Array.isArray(vendors) ? vendors : [], [vendors]);
   const safeBills = useMemo(() => Array.isArray(bills) ? bills : [], [bills]);
   const safeOutstandingBills = useMemo(() => Array.isArray(outstanding?.bills) ? outstanding.bills : [], [outstanding?.bills]);
@@ -1445,7 +1648,11 @@ export default function AdminVendorsPage() {
                       {t.label}
                     </button>
                   ))}
-                  <button type="button" onClick={() => openNewBill(vendor.id)} style={{ marginLeft: 'auto', padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#065935', color: '#fff', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>+ New Purchase Bill</button>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => openDatePaymentsModal(vendor)} title="View all payments made to this vendor organized date-wise with filters" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>📅 Payment History (Date-wise)</button>
+                    <button type="button" onClick={() => openVendorPayModal(vendor.id, vendor.name)} disabled={outstandingBills.length === 0} title="Record one amount and auto-tally it across unpaid bills, oldest first" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #86efac', background: outstandingBills.length === 0 ? '#f8fafc' : '#f0fdf4', color: outstandingBills.length === 0 ? '#94a3b8' : '#065935', fontSize: '11.5px', fontWeight: 800, cursor: outstandingBills.length === 0 ? 'not-allowed' : 'pointer' }}>Record Payment / Auto-Tally</button>
+                    <button type="button" onClick={() => openNewBill(vendor.id)} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#065935', color: '#fff', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>+ New Purchase Bill</button>
+                  </div>
                 </div>
 
                 {loadingHistory && !historySummary.total_bills && (
@@ -1496,6 +1703,7 @@ export default function AdminVendorsPage() {
                             <th style={{ padding: '10px 14px' }}>Method</th>
                             <th style={{ padding: '10px 14px' }}>Notes</th>
                             <th style={{ padding: '10px 14px', textAlign: 'right' }}>Amount</th>
+                            <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1506,6 +1714,10 @@ export default function AdminVendorsPage() {
                               <td style={{ padding: '10px 14px' }}>{payment.payment_method || 'Cash'}</td>
                               <td style={{ padding: '10px 14px', color: '#64748b' }}>{payment.notes || '—'}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#15803d' }}>₹{money(payment.amount)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <button type="button" onClick={() => openEditPayment({ ...payment, vendor_id: vendor.id })} style={{ padding: '5px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, marginRight: '6px' }}>Edit</button>
+                                <button type="button" onClick={() => handleDeletePayment({ ...payment, vendor_id: vendor.id })} style={{ padding: '5px 9px', borderRadius: '5px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700 }}>Delete</button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1747,11 +1959,14 @@ export default function AdminVendorsPage() {
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
                     {safeOutstandingVendors.map(v => (
-                      <button key={v.vendor_id} type="button" onClick={() => { setMainTab('vendors'); setExpandedVendorId(v.vendor_id); setExpandedVendorTab('outstanding'); if (!vendorHistory[v.vendor_id]) loadVendorHistory(v.vendor_id); }} style={{ textAlign: 'left', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', cursor: 'pointer' }}>
-                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '12.5px' }}>{v.vendor_name}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{v.bill_count} unpaid bill(s)</div>
-                        <div style={{ fontSize: '16px', fontWeight: 900, color: '#b91c1c', marginTop: '4px' }}>₹{money(v.total_outstanding)}</div>
-                      </button>
+                      <div key={v.vendor_id} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px' }}>
+                        <button type="button" onClick={() => { setMainTab('vendors'); setExpandedVendorId(v.vendor_id); setExpandedVendorTab('outstanding'); if (!vendorHistory[v.vendor_id]) loadVendorHistory(v.vendor_id); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
+                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '12.5px' }}>{v.vendor_name}</div>
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{v.bill_count} unpaid bill(s)</div>
+                          <div style={{ fontSize: '16px', fontWeight: 900, color: '#b91c1c', marginTop: '4px' }}>₹{money(v.total_outstanding)}</div>
+                        </button>
+                        <button type="button" onClick={() => openVendorPayModal(v.vendor_id, v.vendor_name)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #86efac', background: '#f0fdf4', color: '#065935', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>Record Payment / Auto-Tally</button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -2584,6 +2799,284 @@ export default function AdminVendorsPage() {
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
                   <button type="button" onClick={() => setBarcodePrintBill(null)} style={{ padding: '8px 16px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CANCEL</button>
                   <button type="button" onClick={handlePrintBillBarcodes} style={{ padding: '8px 18px', borderRadius: '7px', border: 'none', background: '#1d4ed8', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>PRINT {barcodePrintTotal} LABELS</button>
+                </div>
+              </div>
+            )}
+          </Modal>
+
+          {/* VENDOR PAYMENT / AUTO-TALLY MODAL */}
+          <Modal
+            isOpen={Boolean(vendorPayModal)}
+            onClose={() => { setVendorPayModal(null); setVendorPayAllocations({}); setVendorPayForm({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' }); }}
+            title={vendorPayModal ? `Record Vendor Payment — ${vendorPayModal.vendor_name || ''}` : 'Record Vendor Payment'}
+            maxWidth="880px"
+          >
+            {vendorPayModal && (() => {
+              const payable = getVendorPayableBills(vendorPayModal.vendor_id);
+              const amount = parseAmount(vendorPayForm.amount);
+              const allocated = Object.values(vendorPayAllocations).reduce((sum, value) => sum + parseAmount(value), 0);
+              const unallocated = Math.round((amount - allocated) * 100) / 100;
+              const totalOutstanding = payable.reduce((sum, bill) => sum + (Number(bill.outstanding_amount) || 0), 0);
+
+              return (
+                <form onSubmit={handleSubmitVendorPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px 14px', fontSize: '12.5px', color: '#1e3a8a' }}>
+                    Enter one amount and it will be tallied across unpaid bills <strong>oldest first</strong>. Bills that get fully covered are marked <strong>Paid</strong> automatically. You can adjust the split before saving.
+                    <div style={{ marginTop: '6px', fontWeight: 800 }}>Total payable: ₹{money(totalOutstanding)} across {payable.length} bill(s)</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.4fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>AMOUNT PAID (₹) *</label>
+                      <input type="number" min="0" max={totalOutstanding.toFixed(2)} step="0.01" required value={vendorPayForm.amount} onChange={(e) => handleVendorPayAmountChange(e.target.value)} placeholder="e.g. 1000" style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>DATE</label>
+                      <input type="date" value={vendorPayForm.payment_date} onChange={(e) => setVendorPayForm(prev => ({ ...prev, payment_date: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>METHOD</label>
+                      <select value={vendorPayForm.payment_method} onChange={(e) => setVendorPayForm(prev => ({ ...prev, payment_method: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', background: '#fff' }}>
+                        <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>NOTES / REFERENCE</label>
+                      <input type="text" value={vendorPayForm.notes} onChange={(e) => setVendorPayForm(prev => ({ ...prev, notes: e.target.value }))} placeholder="UTR / cheque no. / remarks" style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={handleAutoTally} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #86efac', background: '#f0fdf4', color: '#065935', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>Auto-Tally ₹{money(amount)}</button>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: allocated > amount + 0.01 ? '#b91c1c' : '#15803d' }}>Allocated: ₹{money(allocated)}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: unallocated > 0.01 ? '#b45309' : '#64748b' }}>Unallocated: ₹{money(Math.max(0, unallocated))}</span>
+                  </div>
+
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'auto', maxHeight: '320px' }}>
+                    {payable.length === 0 ? (
+                      <div style={{ padding: '22px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>No unpaid bills for this vendor.</div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc' }}>
+                          <tr style={{ color: '#475569', fontSize: '10.5px', textTransform: 'uppercase', textAlign: 'left' }}>
+                            <th style={{ padding: '9px 12px' }}>Bill No.</th>
+                            <th style={{ padding: '9px 12px' }}>Date</th>
+                            <th style={{ padding: '9px 12px', textAlign: 'right' }}>Total</th>
+                            <th style={{ padding: '9px 12px', textAlign: 'right' }}>Already Paid</th>
+                            <th style={{ padding: '9px 12px', textAlign: 'right' }}>Outstanding</th>
+                            <th style={{ padding: '9px 12px', textAlign: 'right' }}>Apply Now (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payable.map(bill => (
+                            <tr key={bill.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 12px', fontWeight: 800, color: '#0f172a' }}>{bill.bill_number}</td>
+                              <td style={{ padding: '8px 12px', color: '#475569' }}>{shortDate(bill.purchase_date)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>₹{money(bill.grand_total)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', color: '#15803d' }}>₹{money(bill.amount_paid)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', color: '#b91c1c', fontWeight: 800 }}>₹{money(bill.outstanding_amount)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={Number(bill.outstanding_amount).toFixed(2)}
+                                  step="0.01"
+                                  value={vendorPayAllocations[bill.id] ?? ''}
+                                  onChange={(e) => setVendorPayAllocations(prev => ({ ...prev, [bill.id]: e.target.value }))}
+                                  placeholder="0.00"
+                                  style={{ width: '110px', padding: '6px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'right' }}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                    <button type="button" onClick={() => { setVendorPayModal(null); setVendorPayAllocations({}); setVendorPayForm({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' }); }} style={{ padding: '8px 16px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CANCEL</button>
+                    <button type="submit" disabled={savingVendorPayment || amount <= 0 || payable.length === 0} style={{ padding: '8px 18px', borderRadius: '7px', border: 'none', background: (savingVendorPayment || amount <= 0 || payable.length === 0) ? '#94a3b8' : '#065935', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: (savingVendorPayment || amount <= 0 || payable.length === 0) ? 'not-allowed' : 'pointer' }}>{savingVendorPayment ? 'SAVING...' : 'RECORD & AUTO-TALLY'}</button>
+                  </div>
+                </form>
+              );
+            })()}
+          </Modal>
+
+          {/* EDIT PAYMENT MODAL */}
+          <Modal
+            isOpen={Boolean(editingPayment)}
+            onClose={() => setEditingPayment(null)}
+            title={editingPayment ? `Edit Payment — ${editingPayment.bill_number || ''}` : 'Edit Payment'}
+            maxWidth="520px"
+          >
+            {editingPayment && (
+              <form onSubmit={handleSubmitEditPayment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontSize: '12.5px', color: '#475569' }}>
+                  Adjust this payment. The linked bill's paid amount, outstanding balance and payment status will be recalculated automatically.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>AMOUNT (₹) *</label>
+                    <input type="number" min="0" step="0.01" required value={editPaymentForm.amount} onChange={(e) => setEditPaymentForm(prev => ({ ...prev, amount: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>DATE</label>
+                    <input type="date" value={editPaymentForm.payment_date} onChange={(e) => setEditPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>METHOD</label>
+                  <select value={editPaymentForm.payment_method} onChange={(e) => setEditPaymentForm(prev => ({ ...prev, payment_method: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', background: '#fff' }}>
+                    <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#64748b', marginBottom: '4px' }}>NOTES / REFERENCE</label>
+                  <input type="text" value={editPaymentForm.notes} onChange={(e) => setEditPaymentForm(prev => ({ ...prev, notes: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                  <button type="button" onClick={() => setEditingPayment(null)} style={{ padding: '8px 16px', borderRadius: '7px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>CANCEL</button>
+                  <button type="submit" disabled={savingEditPayment} style={{ padding: '8px 18px', borderRadius: '7px', border: 'none', background: savingEditPayment ? '#94a3b8' : '#065935', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: savingEditPayment ? 'not-allowed' : 'pointer' }}>{savingEditPayment ? 'SAVING...' : 'SAVE CHANGES'}</button>
+                </div>
+              </form>
+            )}
+          </Modal>
+
+          {/* VENDOR DATE-WISE PAYMENT HISTORY MODAL */}
+          <Modal
+            isOpen={Boolean(datePaymentsVendor)}
+            onClose={() => setDatePaymentsVendor(null)}
+            title={datePaymentsVendor ? `Payment History — ${datePaymentsVendor.name}` : 'Payment History'}
+            maxWidth="880px"
+          >
+            {datePaymentsVendor && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>VENDOR</div>
+                    <div style={{ fontSize: '14px', fontWeight: 900, color: '#0f172a' }}>{datePaymentsVendor.name}</div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b' }}>{datePaymentsVendor.company_name || ''} {datePaymentsVendor.phone ? `• ${datePaymentsVendor.phone}` : ''}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total in Range</div>
+                      <div style={{ fontSize: '16px', fontWeight: 900, color: '#15803d' }}>₹{money(totalDateWisePaid)}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Transactions</div>
+                      <div style={{ fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>{dateWisePaymentsList.length}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Date and Method Filters */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr auto', gap: '10px', alignItems: 'end', background: '#f1f5f9', padding: '10px 12px', borderRadius: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#475569', marginBottom: '3px' }}>FROM DATE</label>
+                    <input
+                      type="date"
+                      value={datePaymentsFilter.from_date}
+                      onChange={(e) => setDatePaymentsFilter(prev => ({ ...prev, from_date: e.target.value }))}
+                      style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', background: '#fff' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#475569', marginBottom: '3px' }}>TO DATE</label>
+                    <input
+                      type="date"
+                      value={datePaymentsFilter.to_date}
+                      onChange={(e) => setDatePaymentsFilter(prev => ({ ...prev, to_date: e.target.value }))}
+                      style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', background: '#fff' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#475569', marginBottom: '3px' }}>METHOD</label>
+                    <select
+                      value={datePaymentsFilter.method}
+                      onChange={(e) => setDatePaymentsFilter(prev => ({ ...prev, method: e.target.value }))}
+                      style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', background: '#fff' }}
+                    >
+                      <option value="all">All Payment Methods</option>
+                      <option value="Cash">Cash</option>
+                      <option value="UPI">UPI</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Card">Card</option>
+                    </select>
+                  </div>
+                  {(datePaymentsFilter.from_date || datePaymentsFilter.to_date || datePaymentsFilter.method !== 'all') && (
+                    <button
+                      type="button"
+                      onClick={() => setDatePaymentsFilter({ from_date: '', to_date: '', method: 'all' })}
+                      style={{ padding: '7px 12px', borderRadius: '5px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '11px', fontWeight: 800, cursor: 'pointer', height: '33px' }}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
+                {/* Ledger Table */}
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '420px', overflowY: 'auto' }}>
+                  {dateWisePaymentsList.length === 0 ? (
+                    <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                      No payments found matching the selected dates.
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                      <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                        <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textAlign: 'left', textTransform: 'uppercase' }}>
+                          <th style={{ padding: '10px 14px' }}>Date</th>
+                          <th style={{ padding: '10px 14px' }}>Bill No.</th>
+                          <th style={{ padding: '10px 14px' }}>Method</th>
+                          <th style={{ padding: '10px 14px' }}>Notes / Reference</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'right' }}>Amount Paid</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dateWisePaymentsList.map(payment => (
+                          <tr key={payment.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '10px 14px', fontWeight: 700 }}>{shortDate(payment.payment_date)}</td>
+                            <td style={{ padding: '10px 14px', fontWeight: 800, color: '#0f172a' }}>{payment.bill_number}</td>
+                            <td style={{ padding: '10px 14px' }}>
+                              <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#f1f5f9', border: '1px solid #e2e8f0', fontSize: '11px', fontWeight: 700 }}>
+                                {payment.payment_method || 'Cash'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#64748b' }}>{payment.notes || '—'}</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '13px' }}>₹{money(payment.amount)}</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => openEditPayment({ ...payment, vendor_id: datePaymentsVendor.id })}
+                                style={{ padding: '5px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: '11px', fontWeight: 700, marginRight: '6px' }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePayment({ ...payment, vendor_id: datePaymentsVendor.id })}
+                                style={{ padding: '5px 9px', borderRadius: '5px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setDatePaymentsVendor(null)}
+                    style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', background: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    CLOSE
+                  </button>
                 </div>
               </div>
             )}

@@ -488,6 +488,26 @@ export async function getAdminVendorPurchaseHistory(id) {
   return adminFetch(`/admin/vendors/${id}/purchase-history`);
 }
 
+export async function recordAdminVendorPayment(id, data) {
+  return adminFetch(`/admin/vendors/${id}/payments`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminPurchaseBillPayment(id, data) {
+  return adminFetch(`/admin/purchase-bill-payments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminPurchaseBillPayment(id) {
+  return adminFetch(`/admin/purchase-bill-payments/${id}`, {
+    method: 'DELETE'
+  });
+}
+
 // Purchase Bills
 export async function getAdminPurchaseBills(params = {}) {
   const query = new URLSearchParams(params).toString();

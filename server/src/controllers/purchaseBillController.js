@@ -1326,6 +1326,245 @@ async function addPurchaseBillPayment(req, res, next) {
   }
 }
 
+// POST /api/admin/vendors/:id/payments
+// Records one amount and auto-tallies it across the vendor's unpaid bills
+// oldest-first, auto-marking fully settled bills as Paid.
+async function recordVendorPayment(req, res, next) {
+  try {
+    const vendorId = req.params.id;
+    const { amount, payment_date, payment_method = 'Cash', notes = '', allocations } = req.body;
+    const paymentAmount = toMoney(amount);
+    if (paymentAmount <= 0) return sendError(res, 'Payment amount must be greater than zero.', 400);
+
+    const userId = req.user ? req.user.id : null;
+
+    const result = await withTransaction(async (tx) => {
+      const vendors = await tx.query('SELECT id, name FROM vendors WHERE id = ? LIMIT 1', [vendorId]);
+      if (vendors.length === 0) throw httpError('Vendor not found', 404);
+
+      const bills = await tx.query(
+        `SELECT id, bill_number, grand_total, amount_paid, outstanding_amount
+         FROM purchase_bills
+         WHERE vendor_id = ? AND status <> 'cancelled' AND outstanding_amount > 0.009
+         ORDER BY purchase_date ASC, id ASC
+         FOR UPDATE`,
+        [vendorId]
+      );
+
+      if (bills.length === 0) throw httpError('This vendor has no outstanding bills.', 400);
+
+      const totalOutstanding = toMoney(bills.reduce((sum, b) => sum + Number(b.outstanding_amount || 0), 0));
+      if (paymentAmount > totalOutstanding + 0.009) {
+        throw httpError(`Payment exceeds the total outstanding amount of ₹${totalOutstanding.toFixed(2)}.`, 400);
+      }
+
+      const billById = new Map(bills.map(b => [Number(b.id), b]));
+      let plan = [];
+
+      if (Array.isArray(allocations) && allocations.length > 0) {
+        const perBill = new Map();
+        for (const entry of allocations) {
+          const billId = Number(entry.bill_id || entry.billId);
+          const value = toMoney(entry.amount);
+          if (!billById.has(billId)) {
+            throw httpError(`Bill ${billId} is not an outstanding bill for this vendor.`, 400);
+          }
+          if (value <= 0) continue;
+          const bill = billById.get(billId);
+          const alreadyAllocated = perBill.get(billId) || 0;
+          if (toMoney(alreadyAllocated + value) > toMoney(bill.outstanding_amount) + 0.009) {
+            throw httpError(`Allocation for bill ${bill.bill_number || billId} exceeds its outstanding amount.`, 400);
+          }
+          perBill.set(billId, toMoney(alreadyAllocated + value));
+          plan.push({ bill, amount: value });
+        }
+        if (plan.length === 0) throw httpError('Please allocate the payment to at least one bill.', 400);
+        const allocated = toMoney(plan.reduce((sum, p) => sum + p.amount, 0));
+        if (Math.abs(allocated - paymentAmount) > 0.009) {
+          throw httpError(
+            `Allocated amount ₹${allocated.toFixed(2)} must match the payment amount ₹${paymentAmount.toFixed(2)}.`,
+            400
+          );
+        }
+      } else {
+        let remaining = paymentAmount;
+        for (const bill of bills) {
+          if (remaining <= 0.009) break;
+          const take = Math.min(remaining, toMoney(bill.outstanding_amount));
+          if (take <= 0) continue;
+          plan.push({ bill, amount: take });
+          remaining = toMoney(remaining - take);
+        }
+        if (remaining > 0 && plan.length > 0) {
+          plan[plan.length - 1].amount = toMoney(plan[plan.length - 1].amount + remaining);
+        }
+      }
+
+      const payDate = formatDate(payment_date);
+      const applied = [];
+
+      for (const { bill, amount: applyAmount } of plan) {
+        await tx.query(
+          `INSERT INTO purchase_bill_payments (purchase_bill_id, amount, payment_date, payment_method, notes, created_by)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [bill.id, applyAmount, payDate, payment_method, notes || null, userId]
+        );
+
+        const newPaid = toMoney(Number(bill.amount_paid || 0) + applyAmount);
+        const newOutstanding = Math.max(0, toMoney(Number(bill.grand_total || 0) - newPaid));
+        const newStatus = paymentStatusFor(bill.grand_total, newPaid);
+
+        await tx.query(
+          `UPDATE purchase_bills SET amount_paid = ?, outstanding_amount = ?, payment_status = ? WHERE id = ?`,
+          [newPaid, newOutstanding, newStatus, bill.id]
+        );
+
+        applied.push({
+          bill_id: bill.id,
+          bill_number: bill.bill_number,
+          applied_amount: applyAmount,
+          amount_paid: newPaid,
+          outstanding_amount: newOutstanding,
+          payment_status: newStatus
+        });
+      }
+
+      return {
+        vendor_id: Number(vendorId),
+        vendor_name: vendors[0].name,
+        amount: paymentAmount,
+        payment_date: payDate,
+        applied,
+        total_applied: toMoney(applied.reduce((sum, a) => sum + a.applied_amount, 0))
+      };
+    });
+
+    return sendSuccess(res, result, 'Vendor payment recorded and tallied successfully', 201);
+  } catch (error) {
+    if (error.statusCode) return sendError(res, error.message, error.statusCode);
+    next(error);
+  }
+}
+
+// PUT /api/admin/purchase-bill-payments/:id
+async function updatePurchaseBillPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { amount, payment_date, payment_method, notes } = req.body;
+
+    const result = await withTransaction(async (tx) => {
+      const rows = await tx.query('SELECT * FROM purchase_bill_payments WHERE id = ? FOR UPDATE', [id]);
+      if (rows.length === 0) throw httpError('Payment not found', 404);
+      const payment = rows[0];
+
+      const bills = await tx.query('SELECT * FROM purchase_bills WHERE id = ? FOR UPDATE', [payment.purchase_bill_id]);
+      if (bills.length === 0) throw httpError('Linked purchase bill not found', 404);
+      const bill = bills[0];
+
+      const nextAmount = (amount === undefined || amount === null || amount === '')
+        ? toMoney(payment.amount)
+        : toMoney(amount);
+      if (nextAmount <= 0) throw httpError('Payment amount must be greater than zero.', 400);
+
+      const delta = toMoney(nextAmount - Number(payment.amount || 0));
+      const newPaid = toMoney(Number(bill.amount_paid || 0) + delta);
+      if (newPaid < -0.009) {
+        throw httpError('Updated amount is lower than what has already been paid against this bill.', 400);
+      }
+      const safePaid = Math.max(0, newPaid);
+      const billTotal = toMoney(bill.grand_total);
+      if (safePaid > billTotal + 0.009) {
+        throw httpError(`Payment exceeds the bill total of ₹${billTotal.toFixed(2)}.`, 400);
+      }
+
+      const newOutstanding = Math.max(0, toMoney(billTotal - safePaid));
+      const newStatus = paymentStatusFor(bill.grand_total, safePaid);
+
+      await tx.query(
+        `UPDATE purchase_bill_payments
+         SET amount = ?, payment_date = ?, payment_method = ?, notes = ?
+         WHERE id = ?`,
+        [
+          nextAmount,
+          payment_date ? formatDate(payment_date) : formatDate(payment.payment_date),
+          (payment_method !== undefined && payment_method !== null && payment_method !== '')
+            ? payment_method
+            : payment.payment_method,
+          notes !== undefined ? (notes || null) : payment.notes,
+          id
+        ]
+      );
+
+      await tx.query(
+        'UPDATE purchase_bills SET amount_paid = ?, outstanding_amount = ?, payment_status = ? WHERE id = ?',
+        [safePaid, newOutstanding, newStatus, bill.id]
+      );
+
+      return {
+        id: Number(id),
+        purchase_bill_id: bill.id,
+        bill_number: bill.bill_number,
+        amount: nextAmount,
+        amount_paid: safePaid,
+        outstanding_amount: newOutstanding,
+        payment_status: newStatus
+      };
+    });
+
+    return sendSuccess(res, result, 'Payment updated successfully');
+  } catch (error) {
+    if (error.statusCode) return sendError(res, error.message, error.statusCode);
+    next(error);
+  }
+}
+
+// DELETE /api/admin/purchase-bill-payments/:id
+async function deletePurchaseBillPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const result = await withTransaction(async (tx) => {
+      const rows = await tx.query('SELECT * FROM purchase_bill_payments WHERE id = ? FOR UPDATE', [id]);
+      if (rows.length === 0) throw httpError('Payment not found', 404);
+      const payment = rows[0];
+
+      const bills = await tx.query('SELECT * FROM purchase_bills WHERE id = ? FOR UPDATE', [payment.purchase_bill_id]);
+      let bill = null;
+      let newPaid = 0;
+      let newOutstanding = 0;
+      let newStatus = 'Unpaid';
+
+      if (bills.length > 0) {
+        bill = bills[0];
+        newPaid = Math.max(0, toMoney(Number(bill.amount_paid || 0) - Number(payment.amount || 0)));
+        newOutstanding = Math.max(0, toMoney(Number(bill.grand_total || 0) - newPaid));
+        newStatus = paymentStatusFor(bill.grand_total, newPaid);
+
+        await tx.query(
+          'UPDATE purchase_bills SET amount_paid = ?, outstanding_amount = ?, payment_status = ? WHERE id = ?',
+          [newPaid, newOutstanding, newStatus, bill.id]
+        );
+      }
+
+      await tx.query('DELETE FROM purchase_bill_payments WHERE id = ?', [id]);
+
+      return {
+        id: Number(id),
+        purchase_bill_id: payment.purchase_bill_id,
+        bill_number: bill ? bill.bill_number : null,
+        amount_paid: newPaid,
+        outstanding_amount: newOutstanding,
+        payment_status: newStatus
+      };
+    });
+
+    return sendSuccess(res, result, 'Payment deleted successfully');
+  } catch (error) {
+    if (error.statusCode) return sendError(res, error.message, error.statusCode);
+    next(error);
+  }
+}
+
 // DELETE /api/admin/purchase-bills/:id
 async function deletePurchaseBill(req, res, next) {
   try {
@@ -1382,7 +1621,7 @@ async function getVendorPurchaseHistory(req, res, next) {
     );
 
     const payments = await query(
-      `SELECT pbp.*, pb.bill_number
+      `SELECT pbp.*, pb.bill_number, pb.vendor_id
        FROM purchase_bill_payments pbp
        JOIN purchase_bills pb ON pbp.purchase_bill_id = pb.id
        WHERE pb.vendor_id = ?
@@ -1420,6 +1659,9 @@ module.exports = {
   updatePurchaseBill,
   confirmPurchaseBill,
   addPurchaseBillPayment,
+  recordVendorPayment,
+  updatePurchaseBillPayment,
+  deletePurchaseBillPayment,
   deletePurchaseBill,
   getVendorPurchaseHistory,
   getSuggestedBillNumber,

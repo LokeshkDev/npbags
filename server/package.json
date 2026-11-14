@@ -10,7 +10,8 @@
     "db:setup": "node src/scripts/setup-db.js",
     "db:seed": "node src/scripts/seed-db.js",
     "db:migrate:vendor": "node src/scripts/migrate-vendor-purchase-billing.js",
-    "db:migrate:rate-history": "node src/scripts/migrate-purchase-rate-history.js"
+    "db:migrate:rate-history": "node src/scripts/migrate-purchase-rate-history.js",
+    "db:migrate:branch-associations": "node src/scripts/backfill-branch-product-associations.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

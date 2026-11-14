@@ -392,13 +392,218 @@ export default function AdminOrdersPage() {
   const printThermalReceipt = (order) => {
     if (!order) return;
     const items = order.items || [];
-    const dateStr = new Date(order.created_at || Date.now()).toLocaleString('en-IN');
     const orderNo = order.order_number || `POS-${order.id}`;
 
-    const totalMrp = Math.ceil(items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0));
-    const totalSellingPrice = Math.ceil(items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0));
-    const netPayable = Math.ceil(Number(order.total_amount || totalSellingPrice));
+    // Read fixed thermal printer settings from localStorage
+    let savedSettings = { paperWidth: '80mm', copies: 1, density: '300bol' };
+    try {
+      const stored = localStorage.getItem('np_thermal_settings');
+      if (stored) savedSettings = { ...savedSettings, ...JSON.parse(stored) };
+    } catch (e) {}
+
+    const is58mm = savedSettings.paperWidth === '58mm';
+    const bodyWidth = is58mm ? '52mm' : '72mm';
+    const fontSize = is58mm ? '9.5px' : '11px';
+    const is300Bol = savedSettings.density === '300bol';
+
+    // Store details (Physical receipt sample exact details)
+    const storeTitle = 'NP GRAND';
+    const addrLine1 = 'Rajaji saalai,Opp to';
+    const addrLine2 = 'kalaisangam,Theradi';
+    const addrLine3 = 'Thiruvallur - 602001';
+    const phoneStr = 'Mobile No : 9655858231';
+    const gstStr = 'GST No : 33AJCPN5984H1ZZ';
+    const webStr = 'Website : www.npgrandshopping.com';
+
+    // Date & Time formatting (DD/MM/YY & hh:mm A)
+    const orderDate = new Date(order.created_at || Date.now());
+    const dd = String(orderDate.getDate()).padStart(2, '0');
+    const mm = String(orderDate.getMonth() + 1).padStart(2, '0');
+    const yy = String(orderDate.getFullYear()).slice(-2);
+    const dateFormatted = `${dd}/${mm}/${yy}`;
+
+    let hours = orderDate.getHours();
+    const minutes = String(orderDate.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const hh = String(hours).padStart(2, '0');
+    const timeFormatted = `${hh}:${minutes} ${ampm}`;
+
+    // Customer Name / Mobile
+    const customerIdent = (order.customer_phone || order.customer_name || 'Walk-in').toUpperCase();
+
+    // Line totals & Summary
+    const totalQty = items.reduce((s, i) => s + Number(i.quantity || 1), 0);
+    const totalItemsCount = items.length;
+    const totalMrp = items.reduce((s, it) => s + (Number(it.mrp || it.regular_price || it.price || 0) * Number(it.quantity || 1)), 0);
+    const totalGross = items.reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+    const billDiscount = Number(order.discount || order.discount_amount || 0);
+    const netPayable = Math.max(0, Math.round(Number(order.total_amount || (totalGross - billDiscount))));
     const totalSavings = Math.max(0, totalMrp - netPayable);
+
+    // GST Slabs breakdown (Dynamic slabs calculation)
+    const gstMap = {};
+    items.forEach(it => {
+      let rate = 0;
+      if (it.gst_rate !== undefined && it.gst_rate !== null && it.gst_rate !== '') {
+        rate = Number(it.gst_rate);
+      } else if (it.tax_rate !== undefined && it.tax_rate !== null && it.tax_rate !== '') {
+        rate = Number(it.tax_rate);
+      } else if (order.is_accountable === 0) {
+        rate = 0;
+      } else {
+        rate = 18;
+      }
+      if (isNaN(rate)) rate = 0;
+      const itQty = Number(it.quantity || 1);
+      const itPrice = Number(it.price || 0);
+      const itTotal = itQty * itPrice;
+
+      if (!gstMap[rate]) {
+        gstMap[rate] = { rate, gross: 0 };
+      }
+      gstMap[rate].gross += itTotal;
+    });
+
+    const slabRates = Object.keys(gstMap).map(Number).sort((a, b) => a - b);
+    const slabBreakup = slabRates.length > 0 ? slabRates.map(rate => {
+      const slab = gstMap[rate];
+      const fraction = totalGross > 0 ? (slab.gross / totalGross) : 0;
+      const slabDiscount = billDiscount * fraction;
+      const slabNet = Math.max(0, slab.gross - slabDiscount);
+
+      if (rate === 0) {
+        return { rate: 0, sgst: 0, cgst: 0, taxable: slabNet };
+      }
+      const taxable = slabNet / (1 + (rate / 100));
+      const totalTax = slabNet - taxable;
+      const halfTax = totalTax / 2;
+      return {
+        rate,
+        sgst: halfTax,
+        cgst: halfTax,
+        taxable
+      };
+    }) : [
+      { rate: 0, sgst: 0, cgst: 0, taxable: netPayable }
+    ];
+
+    // Loyalty Points
+    const loyaltyPts = order.customer_np_points !== undefined && order.customer_np_points !== null
+      ? order.customer_np_points
+      : (order.points_earned || '');
+
+    const renderReceiptBody = (copyLabel) => `
+      <div class="receipt-section">
+        <div class="center">
+          <div class="store-title">${storeTitle}</div>
+          <div class="header-line">${addrLine1}</div>
+          <div class="header-line">${addrLine2}</div>
+          <div class="header-line">${addrLine3}</div>
+          <div class="header-line">${phoneStr}</div>
+          <div class="header-line">${gstStr}</div>
+          <div class="header-line">${webStr}</div>
+          <div class="divider"></div>
+          <div class="doc-title">TAX INVOICE</div>
+          ${copyLabel && savedSettings.copies === 2 ? `<div style="font-size: 9.5px; font-weight: 800; margin-top: 1px;">[ ${copyLabel} ]</div>` : ''}
+        </div>
+
+        <div class="divider"></div>
+        <div class="meta-row">
+          <div class="meta-left">NAME: ${customerIdent}</div>
+          <div class="meta-right"><div>Bill No: ${orderNo}</div><div>Date   : ${dateFormatted}</div><div>Time   : ${timeFormatted}</div></div>
+        </div>
+        <div class="divider"></div>
+
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th class="col-item">Particulars</th>
+              <th class="col-qty">Qty</th>
+              <th class="col-mrp">MRP</th>
+              <th class="col-rate">Rate</th>
+              <th class="col-amt">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(it => {
+              const itName = (it.product_name || it.name || 'ITEM').toUpperCase();
+              const itQty = Number(it.quantity || 1);
+              const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
+              const itRate = Number(it.price || 0);
+              const itAmount = itQty * itRate;
+              return `
+                <tr>
+                  <td class="col-item">${itName}</td>
+                  <td class="col-qty">${itQty}</td>
+                  <td class="col-mrp">${itMrp.toFixed(2)}</td>
+                  <td class="col-rate">${itRate.toFixed(2)}</td>
+                  <td class="col-amt">${itAmount.toFixed(2)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+
+        <div class="divider"></div>
+        <div class="summary-row">
+          <div class="summary-left">
+            <div>Tot Items: &nbsp;${totalItemsCount}</div>
+            <div>Tot Qty: &nbsp;&nbsp;&nbsp;${totalQty}</div>
+          </div>
+          <div class="summary-right">
+            <div class="flex-line"><span>Total MRP :</span><span>${totalMrp.toFixed(2)}</span></div>
+            ${billDiscount > 0 ? `
+              <div class="flex-line"><span>Bill Discount :</span><span>${billDiscount.toFixed(2)}</span></div>
+            ` : ''}
+            <div style="border-top: 1px dashed #000000; margin: 3px 0;"></div>
+            <div class="flex-line net-amt"><span>Net Amt :</span><span>${netPayable.toFixed(2)}</span></div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="savings-banner">
+          YOU HAVE SAVED: &nbsp;${Math.max(0, Math.round(totalSavings))}
+        </div>
+        <div class="divider"></div>
+
+        <table class="gst-table">
+          <thead>
+            <tr>
+              <th class="gst-col-rate">GST %</th>
+              <th class="gst-col-sgst">SGST AMT</th>
+              <th class="gst-col-cgst">CGST AMT</th>
+              <th class="gst-col-tax">TAXABLE AMT</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${slabBreakup.map(s => `
+              <tr>
+                <td class="gst-col-rate">${s.rate}</td>
+                <td class="gst-col-sgst">${s.sgst.toFixed(2)}</td>
+                <td class="gst-col-cgst">${s.cgst.toFixed(2)}</td>
+                <td class="gst-col-tax">${s.taxable.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="divider"></div>
+
+        <div class="loyalty-row">
+          Total Loyalty Points : ${loyaltyPts !== '' ? loyaltyPts : ''}
+        </div>
+        <div class="divider"></div>
+
+        <div class="terms-footer">
+          <div class="terms-title">TERMS & CONDITIONS</div>
+          <div>Goods once sold can't be taken back</div>
+          <div>***No Exchange***No Return***</div>
+          <div class="divider"></div>
+          <div class="thank-you">*** Thank for Shopping Visit Again ***</div>
+        </div>
+      </div>
+    `;
 
     const printHtml = `
 <!DOCTYPE html>
@@ -407,104 +612,241 @@ export default function AdminOrdersPage() {
 <meta charset="utf-8">
 <title>POS Receipt - ${orderNo}</title>
 <style>
-  @page { size: 80mm auto; margin: 0; }
-  * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; border-color: #000000 !important; }
+  @page {
+    size: ${is58mm ? '58mm' : '80mm'} auto;
+    margin: 0;
+  }
+  * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    border-color: #000000 !important;
+    box-sizing: border-box;
+  }
   body {
-    width: 72mm; margin: 0 auto; padding: 4mm 2mm;
+    width: ${bodyWidth};
+    margin: 0 auto;
+    padding: 3mm 2mm;
     font-family: 'Courier New', Courier, monospace, 'Lucida Console';
-    font-size: 11px; line-height: 1.35; color: #000000 !important;
-    font-weight: 800; -webkit-print-color-adjust: exact !important;
-    text-shadow: 0 0 0.4px #000000;
+    font-size: ${fontSize};
+    line-height: 1.3;
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-weight: 800;
+    ${is300Bol ? 'text-shadow: 0 0 0.35px #000000; -webkit-font-smoothing: none;' : ''}
+  }
+  .receipt-section {
+    page-break-inside: avoid;
   }
   .center { text-align: center; }
-  .bold { font-weight: 900 !important; }
-  .divider { border-top: 1.5px dashed #000000 !important; margin: 5px 0; }
-  .double-divider { border-top: 2.5px solid #000000 !important; margin: 5px 0; }
-  .flex-row { display: flex; justify-content: space-between; margin: 2px 0; }
-  .items-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 4px 0; }
-  .items-table th { text-align: left; border-bottom: 1.5px dashed #000000; padding: 3px 0; font-weight: 900; }
-  .items-table td { padding: 3px 0; vertical-align: top; }
-  .right { text-align: right; }
-  .subtext { font-size: 9px; font-weight: 700; }
+  .bold { font-weight: 900 !important; color: #000000 !important; }
+  .store-title {
+    font-size: ${is58mm ? '13px' : '15px'};
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .header-line {
+    font-size: ${is58mm ? '9px' : '10.5px'};
+    line-height: 1.25;
+  }
+  .doc-title {
+    font-size: ${is58mm ? '11px' : '12px'};
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin: 2px 0;
+  }
+  .divider {
+    border-top: 1px dashed #000000 !important;
+    margin: 4px 0;
+  }
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: ${fontSize};
+    line-height: 1.35;
+    margin: 2px 0;
+  }
+  .meta-left {
+    text-align: left;
+    max-width: 48%;
+    word-break: break-word;
+  }
+  .meta-right {
+    text-align: right;
+    white-space: pre;
+  }
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: ${is58mm ? '9px' : '10.5px'};
+    margin: 2px 0;
+  }
+  .items-table th {
+    border-bottom: 1px dashed #000000;
+    padding: 3px 0;
+    font-weight: 800;
+  }
+  .items-table td {
+    padding: 2px 0;
+    vertical-align: top;
+  }
+  .col-item {
+    text-align: left;
+    width: 28%;
+    padding-left: 0 !important;
+    padding-right: 2px !important;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  .col-qty {
+    text-align: right;
+    width: 11%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 4px !important;
+  }
+  .col-mrp {
+    text-align: right;
+    width: 19%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 4px !important;
+  }
+  .col-rate {
+    text-align: right;
+    width: 19%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 4px !important;
+  }
+  .col-amt {
+    text-align: right;
+    width: 23%;
+    white-space: nowrap;
+    padding-left: 4px !important;
+    padding-right: 0 !important;
+  }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: ${fontSize};
+    margin: 2px 0;
+  }
+  .summary-left {
+    text-align: left;
+    line-height: 1.4;
+  }
+  .summary-right {
+    text-align: right;
+    min-width: 55%;
+    line-height: 1.4;
+  }
+  .flex-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .net-amt {
+    font-size: ${is58mm ? '12px' : '13.5px'};
+    font-weight: 900;
+  }
+  .savings-banner {
+    font-size: ${is58mm ? '11px' : '12px'};
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin: 3px 0;
+  }
+  .gst-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: ${is58mm ? '8.5px' : '9.5px'};
+    margin: 2px 0;
+  }
+  .gst-table th {
+    padding: 2px 0;
+    font-weight: 800;
+  }
+  .gst-table td {
+    padding: 2px 0;
+  }
+  .gst-col-rate {
+    text-align: left;
+    width: 18%;
+    padding-left: 0 !important;
+    padding-right: 2px !important;
+  }
+  .gst-col-sgst {
+    text-align: right;
+    width: 26%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 3px !important;
+  }
+  .gst-col-cgst {
+    text-align: right;
+    width: 26%;
+    white-space: nowrap;
+    padding-left: 2px !important;
+    padding-right: 3px !important;
+  }
+  .gst-col-tax {
+    text-align: right;
+    width: 30%;
+    white-space: nowrap;
+    padding-left: 3px !important;
+    padding-right: 0 !important;
+  }
+  .loyalty-row {
+    font-size: ${fontSize};
+    font-weight: 800;
+    margin: 3px 0;
+  }
+  .terms-footer {
+    text-align: center;
+    font-size: ${is58mm ? '9px' : '10px'};
+    line-height: 1.35;
+    margin-top: 4px;
+  }
+  .terms-title {
+    font-weight: 900;
+    letter-spacing: 0.5px;
+  }
+  .thank-you {
+    font-weight: 900;
+    margin-top: 2px;
+  }
+  .cut-divider {
+    border-top: 2px dashed #000000 !important;
+    margin: 16px 0;
+    text-align: center;
+  }
+  .cut-divider span {
+    background: #ffffff;
+    padding: 0 6px;
+    font-size: 9px;
+    font-weight: 900;
+    position: relative;
+    top: -7px;
+  }
 </style>
 </head>
 <body>
-  <div class="center">
-    <div style="font-size: 16px; font-weight: 900;">NP GRAND SHOPPING</div>
-    <div class="subtext">${order.branch_name ? order.branch_name.toUpperCase() : (order.branch_id === 3 ? 'MANALI BRANCH' : 'MAIN STORE')}</div>
-    <div class="subtext">Phone: +91 97909 04504 &bull; www.npgrandshopping.com</div>
-    <div class="divider"></div>
-    <div class="bold" style="font-size: 12px;">TAX INVOICE / POS RECEIPT</div>
-  </div>
-
-  <div class="divider"></div>
-  <div class="flex-row"><span>Bill No:</span><span class="bold">${orderNo}</span></div>
-  <div class="flex-row"><span>Date:</span><span>${dateStr}</span></div>
-  <div class="flex-row"><span>Customer:</span><span class="bold">${order.customer_name}</span></div>
-  ${order.customer_phone ? `<div class="flex-row"><span>Phone:</span><span>${order.customer_phone}</span></div>` : ''}
-  <div class="flex-row"><span>Payment:</span><span class="bold">${(order.payment_method || 'Cash').toUpperCase()}</span></div>
-  <div class="divider"></div>
-
-  <table class="items-table">
-    <thead>
-      <tr>
-        <th style="width: 38%;">ITEM</th>
-        <th style="width: 10%;" class="right">QTY</th>
-        <th style="width: 17%;" class="right">MRP</th>
-        <th style="width: 17%;" class="right">PRICE</th>
-        <th style="width: 18%;" class="right">TOTAL</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map(it => {
-        const itMrp = Number(it.mrp || it.regular_price || it.price || 0);
-        const itPrice = Number(it.price || 0);
-        const itQty = Number(it.quantity || 1);
-        const itTotal = itQty * itPrice;
-        return `
-          <tr>
-            <td>
-              <div class="bold">${it.product_name}</div>
-              <div class="subtext">[${it.sku || it.barcode || 'ITEM'}]</div>
-            </td>
-            <td class="right bold">${itQty}</td>
-            <td class="right">${itMrp.toFixed(2)}</td>
-            <td class="right bold">${itPrice.toFixed(2)}</td>
-            <td class="right bold">${itTotal.toFixed(2)}</td>
-          </tr>
-        `;
-      }).join('')}
-    </tbody>
-  </table>
-
-  <div class="divider"></div>
-  <div class="flex-row"><span>Items Count:</span><span class="bold">${items.reduce((s, i) => s + Number(i.quantity), 0)}</span></div>
-  <div class="flex-row"><span>Total MRP:</span><span class="bold">Rs. ${totalMrp}</span></div>
-  <div class="flex-row"><span>Final Price (Selling Price):</span><span class="bold">Rs. ${totalSellingPrice}</span></div>
-  ${Number(order.discount) > 0 ? `<div class="flex-row"><span>Discount:</span><span class="bold">- Rs. ${Number(order.discount).toFixed(2)}</span></div>` : ''}
-  <div class="flex-row"><span>Taxable Value:</span><span>Rs. ${Number(order.taxable_amount || (order.total_amount * 0.8475)).toFixed(2)}</span></div>
-  <div class="flex-row"><span>CGST (9%):</span><span>Rs. ${Number(order.cgst_amount || (order.total_amount * 0.07625)).toFixed(2)}</span></div>
-  <div class="flex-row"><span>SGST (9%):</span><span>Rs. ${Number(order.sgst_amount || (order.total_amount * 0.07625)).toFixed(2)}</span></div>
-  <div class="double-divider"></div>
-  <div class="flex-row" style="font-size: 13.5px;"><span class="bold">NET PAYABLE:</span><span class="bold">Rs. ${netPayable}</span></div>
-  <div class="double-divider"></div>
-
-  ${totalSavings > 0 ? `
-    <div class="center bold" style="font-size: 12px; padding: 4px 2px; border: 1.5px dashed #000000; margin: 6px 0; letter-spacing: 0.4px;">
-      *** YOU SAVED: ₹${totalSavings} ***
-    </div>
+  ${renderReceiptBody('CUSTOMER COPY')}
+  ${savedSettings.copies === 2 ? `
+    <div class="cut-divider"><span>--- CUT HERE / STORE COPY ---</span></div>
+    ${renderReceiptBody('MERCHANT / STORE COPY')}
   ` : ''}
-
-  <div class="center" style="font-size: 9.5px; margin-top: 8px;">
-    <div class="bold">GST INCLUSIVE. ALL TAXES ACCOUNTED FOR.</div>
-    <div>Items exchangeable within 7 days with bill.</div>
-    <div class="bold" style="margin-top: 4px;">*** THANK YOU FOR SHOPPING WITH US! ***</div>
-  </div>
 </body>
 </html>
     `;
 
-    const printWin = window.open('', '_blank', 'width=450,height=600');
+    const printWin = window.open('', '_blank', `width=${is58mm ? 400 : 500},height=650`);
     if (printWin) {
       printWin.document.open();
       printWin.document.write(printHtml);
@@ -513,7 +855,7 @@ export default function AdminOrdersPage() {
         printWin.focus();
         printWin.print();
         printWin.close();
-      }, 350);
+      }, 400);
     }
   };
 
