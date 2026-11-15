@@ -78,6 +78,7 @@ const emptyVendorForm = {
 };
 
 let billItemKey = 1;
+let newVariantKey = 1;
 const newBillItem = () => ({
   key: `item-${billItemKey++}`,
   product_id: '',
@@ -85,6 +86,7 @@ const newBillItem = () => ({
   variant_id: '',
   variant_info: '',
   variant_quantities: {},
+  new_variants: [],
   quantity: 1,
   purchase_rate: '',
   purchase_rate_alias: '',
@@ -100,6 +102,13 @@ const newBillItem = () => ({
 const parseAmount = (value) => {
   const num = parseFloat(String(value ?? '').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(num) ? num : 0;
+};
+
+// Combined received quantity across existing variants and yet-to-be-created ones.
+const lineVariantQtyTotal = (item) => {
+  const existing = Object.values(item?.variant_quantities || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
+  const added = (item?.new_variants || []).reduce((sum, v) => sum + (Number(v.quantity) || 0), 0);
+  return existing + added;
 };
 
 const computeBillItemCosting = (item, product) => {
@@ -760,6 +769,7 @@ export default function AdminVendorsPage() {
         variant_id: vars.length > 0 ? '' : (firstVar ? String(firstVar.id) : ''),
         variant_info: firstVar ? [firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
         variant_quantities: {},
+        new_variants: [],
         purchase_rate: match.purchased_rate !== null && match.purchased_rate !== undefined
           ? String(match.purchased_rate)
           : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : ''),
@@ -770,7 +780,7 @@ export default function AdminVendorsPage() {
         expiry_date: toDateInput(match.expiry_date)
       });
     } else {
-      updateBillItem(index, { product_name: value, product_id: '', variant_id: '', variant_info: '', variant_quantities: {} });
+      updateBillItem(index, { product_name: value, product_id: '', variant_id: '', variant_info: '', variant_quantities: {}, new_variants: [] });
     }
   };
 
@@ -784,7 +794,7 @@ export default function AdminVendorsPage() {
         const qty = Math.max(0, parseInt(rawQty, 10) || 0);
         if (qty > 0) quantities[String(variantId)] = qty;
         else delete quantities[String(variantId)];
-        const total = Object.values(quantities).reduce((sum, q) => sum + (Number(q) || 0), 0);
+        const total = lineVariantQtyTotal({ ...item, variant_quantities: quantities });
         const appliedForVariant = String(item.variant_id || '') === String(variantId)
           ? Math.max(0, Number(item.stock_applied_qty) || 0)
           : 0;
@@ -794,6 +804,47 @@ export default function AdminVendorsPage() {
           quantity: total > 0 ? total : '',
           stock_applied_qty: appliedForVariant
         };
+      });
+      return { ...prev, items };
+    });
+  };
+
+  // Draft a brand-new variant (color/size/SKU) for an existing catalog product.
+  // It is created on the product when the purchase bill is saved.
+  const addNewVariant = (index) => {
+    setBillForm(prev => {
+      const items = prev.items.map((item, idx) => {
+        if (idx !== index) return item;
+        const newVariants = [
+          ...(item.new_variants || []),
+          { key: `nv-${newVariantKey++}`, color_name: '', size_name: '', sku: '', quantity: '' }
+        ];
+        const next = { ...item, new_variants: newVariants };
+        return { ...next, quantity: lineVariantQtyTotal(next) || item.quantity };
+      });
+      return { ...prev, items };
+    });
+  };
+
+  const updateNewVariant = (index, key, field, value) => {
+    setBillForm(prev => {
+      const items = prev.items.map((item, idx) => {
+        if (idx !== index) return item;
+        const newVariants = (item.new_variants || []).map(v => v.key === key ? { ...v, [field]: value } : v);
+        const next = { ...item, new_variants: newVariants };
+        return { ...next, quantity: lineVariantQtyTotal(next) || '' };
+      });
+      return { ...prev, items };
+    });
+  };
+
+  const removeNewVariant = (index, key) => {
+    setBillForm(prev => {
+      const items = prev.items.map((item, idx) => {
+        if (idx !== index) return item;
+        const newVariants = (item.new_variants || []).filter(v => v.key !== key);
+        const next = { ...item, new_variants: newVariants };
+        return { ...next, quantity: lineVariantQtyTotal(next) || '' };
       });
       return { ...prev, items };
     });
@@ -1053,12 +1104,14 @@ export default function AdminVendorsPage() {
     return billForm.items.reduce((acc, item) => {
       const product = products.find(p => String(p.id) === String(item.product_id));
       const productVariants = Array.isArray(product?.variants) ? product.variants : [];
-      const variantTotal = Object.values(item.variant_quantities || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
+      const variantTotal = lineVariantQtyTotal(item);
       // Skip variant lines that have no quantity entered yet
-      if (productVariants.length > 0 && variantTotal === 0 && !item.variant_id) {
+      if ((productVariants.length > 0 || (item.new_variants || []).length > 0) && variantTotal === 0 && !item.variant_id) {
         return acc;
       }
-      const effectiveQty = productVariants.length > 0 ? (variantTotal || Number(item.quantity) || 0) : item.quantity;
+      const effectiveQty = (productVariants.length > 0 || (item.new_variants || []).length > 0)
+        ? (variantTotal || Number(item.quantity) || 0)
+        : item.quantity;
       const costing = computeBillItemCosting({ ...item, quantity: effectiveQty }, product);
       acc.gross += costing.gross;
       acc.discount += costing.discountAmount;
@@ -1108,7 +1161,7 @@ export default function AdminVendorsPage() {
       confirm: Boolean(billForm.confirm),
       items: validItems.flatMap(item => {
         const product = products.find(p => String(p.id) === String(item.product_id));
-        const buildPayload = (variantId, variantInfo, qty, stockApplied) => {
+        const buildPayload = (variantId, variantInfo, qty, stockApplied, newVariant = null) => {
           const quantity = Math.max(1, Number(qty) || 1);
           const costing = computeBillItemCosting({ ...item, quantity }, product);
           return {
@@ -1116,6 +1169,7 @@ export default function AdminVendorsPage() {
             product_name: item.product_name,
             variant_id: variantId ? Number(variantId) : null,
             variant_info: variantInfo || null,
+            new_variant: newVariant || null,
             scanned_barcode: item.barcode || null,
             stock_applied_qty: Math.max(0, Number(stockApplied) || 0),
             stock_scan_applied: 0,
@@ -1144,20 +1198,35 @@ export default function AdminVendorsPage() {
         const variantEntries = Object.entries(variantQuantities)
           .map(([vid, q]) => [vid, Number(q) || 0])
           .filter(([, q]) => q > 0);
+        // Variants typed in the bill that do not exist on the product yet.
+        const newVariantEntries = (item.new_variants || [])
+          .map(v => ({ ...v, quantity: Number(v.quantity) || 0 }))
+          .filter(v => v.quantity > 0 && (
+            String(v.color_name || '').trim() ||
+            String(v.size_name || '').trim() ||
+            String(v.sku || '').trim()
+          ));
 
-        // Products with variants: emit one bill line per variant so each
-        // variant's stock is updated separately in a single confirmation.
-        if (productVariants.length > 0) {
-          if (variantEntries.length > 0) {
-            return variantEntries.map(([vid, qty]) => {
-              const v = productVariants.find(x => String(x.id) === String(vid));
-              const info = v ? [v.color_name, v.size_name].filter(Boolean).join(' / ') : null;
-              const applied = String(item.variant_id || '') === String(vid)
-                ? Math.max(0, Number(item.stock_applied_qty) || 0)
-                : 0;
-              return buildPayload(vid, info, qty, applied);
-            });
-          }
+        // Products with variants (or bill-introduced new variants): emit one
+        // bill line per variant so each variant's stock is updated separately.
+        if (productVariants.length > 0 || newVariantEntries.length > 0) {
+          const lines = variantEntries.map(([vid, qty]) => {
+            const v = productVariants.find(x => String(x.id) === String(vid));
+            const info = v ? [v.color_name, v.size_name].filter(Boolean).join(' / ') : null;
+            const applied = String(item.variant_id || '') === String(vid)
+              ? Math.max(0, Number(item.stock_applied_qty) || 0)
+              : 0;
+            return buildPayload(vid, info, qty, applied);
+          });
+          newVariantEntries.forEach(nv => {
+            const info = [nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || String(nv.sku || '').trim() || 'New variant';
+            lines.push(buildPayload(null, info, nv.quantity, 0, {
+              color_name: String(nv.color_name || '').trim() || null,
+              size_name: String(nv.size_name || '').trim() || null,
+              sku: String(nv.sku || '').trim() || null
+            }));
+          });
+          if (lines.length > 0) return lines;
           // Scanned single-variant line without an explicit per-variant map
           if (item.variant_id) {
             return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty)];
@@ -2484,18 +2553,18 @@ export default function AdminVendorsPage() {
                             )}
                           </div>
                           <div>
-                            {variants.length > 0 ? (
+                            {variants.length > 0 || (item.new_variants || []).length > 0 ? (
                               <div style={{ padding: '7px 9px', borderRadius: '5px', border: '1px dashed #93c5fd', background: '#eff6ff', fontSize: '11px', color: '#1e3a8a', fontWeight: 700 }}>
-                                {variants.length} variant{variants.length > 1 ? 's' : ''} · enter qty below
+                                {variants.length + (item.new_variants || []).length} variant{(variants.length + (item.new_variants || []).length) > 1 ? 's' : ''} · enter qty below
                               </div>
                             ) : (
                               <input type="text" value={item.variant_info} onChange={(e) => updateBillItem(index, { variant_info: e.target.value })} placeholder="Variant/size (optional)" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
                             )}
                           </div>
                           <div>
-                            {variants.length > 0 ? (
+                            {variants.length > 0 || (item.new_variants || []).length > 0 ? (
                               <div style={{ padding: '7px 6px', borderRadius: '5px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '12px', textAlign: 'center', fontWeight: 800, color: '#0f172a' }} title="Total quantity across all variants">
-                                {Object.values(item.variant_quantities || {}).reduce((sum, q) => sum + (Number(q) || 0), 0)}
+                                {lineVariantQtyTotal(item)}
                               </div>
                             ) : (
                               <input
@@ -2547,11 +2616,15 @@ export default function AdminVendorsPage() {
                         </div>
 
                         {/* Per-variant stock entry — each variant is updated separately */}
-                        {variants.length > 0 && (
-                          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        {(item.product_id || variants.length > 0 || (item.new_variants || []).length > 0) && (
+                          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '8px' }}>
                               <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>🧮 Variant Stock Update (each variant separately)</span>
-                              <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty per variant</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty per variant</span>
+                                <button type="button" onClick={() => addNewVariant(index)} style={{ background: '#eff6ff', border: '1px solid #93c5fd', color: '#1d4ed8', borderRadius: '5px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                  + NEW VARIANT
+                                </button>
+                              </div>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '6px' }}>
                               {variants.map(v => {
@@ -2579,6 +2652,20 @@ export default function AdminVendorsPage() {
                                 );
                               })}
                             </div>
+                            {(item.new_variants || []).length > 0 && (
+                              <div style={{ marginTop: '6px', display: 'grid', gap: '6px' }}>
+                                {(item.new_variants || []).map(nv => (
+                                  <div key={nv.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 62px 26px', gap: '6px', alignItems: 'center', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '5px', padding: '5px 7px' }}>
+                                    <input value={nv.color_name} onChange={(e) => updateNewVariant(index, nv.key, 'color_name', e.target.value)} placeholder="Colour (e.g. Red)" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                    <input value={nv.size_name} onChange={(e) => updateNewVariant(index, nv.key, 'size_name', e.target.value)} placeholder="Size (e.g. M)" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                    <input value={nv.sku} onChange={(e) => updateNewVariant(index, nv.key, 'sku', e.target.value)} placeholder="SKU (optional)" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
+                                    <input type="number" min="0" value={nv.quantity || ''} onChange={(e) => updateNewVariant(index, nv.key, 'quantity', e.target.value)} placeholder="0" style={{ width: '100%', padding: '6px 4px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }} title="Received qty for this new variant" />
+                                    <button type="button" onClick={() => removeNewVariant(index, nv.key)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '5px', padding: '5px 0', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+                                  </div>
+                                ))}
+                                <div style={{ fontSize: '9.5px', color: '#92400e', fontWeight: 700 }}>New variants are created on the product when you save this bill.</div>
+                              </div>
+                            )}
                           </div>
                         )}
 

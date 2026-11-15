@@ -225,6 +225,35 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
 
   let variantId = item.variant_id ? parseInt(item.variant_id, 10) : null;
   let variantInfo = item.variant_info || null;
+  const requestedNewVariant = item.new_variant || item.newVariant || null;
+
+  // A purchase bill can introduce a brand-new variant for an existing product.
+  // Create (or reuse) the variant row here so the bill line gets a real variant_id.
+  if (!variantId && requestedNewVariant && (requestedNewVariant.color_name || requestedNewVariant.size_name || requestedNewVariant.sku)) {
+    const colorName = String(requestedNewVariant.color_name || '').trim() || 'Standard';
+    const sizeName = String(requestedNewVariant.size_name || '').trim() || 'Standard';
+    const colorHex = String(requestedNewVariant.color_hex || '').trim() || '#000000';
+    const existingVariantRows = await tx.query(
+      `SELECT * FROM product_variants
+       WHERE product_id = ? AND LOWER(color_name) = LOWER(?) AND LOWER(size_name) = LOWER(?)
+       LIMIT 1`,
+      [product.id, colorName, sizeName]
+    );
+    if (existingVariantRows.length > 0) {
+      variantId = existingVariantRows[0].id;
+    } else {
+      const requestedSku = String(requestedNewVariant.sku || '').trim();
+      const generatedSku = `NP-${product.id}-${slugify(`${colorName}-${sizeName}`, { lower: false, strict: true }) || Date.now()}`;
+      const newSku = (requestedSku || generatedSku).slice(0, 64);
+      const insertVariant = await tx.query(
+        `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, sku)
+         VALUES (?, ?, ?, ?, 0, ?)`,
+        [product.id, colorName, colorHex, sizeName, newSku]
+      );
+      variantId = insertVariant.insertId;
+    }
+    variantInfo = variantInfo || [colorName, sizeName].join(' / ');
+  }
 
   if (variantId) {
     const variants = await tx.query(
