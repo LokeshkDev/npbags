@@ -28,6 +28,11 @@ async function migrate() {
     await query('ALTER TABLE products ADD COLUMN purchased_rate VARCHAR(64) NULL AFTER purchase_price');
   }
 
+  if (!(await columnExists('products', 'brand'))) {
+    console.log('Adding products.brand...');
+    await query('ALTER TABLE products ADD COLUMN brand VARCHAR(128) NULL AFTER name');
+  }
+
   if (!(await columnExists('products', 'manufacturing_date'))) {
     console.log('Adding products.manufacturing_date...');
     await query('ALTER TABLE products ADD COLUMN manufacturing_date DATE NULL AFTER shipping_info');

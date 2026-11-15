@@ -145,7 +145,7 @@ test('createProduct saves the scanned barcode when it is unique', async () => {
   assert.equal(res.body.data.id, 'canvas-tote');
 
   assert.ok(db.state.productInsert, 'product insert should run');
-  assert.equal(db.state.productInsert.length, 37);
+  assert.equal(db.state.productInsert.length, 38);
   assert.equal(db.state.productInsert[0], 'canvas-tote');
   assert.equal(db.state.productInsert[2], 'Canvas Tote');
 

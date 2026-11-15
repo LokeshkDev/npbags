@@ -84,6 +84,7 @@ export default function AdminProductsPage() {
 
   // Filter & sorting states
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [brandFilter, setBrandFilter] = useState('all');
   const [genderFilter, setGenderFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
   const [badgeFilter, setBadgeFilter] = useState('all');
@@ -111,6 +112,7 @@ export default function AdminProductsPage() {
     name: '',
     slug: '',
     barcode: '',
+    brand: '',
     category_id: '',
     gender: 'none',
     price: '',
@@ -410,6 +412,7 @@ export default function AdminProductsPage() {
       name: extraDefaults.name || '',
       slug: extraDefaults.name ? extraDefaults.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '',
       barcode: '',
+      brand: extraDefaults.brand || '',
       category_id: firstCat?.id || '',
       gender: firstCat?.gender || 'none',
       price: '',
@@ -507,6 +510,7 @@ export default function AdminProductsPage() {
       name: p.name || '',
       slug: p.slug || p.id || '',
       barcode: '',
+      brand: p.brand || '',
       category_id: p.category_id || '',
       gender: p.gender || 'none',
       price: p.price || '',
@@ -988,6 +992,7 @@ export default function AdminProductsPage() {
       name: p.name || '',
       slug: p.slug || generateSlug(p.name || ''),
       barcode: code,
+      brand: p.brand || '',
       category_id: p.category_id ? String(p.category_id) : '',
       gender: p.gender || 'none',
       price: p.price !== null && p.price !== undefined ? String(p.price) : '',
@@ -1266,6 +1271,12 @@ export default function AdminProductsPage() {
     return g === '' || g === 'none';
   }).length;
 
+  const brandOptions = [...new Set(
+    products
+      .map(p => String(p.brand || '').trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+
   const countInStock = products.filter(p => getProductStock(p) > 10).length;
   const countLowStock = products.filter(p => {
     const s = getProductStock(p);
@@ -1280,6 +1291,7 @@ export default function AdminProductsPage() {
   const hasActiveFilters = Boolean(
     search.trim() ||
     categoryFilter !== 'all' ||
+    brandFilter !== 'all' ||
     genderFilter !== 'all' ||
     stockFilter !== 'all' ||
     badgeFilter !== 'all' ||
@@ -1291,6 +1303,7 @@ export default function AdminProductsPage() {
   const handleClearAllFilters = () => {
     setSearch('');
     setCategoryFilter('all');
+    setBrandFilter('all');
     setGenderFilter('all');
     setStockFilter('all');
     setBadgeFilter('all');
@@ -1306,8 +1319,9 @@ export default function AdminProductsPage() {
       const matchesName = p.name && p.name.toLowerCase().includes(q);
       const matchesSlug = p.slug && p.slug.toLowerCase().includes(q);
       const matchesCat = (p.category_name && p.category_name.toLowerCase().includes(q)) || (p.cat && p.cat.toLowerCase().includes(q));
+      const matchesBrand = p.brand && String(p.brand).toLowerCase().includes(q);
       const matchesBadge = p.badge && p.badge.toLowerCase().includes(q);
-      if (!matchesName && !matchesSlug && !matchesCat && !matchesBadge) return false;
+      if (!matchesName && !matchesSlug && !matchesCat && !matchesBrand && !matchesBadge) return false;
     }
 
     // 2. Category Filter (Main category includes its subcategories, or specific subcategory)
@@ -1320,7 +1334,17 @@ export default function AdminProductsPage() {
       if (!matchesCategory) return false;
     }
 
-    // 3. Gender / Department Filter
+    // 3. Brand Filter
+    if (brandFilter !== 'all') {
+      const brandValue = String(p.brand || '').trim();
+      if (brandFilter === '__none__') {
+        if (brandValue) return false;
+      } else if (brandValue.toLowerCase() !== brandFilter.toLowerCase()) {
+        return false;
+      }
+    }
+
+    // 4. Gender / Department Filter
     if (genderFilter !== 'all') {
       const pGender = (p.gender || 'none').toLowerCase();
       if (genderFilter === 'unisex') {
@@ -1332,24 +1356,24 @@ export default function AdminProductsPage() {
       }
     }
 
-    // 4. Stock Level Filter
+    // 5. Stock Level Filter
     const totalStock = getProductStock(p);
     if (stockFilter === 'in_stock' && totalStock <= 10) return false;
     if (stockFilter === 'low_stock' && (totalStock <= 0 || totalStock > 10)) return false;
     if (stockFilter === 'out_of_stock' && totalStock > 0) return false;
 
-    // 5. Badge / Highlight Filter
+    // 6. Badge / Highlight Filter
     if (badgeFilter === 'featured' && !p.is_featured) return false;
     if (badgeFilter === 'new_arrival' && !p.is_new_arrival) return false;
     if (badgeFilter === 'best_selling' && !p.is_best_selling) return false;
     if (badgeFilter === 'sale' && !(p.sale_price > 0 && p.sale_price < p.price)) return false;
 
-    // 6. Active / Inactive Status Filter
+    // 7. Active / Inactive Status Filter
     const isActive = Number(p.is_active) === 1 || p.is_active === true;
     if (statusFilter === 'active' && !isActive) return false;
     if (statusFilter === 'inactive' && isActive) return false;
 
-    // 7. Channel / Visibility Filter
+    // 8. Channel / Visibility Filter
     const isOnline = Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined;
     if (channelFilter === 'online' && !isOnline) return false;
     if (channelFilter === 'offline' && isOnline) return false;
@@ -1501,6 +1525,22 @@ export default function AdminProductsPage() {
                 </select>
               </div>
 
+              {/* Brand Filter Dropdown */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer' }}
+                  value={brandFilter}
+                  onChange={(e) => setBrandFilter(e.target.value)}
+                >
+                  <option value="all">🏷️ Filter by Brand: All ({brandOptions.length})</option>
+                  <option value="__none__">No Brand</option>
+                  {brandOptions.map(brand => (
+                    <option key={brand} value={brand}>{brand}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Stock Level Filter */}
               <div>
                 <select
@@ -1586,6 +1626,12 @@ export default function AdminProductsPage() {
                   <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     Category: {categories.find(c => String(c.id) === String(categoryFilter))?.name || categoryFilter}
                     <button type="button" onClick={() => setCategoryFilter('all')} style={{ border: 'none', background: 'none', color: '#1e40af', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </span>
+                )}
+                {brandFilter !== 'all' && (
+                  <span style={{ background: '#ede9fe', color: '#5b21b6', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Brand: {brandFilter === '__none__' ? 'No Brand' : brandFilter}
+                    <button type="button" onClick={() => setBrandFilter('all')} style={{ border: 'none', background: 'none', color: '#5b21b6', cursor: 'pointer', padding: 0 }}>✕</button>
                   </span>
                 )}
                 {genderFilter !== 'all' && (
@@ -1948,6 +1994,17 @@ export default function AdminProductsPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Brand</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="e.g. Nike, NP Grand"
+                value={formData.brand}
+                onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+              />
             </div>
 
             <div className="form-group">

@@ -96,6 +96,7 @@ async function getAllProducts(req, res, next) {
       minPrice,
       maxPrice,
       badge,
+      brand,
       availability,
       search,
       sort = 'featured',
@@ -198,6 +199,11 @@ async function getAllProducts(req, res, next) {
       params.push(`%${badge}%`);
     }
 
+    if (brand && brand !== 'all') {
+      sql += ` AND LOWER(COALESCE(p.brand, '')) = LOWER(?)`;
+      params.push(String(brand).trim());
+    }
+
     if (availability === 'sale') {
       sql += ` AND p.sale_price > p.price`;
     } else if (availability === 'bestseller') {
@@ -222,11 +228,11 @@ async function getAllProducts(req, res, next) {
       const term = `%${search}%`;
       sql += ` AND (
         p.name LIKE ? OR p.tagline LIKE ? OR p.description LIKE ?
-        OR p.barcode_short_name LIKE ? OR c.name LIKE ?
+        OR p.brand LIKE ? OR p.barcode_short_name LIKE ? OR c.name LIKE ?
         OR EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND pb.barcode LIKE ?)
         OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.sku LIKE ?)
       )`;
-      params.push(term, term, term, term, term, term, term);
+      params.push(term, term, term, term, term, term, term, term);
     }
 
     // Sorting
@@ -506,6 +512,7 @@ async function createProduct(req, res, next) {
     const {
       name,
       slug: customSlug,
+      brand,
       category_id,
       gender,
       price,
@@ -598,17 +605,18 @@ async function createProduct(req, res, next) {
 
     await query(
       `INSERT INTO products (
-         id, slug, name, category_id, gender, price, sale_price, badge, tagline,
+         id, slug, name, brand, category_id, gender, price, sale_price, badge, tagline,
          description, features, materials, care_instructions, dimensions, dimension_w, dimension_h, dimension_l,
          shipping_info, manufacturing_date, expiry_date, seo_title, seo_description, seo_keywords,
          is_featured, is_new_arrival, is_best_selling, is_active, is_online,
          vendor_id, mrp, purchase_price, purchased_rate, gst_type, gst_rate, landing_cost, purchase_margin, landing_margin
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         slug,
         name,
+        brand ? String(brand).trim() : null,
         category_id || null,
         genderVal,
         parseFloat(price),
@@ -822,6 +830,7 @@ async function updateProduct(req, res, next) {
     const {
       name,
       slug: newSlug,
+      brand,
       category_id,
       gender,
       price,
@@ -912,6 +921,7 @@ async function updateProduct(req, res, next) {
     await query(
       `UPDATE products SET
          name = COALESCE(?, name),
+         brand = IF(? IS NOT NULL, ?, brand),
          category_id = COALESCE(?, category_id),
          price = COALESCE(?, price),
          sale_price = COALESCE(?, sale_price),
@@ -948,6 +958,8 @@ async function updateProduct(req, res, next) {
        WHERE id = ?`,
       [
         name || null,
+        brand !== undefined ? 1 : null,
+        brand !== undefined ? (brand ? String(brand).trim() : null) : null,
         category_id || null,
         price ? parseFloat(price) : null,
         sale_price !== undefined ? parseFloat(sale_price) : null,
