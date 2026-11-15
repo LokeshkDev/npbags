@@ -13,6 +13,7 @@ async function deductInventoryForOrder(items = [], reference = '', pool) {
   for (const item of items) {
     const qty = Math.max(1, parseInt(item.quantity || item.qty, 10) || 1);
     const productId = item.product_id || item.id || null;
+    const variantId = item.variant_id || item.variantId || null;
     const sku = item.sku || null;
     const productName = (item.product_name || item.name || '').trim();
     const size = item.size || item.size_name || null;
@@ -41,7 +42,8 @@ async function deductInventoryForOrder(items = [], reference = '', pool) {
 
       const variants = await pool.query('SELECT * FROM product_variants WHERE product_id = ?', [pId]);
       if (variants && variants.length > 0) {
-        let targetVariant = variants.find(v => {
+        let targetVariant = (variantId && variants.find(v => String(v.id) === String(variantId)))
+          || variants.find(v => {
           if (sku && v.sku === sku) return true;
           if (size && color && String(v.size_name).toLowerCase() === String(size).toLowerCase() && String(v.color_name).toLowerCase() === String(color).toLowerCase()) return true;
           if (size && String(v.size_name).toLowerCase() === String(size).toLowerCase()) return true;
@@ -109,6 +111,7 @@ async function restoreInventoryForOrder(items = [], reference = '', pool) {
   for (const item of items) {
     const qty = Math.max(1, parseInt(item.quantity || item.qty, 10) || 1);
     const productId = item.product_id || item.id || null;
+    const variantId = item.variant_id || item.variantId || null;
     const sku = item.sku || null;
     const productName = (item.product_name || item.name || '').trim();
     const size = item.size || item.size_name || null;
@@ -134,7 +137,8 @@ async function restoreInventoryForOrder(items = [], reference = '', pool) {
 
       const variants = await pool.query('SELECT * FROM product_variants WHERE product_id = ?', [pId]);
       if (variants && variants.length > 0) {
-        let targetVariant = variants.find(v => {
+        let targetVariant = (variantId && variants.find(v => String(v.id) === String(variantId)))
+          || variants.find(v => {
           if (sku && v.sku === sku) return true;
           if (size && color && String(v.size_name).toLowerCase() === String(size).toLowerCase() && String(v.color_name).toLowerCase() === String(color).toLowerCase()) return true;
           if (size && String(v.size_name).toLowerCase() === String(size).toLowerCase()) return true;

@@ -19,7 +19,8 @@ import {
   holdBill,
   updateHeldBill,
   completeHeldBill,
-  cancelHeldBill
+  cancelHeldBill,
+  adjustAdminVariantStock
 } from '../lib/api';
 
 const RECEIPT_STORE_NAME = 'NP Grand Shopping';
@@ -169,6 +170,51 @@ function findExactProductMatch(allProducts, query) {
   return null;
 }
 
+function variantStock(variant) {
+  if (!variant) return null;
+  const value = variant.stock_quantity !== undefined && variant.stock_quantity !== null
+    ? variant.stock_quantity
+    : (variant.stock !== undefined && variant.stock !== null ? variant.stock : null);
+  return value === null || value === undefined ? null : Number(value);
+}
+
+function productStock(product) {
+  if (!product) return null;
+  const value = product.stock_quantity !== undefined && product.stock_quantity !== null
+    ? product.stock_quantity
+    : (product.stock !== undefined && product.stock !== null ? product.stock : null);
+  return value === null || value === undefined ? null : Number(value);
+}
+
+function normalizeVariant(variant) {
+  if (!variant) return null;
+  const stock = variantStock(variant);
+  return {
+    ...variant,
+    id: variant.id,
+    sku: variant.sku || null,
+    size: variant.size_name !== undefined ? variant.size_name : (variant.size || null),
+    color: variant.color_name !== undefined ? variant.color_name : (variant.color || null),
+    barcode: variant.barcode || null,
+    stock: stock === null ? 0 : stock,
+    stock_quantity: stock === null ? 0 : stock
+  };
+}
+
+function variantLabel(variant) {
+  if (!variant) return '';
+  const parts = [variant.color_name || variant.color, variant.size_name || variant.size].filter(Boolean);
+  return parts.join(' / ') || variant.sku || (variant.id ? `Variant #${variant.id}` : '');
+}
+
+function effectiveItemStock(item) {
+  const direct = variantStock(item);
+  if (direct !== null) return direct;
+  const fromVariant = variantStock(item?.variant);
+  if (fromVariant !== null) return fromVariant;
+  return 0;
+}
+
 export function POSBillingModal() {
   const { isPOSOpen, closePOS, editingOrder, setEditingOrder } = usePOSModal();
   const { adminUser } = useAdminAuth();
@@ -196,6 +242,13 @@ export function POSBillingModal() {
   const [searchModalQuery, setSearchModalQuery] = useState('');
   const [searchModalHighlighted, setSearchModalHighlighted] = useState(0);
   const searchModalInputRef = useRef(null);
+
+  // Out-of-stock prompt (variant stock top-up from POS)
+  const [stockPrompt, setStockPrompt] = useState(null); // { product, variant, item, cartIndex }
+  const [stockAddQty, setStockAddQty] = useState('1');
+  const [stockSaving, setStockSaving] = useState(false);
+  const [stockError, setStockError] = useState('');
+  const stockAddQtyRef = useRef(null);
 
   // Custom Product modal state
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
@@ -657,7 +710,8 @@ export function POSBillingModal() {
     return provided || barcode || 'Item';
   };
 
-  // Add product to cart helper with seamless keyboard focus advance (Product -> Staff -> Qty -> Next Product)
+  // Add product to cart helper with seamless keyboard focus advance
+  // (Product -> Variant -> Staff -> Qty -> Next Product)
   const handleAddItemToCart = (item) => {
     const resolvedName = resolveItemName(item);
     let targetIdx = 0;
@@ -710,8 +764,14 @@ export function POSBillingModal() {
     const stockMsg = stockCount !== null ? ` • Stock: ${stockCount}` : '';
     showToast(`Added: ${resolvedName} [${item.barcode || 'ITEM'}]${stockMsg}`, 'success', 2500);
 
-    // Auto-advance focus to Sales Person field; pressing Enter then advances to Price, then Qty, then Next Product
+    // Auto-advance focus: variant products always start on the Variant
+    // selector (even when auto-matched), then Staff -> Qty.
     setTimeout(() => {
+      const variantEl = document.getElementById(`pos-item-variant-${targetIdx}`);
+      if (variantEl) {
+        variantEl.focus();
+        return;
+      }
       const staffEl = document.getElementById(`pos-item-staff-${targetIdx}`);
       if (staffEl) {
         staffEl.focus();
@@ -729,6 +789,63 @@ export function POSBillingModal() {
         }
       }
     }, 60);
+  };
+
+  // Open the out-of-stock prompt to top up a variant's stock
+  const openStockPrompt = ({ product = null, variant = null, item = null, cartIndex = -1 }) => {
+    if (!variant || !variant.id) return;
+    setStockPrompt({ product, variant, item, cartIndex });
+    setStockAddQty('1');
+    setStockError('');
+    setStockSaving(false);
+    setTimeout(() => {
+      stockAddQtyRef.current?.focus();
+      stockAddQtyRef.current?.select();
+    }, 80);
+  };
+
+  const closeStockPrompt = () => {
+    setStockPrompt(null);
+    setStockError('');
+    setStockSaving(false);
+  };
+
+  const findProductForItem = (item) => {
+    const pool = mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts);
+    if (!pool.length) return null;
+    if (item?.product_id) {
+      const byId = pool.find(p => String(p.id) === String(item.product_id));
+      if (byId) return byId;
+    }
+    const barcode = String(item?.barcode || '').trim();
+    if (barcode) {
+      return pool.find(p => {
+        if (String(p.barcode || '') === barcode) return true;
+        return Array.isArray(p.variants) && p.variants.some(v => String(v.barcode || '') === barcode);
+      }) || null;
+    }
+    return null;
+  };
+
+  // Add to cart, but intercept variants that are out of stock so the cashier
+  // can top up stock first instead of billing an unavailable item.
+  const addItemWithStockCheck = (rawItem, productOverride = null) => {
+    if (!rawItem) return;
+    const item = { ...rawItem, variant: normalizeVariant(rawItem.variant) };
+    if (item.is_custom || String(item.product_id || '').startsWith('custom-')) {
+      handleAddItemToCart(item);
+      return;
+    }
+    const stock = effectiveItemStock(item);
+    if (item.variant?.id && stock <= 0) {
+      openStockPrompt({
+        product: productOverride || findProductForItem(item),
+        variant: item.variant,
+        item
+      });
+      return;
+    }
+    handleAddItemToCart(item);
   };
 
   // Add Custom Product to cart (Supports Name, MRP, Selling Price, and instant Enter key submit)
@@ -757,7 +874,7 @@ export function POSBillingModal() {
       try {
         const resolved = await lookupBarcode(rawName, adminUser?.branch_id || null);
         if (resolved && (resolved.product_id || resolved.product_name)) {
-          handleAddItemToCart({
+          addItemWithStockCheck({
             ...resolved,
             product_name: resolved.product_name || resolved.barcode_short_name || resolved.name || resolved.barcode
           });
@@ -922,11 +1039,14 @@ export function POSBillingModal() {
           : (res.stock !== undefined && res.stock !== null
             ? res.stock
             : (res.variant?.stock !== undefined && res.variant?.stock !== null ? res.variant.stock : 0));
-        handleAddItemToCart({
+        const product = mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts)
+          .find(p => String(p.id) === String(res.product_id)) || null;
+        addItemWithStockCheck({
           ...res,
           product_name: res.product_name || res.barcode_short_name || res.name || res.barcode,
+          variant: normalizeVariant(res.variant),
           stock_quantity: effectiveStock
-        });
+        }, product);
         setSearchInput('');
         setRowInput('');
       } else {
@@ -947,7 +1067,7 @@ export function POSBillingModal() {
   };
 
   // Attach hardware scanner hook when POS popup is open
-  useScannerInput(handleBarcodeScanned, { enabled: isPOSOpen && !completedOrder });
+  useScannerInput(handleBarcodeScanned, { enabled: isPOSOpen && !completedOrder && !stockPrompt });
 
   // Manual search submit
   const handleSearchSubmit = async (e) => {
@@ -991,17 +1111,15 @@ export function POSBillingModal() {
 
   // Pick an autocomplete suggestion
   const handlePickSuggestion = (prod, variant = null) => {
+    if (!prod) return;
+    const normalizedVariant = normalizeVariant(variant);
     const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
     const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
-    const effectiveStock = variant?.stock_quantity !== undefined && variant?.stock_quantity !== null
-      ? Number(variant.stock_quantity)
-      : (variant?.stock !== undefined && variant?.stock !== null
-        ? Number(variant.stock)
-        : (prod.stock_quantity !== undefined && prod.stock_quantity !== null
-          ? Number(prod.stock_quantity)
-          : (prod.stock !== undefined && prod.stock !== null ? Number(prod.stock) : 0)));
+    const stock = normalizedVariant
+      ? normalizedVariant.stock_quantity
+      : (productStock(prod) ?? 0);
 
-    handleAddItemToCart({
+    addItemWithStockCheck({
       product_id: prod.id,
       product_name: prod.name,
       barcode: barcode,
@@ -1012,10 +1130,10 @@ export function POSBillingModal() {
       gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
-      variant: variant || null,
+      variant: normalizedVariant,
       quantity: 1,
-      stock_quantity: effectiveStock
-    });
+      stock_quantity: stock
+    }, prod);
 
     setSearchInput('');
     setShowSuggestions(false);
@@ -1106,17 +1224,14 @@ export function POSBillingModal() {
     if (!match || !match.product) return;
     const prod = match.product;
     const variant = match.matchedVariant;
+    const normalizedVariant = normalizeVariant(variant);
     const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
     const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
-    const effectiveStock = variant?.stock_quantity !== undefined && variant?.stock_quantity !== null
-      ? Number(variant.stock_quantity)
-      : (variant?.stock !== undefined && variant?.stock !== null
-        ? Number(variant.stock)
-        : (prod.stock_quantity !== undefined && prod.stock_quantity !== null
-          ? Number(prod.stock_quantity)
-          : (prod.stock !== undefined && prod.stock !== null ? Number(prod.stock) : 0)));
+    const stock = normalizedVariant
+      ? normalizedVariant.stock_quantity
+      : (productStock(prod) ?? 0);
 
-    handleAddItemToCart({
+    addItemWithStockCheck({
       product_id: prod.id,
       product_name: prod.name,
       barcode: barcode,
@@ -1127,14 +1242,142 @@ export function POSBillingModal() {
       gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
-      variant: variant || null,
+      variant: normalizedVariant,
       quantity: 1,
-      stock_quantity: effectiveStock
-    });
+      stock_quantity: stock
+    }, prod);
 
     setSearchModalQuery('');
     setSearchModalHighlighted(0);
     setTimeout(() => searchModalInputRef.current?.focus(), 0);
+  };
+
+  // Change the variant of an existing cart line and refresh its stock badge
+  const handleCartVariantChange = (index, variantId) => {
+    const currentItem = cart[index];
+    if (!currentItem) return;
+    const product = findProductForItem(currentItem);
+    const variants = Array.isArray(product?.variants) ? product.variants : [];
+    const raw = variants.find(v => String(v.id) === String(variantId)) || null;
+
+    if (!raw) {
+      setCart(prev => {
+        const copy = [...prev];
+        if (copy[index]) {
+          copy[index] = {
+            ...copy[index],
+            variant: null,
+            stock_quantity: productStock(product) ?? 0
+          };
+        }
+        return copy;
+      });
+      return;
+    }
+
+    const variant = normalizeVariant(raw);
+    const stock = variant.stock_quantity;
+    const variantBarcode = raw.barcode
+      || raw.sku
+      || product?.barcode
+      || currentItem.barcode;
+
+    setCart(prev => {
+      const copy = [...prev];
+      if (copy[index]) {
+        copy[index] = {
+          ...copy[index],
+          variant,
+          barcode: variantBarcode,
+          image: raw.image_url || copy[index].image,
+          stock_quantity: stock
+        };
+      }
+      return copy;
+    });
+
+    if (stock <= 0) {
+      openStockPrompt({ product, variant, cartIndex: index });
+    }
+  };
+
+  // Top up a variant's stock from the out-of-stock popup, then continue billing
+  const handleStockSubmit = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!stockPrompt?.variant?.id || stockSaving) return;
+
+    const qty = Math.max(0, parseInt(stockAddQty, 10) || 0);
+    if (qty <= 0) {
+      setStockError('Enter a quantity greater than 0.');
+      stockAddQtyRef.current?.focus();
+      return;
+    }
+
+    const target = normalizeVariant(stockPrompt.variant);
+    const current = Number(variantStock(target)) || 0;
+    const newStock = current + qty;
+    const prompt = stockPrompt;
+
+    setStockSaving(true);
+    setStockError('');
+    try {
+      await adjustAdminVariantStock({
+        variant_id: target.id,
+        new_stock: newStock,
+        reason: 'POS out-of-stock stock add'
+      });
+
+      const applyToProductList = (list) => {
+        if (!Array.isArray(list)) return list;
+        return list.map(p => {
+          if (!Array.isArray(p.variants) || !p.variants.some(v => String(v.id) === String(target.id))) {
+            return p;
+          }
+          const variants = p.variants.map(v => (
+            String(v.id) === String(target.id)
+              ? { ...v, stock_quantity: newStock, stock: newStock }
+              : v
+          ));
+          const total = variants.reduce((sum, v) => sum + (Number(variantStock(v)) || 0), 0);
+          return { ...p, variants, stock_quantity: total, stock: total };
+        });
+      };
+
+      setAllProducts(prev => applyToProductList(prev));
+      setRemoteSearchProducts(prev => applyToProductList(prev));
+      setRemoteRowProducts(prev => applyToProductList(prev));
+      setRemoteModalProducts(prev => applyToProductList(prev));
+
+      const updatedVariant = { ...target, stock: newStock, stock_quantity: newStock };
+
+      if (prompt.cartIndex >= 0) {
+        setCart(prev => {
+          const copy = [...prev];
+          if (copy[prompt.cartIndex]) {
+            copy[prompt.cartIndex] = {
+              ...copy[prompt.cartIndex],
+              variant: updatedVariant,
+              stock_quantity: newStock
+            };
+          }
+          return copy;
+        });
+      } else if (prompt.item) {
+        handleAddItemToCart({
+          ...prompt.item,
+          variant: updatedVariant,
+          stock_quantity: newStock
+        });
+      }
+
+      closeStockPrompt();
+      showToast(`Stock updated to ${newStock} for ${prompt.product?.name || prompt.item?.product_name || 'item'}`, 'success', 3000);
+      loadCatalogProducts();
+    } catch (err) {
+      setStockError(err.message || 'Could not update stock');
+    } finally {
+      setStockSaving(false);
+    }
   };
 
   // Direct inline edits of a billing row (selling price)
@@ -1463,6 +1706,24 @@ export function POSBillingModal() {
       return;
     }
 
+    // Products with variants must have an exact variant chosen so the correct
+    // variant's stock is deducted.
+    const missingVariantIndex = cart.findIndex(it => {
+      if (it.is_custom || String(it.product_id || '').startsWith('custom-')) return false;
+      const p = findProductForItem(it);
+      if (!Array.isArray(p?.variants) || p.variants.length === 0) return false;
+      const v = it.variant || {};
+      return !v.id && !v.sku && !v.size && !v.color;
+    });
+    if (missingVariantIndex >= 0) {
+      const missing = cart[missingVariantIndex];
+      showToast(`Select a variant for ${missing.product_name} before billing.`, 'error', 3500);
+      setTimeout(() => {
+        document.getElementById(`pos-item-variant-${missingVariantIndex}`)?.focus();
+      }, 60);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const chosenStaff = salespersons.find(s => String(s.id) === String(selectedSalespersonId));
@@ -1493,6 +1754,7 @@ export function POSBillingModal() {
             quantity: item.quantity,
             hsn_code: item.hsn_code || '4202',
             is_custom: Boolean(item.is_custom) || String(item.product_id || '').startsWith('custom-'),
+            variant_id: item.variant?.id || null,
             sku: item.variant?.sku || null,
             size: item.variant?.size || null,
             color: item.variant?.color || null,
@@ -1574,6 +1836,16 @@ export function POSBillingModal() {
         e.preventDefault();
         e.stopPropagation();
         setIsAccountable(prev => !prev);
+        return;
+      }
+
+      // Out-of-stock prompt takes priority over global POS shortcuts
+      if (stockPrompt) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!stockSaving) closeStockPrompt();
+        }
         return;
       }
 
@@ -1711,7 +1983,7 @@ export function POSBillingModal() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, selectedHeldIndex, heldBills, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS, thermalSettings]);
+  }, [isPOSOpen, cart, cartFinancials, isCustomModalOpen, isStaffModalOpen, isHeldModalOpen, selectedHeldIndex, heldBills, completedOrder, showRowSuggestions, isSearchModalOpen, closePOS, handleClosePOS, thermalSettings, stockPrompt, stockSaving]);
 
   // Thermal Receipt Printing (Standard ESC/POS HTML) - Pure Solid Black #000000 with 300 Bold Density
   function printThermalReceipt(orderData, overrideSettings) {
@@ -2932,6 +3204,8 @@ export function POSBillingModal() {
                     const lineTotal = item.price * item.quantity;
                     const lineTaxable = Math.round((lineTotal / (1 + (gstRate / 100))) * 100) / 100;
                     const lineTax = Math.round((lineTotal - lineTaxable) * 100) / 100;
+                    const catalogProduct = resolveCatalogItem(item);
+                    const catalogVariants = Array.isArray(catalogProduct?.variants) ? catalogProduct.variants : [];
 
                     return (
                       <tr
@@ -2966,6 +3240,48 @@ export function POSBillingModal() {
                               </span>
                             )}
                           </div>
+                          {catalogVariants.length > 0 && (
+                            <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <select
+                                id={`pos-item-variant-${idx}`}
+                                value={item.variant?.id ? String(item.variant.id) : ''}
+                                onChange={(e) => handleCartVariantChange(idx, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    document.getElementById(`pos-item-staff-${idx}`)?.focus();
+                                  }
+                                }}
+                                style={{
+                                  padding: '4px 7px',
+                                  borderRadius: '5px',
+                                  border: item.variant?.id ? '1px solid #86efac' : '1.5px solid #f59e0b',
+                                  background: item.variant?.id ? '#f0fdf4' : '#fffbeb',
+                                  color: '#0f172a',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  maxWidth: '190px'
+                                }}
+                                title="Select the exact variant (↑ ↓ to choose, Enter to Staff)"
+                              >
+                                <option value="">Select variant…</option>
+                                {catalogVariants.map(v => {
+                                  const vStock = variantStock(v);
+                                  return (
+                                    <option key={v.id} value={v.id}>
+                                      {variantLabel(v) || `Variant #${v.id}`} · Stock {vStock === null ? 0 : vStock}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {!item.variant?.id && (
+                                <span style={{ fontSize: '10px', fontWeight: 800, color: '#b45309' }}>
+                                  Pick a variant
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '12px 14px' }}>
                           <select
@@ -2991,15 +3307,15 @@ export function POSBillingModal() {
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                const priceInput = document.getElementById(`pos-item-price-${idx}`);
-                                if (priceInput) {
-                                  priceInput.focus();
-                                  priceInput.select();
+                                const qtyInput = document.getElementById(`pos-item-qty-${idx}`);
+                                if (qtyInput) {
+                                  qtyInput.focus();
+                                  qtyInput.select();
                                 } else {
-                                  const qtyInput = document.getElementById(`pos-item-qty-${idx}`);
-                                  if (qtyInput) {
-                                    qtyInput.focus();
-                                    qtyInput.select();
+                                  const priceInput = document.getElementById(`pos-item-price-${idx}`);
+                                  if (priceInput) {
+                                    priceInput.focus();
+                                    priceInput.select();
                                   }
                                 }
                               }
@@ -3014,7 +3330,7 @@ export function POSBillingModal() {
                               color: '#334155',
                               maxWidth: '120px'
                             }}
-                            title="Sales Person [Press Enter to jump to Selling Price]"
+                            title="Sales Person [Press Enter to jump to Quantity]"
                           >
                             <option value="">Default ({salespersons.find(s => String(s.id) === String(selectedSalespersonId))?.name || 'Counter'})</option>
                             {salespersons.map(sp => (
@@ -4984,6 +5300,137 @@ export function POSBillingModal() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* OUT-OF-STOCK — ADD STOCK & CONTINUE */}
+      {stockPrompt && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.78)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100002,
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !stockSaving) closeStockPrompt();
+          }}
+        >
+          <form
+            onSubmit={handleStockSubmit}
+            style={{
+              background: '#ffffff',
+              borderRadius: '14px',
+              width: '100%',
+              maxWidth: '430px',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.35)',
+              overflow: 'hidden'
+            }}
+          >
+            <div style={{ background: '#7f1d1d', padding: '16px 20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 900, color: '#fecaca', letterSpacing: '0.06em' }}>
+                OUT OF STOCK
+              </div>
+              <div style={{ fontSize: '17px', fontWeight: 900, color: '#ffffff', marginTop: '2px' }}>
+                {stockPrompt.product?.name || stockPrompt.item?.product_name || 'Product'}
+              </div>
+            </div>
+
+            <div style={{ padding: '18px 20px' }}>
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontSize: '12.5px', color: '#991b1b', fontWeight: 700, marginBottom: '14px' }}>
+                This variant is out of stock. Add stock to continue billing.
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', fontSize: '12.5px', marginBottom: '14px' }}>
+                <div>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Variant</div>
+                  <div style={{ fontWeight: 800, color: '#0f172a' }}>{variantLabel(stockPrompt.variant) || '—'}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Current Stock</div>
+                  <div style={{ fontWeight: 900, color: '#b91c1c' }}>{variantStock(stockPrompt.variant) ?? 0}</div>
+                </div>
+              </div>
+
+              <label style={{ display: 'block', fontSize: '10.5px', fontWeight: 800, color: '#475569', marginBottom: '5px', textTransform: 'uppercase' }}>
+                Quantity to Add
+              </label>
+              <input
+                ref={stockAddQtyRef}
+                type="number"
+                min="1"
+                step="1"
+                value={stockAddQty}
+                onChange={(e) => setStockAddQty(e.target.value)}
+                disabled={stockSaving}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '7px',
+                  border: '1.5px solid #065935',
+                  fontSize: '15px',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+                title="Enter quantity to add [Enter to update]"
+              />
+
+              <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '8px' }}>
+                New stock after update:{' '}
+                <strong style={{ color: '#065935' }}>
+                  {(Number(variantStock(stockPrompt.variant)) || 0) + (parseInt(stockAddQty, 10) || 0)}
+                </strong>
+              </div>
+
+              {stockError && (
+                <div style={{ marginTop: '10px', fontSize: '12px', fontWeight: 700, color: '#b91c1c' }}>
+                  {stockError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
+                <button
+                  type="button"
+                  onClick={closeStockPrompt}
+                  disabled={stockSaving}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: '6px',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: stockSaving ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={stockSaving}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '6px',
+                    background: stockSaving ? '#94a3b8' : '#065935',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: stockSaving ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {stockSaving ? 'Updating…' : 'Add Stock & Continue'}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
     </div>

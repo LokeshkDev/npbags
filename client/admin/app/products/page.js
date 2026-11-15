@@ -81,7 +81,6 @@ export default function AdminProductsPage() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanStatus, setScanStatus] = useState(null);
   const [detectedProduct, setDetectedProduct] = useState(null);
-  const scanInputRef = useRef(null);
 
   // Filter & sorting states
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -392,12 +391,6 @@ export default function AdminProductsPage() {
     }
   }, [pendingAddCategory, categories]);
 
-  // Focus the scan field automatically when the Add Product modal opens
-  useEffect(() => {
-    if (!modalOpen || editingProduct) return undefined;
-    const timer = setTimeout(() => scanInputRef.current?.focus(), 150);
-    return () => clearTimeout(timer);
-  }, [modalOpen, editingProduct]);
 
   const openAddModal = (presetCategoryId = null, extraDefaults = {}) => {
     setEditingProduct(null);
@@ -1114,7 +1107,6 @@ export default function AdminProductsPage() {
       }
     } finally {
       setScanLoading(false);
-      setTimeout(() => scanInputRef.current?.focus(), 0);
     }
   };
 
@@ -2894,7 +2886,6 @@ export default function AdminProductsPage() {
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
                 <input
-                  ref={scanInputRef}
                   type="text"
                   data-scan-capture="true"
                   className="form-control"
