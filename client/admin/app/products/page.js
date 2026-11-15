@@ -407,7 +407,7 @@ export default function AdminProductsPage() {
     setDetectedProduct(null);
     setScanLoading(false);
     setVariants([
-      { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
+      { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
     ]);
     const presetCat = presetCategoryId
       ? categories.find(c => String(c.id) === String(presetCategoryId))
@@ -558,7 +558,8 @@ export default function AdminProductsPage() {
         size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
         stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
         sku: v.sku || '',
-        image_url: v.image_url || ''
+        image_url: v.image_url || '',
+        barcode: v.barcode || ''
       })));
     } else if (Array.isArray(p.colors) && p.colors.length > 0) {
       setVariants(p.colors.map(c => ({
@@ -567,11 +568,12 @@ export default function AdminProductsPage() {
         size_name: '',
         stock_quantity: c.stock_quantity !== undefined ? c.stock_quantity : 50,
         sku: '',
-        image_url: c.img || ''
+        image_url: c.img || '',
+        barcode: ''
       })));
     } else {
       setVariants([
-        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '' }
+        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '', barcode: '' }
       ]);
     }
 
@@ -612,7 +614,8 @@ export default function AdminProductsPage() {
             size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
             stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
             sku: v.sku || '',
-            image_url: v.image_url || ''
+            image_url: v.image_url || '',
+            barcode: v.barcode || ''
           })));
         }
         if (Array.isArray(detailed.branch_stocks)) {
@@ -659,7 +662,15 @@ export default function AdminProductsPage() {
     setLoadingProductBarcodes(true);
     getProductBarcodes(p.id)
       .then(res => {
-        if (Array.isArray(res)) setEditingProductBarcodes(res);
+        if (Array.isArray(res)) {
+          setEditingProductBarcodes(res);
+          // Reflect each variant's existing barcode in the variant editor
+          setVariants(prev => prev.map(v => {
+            if (!v.id) return v;
+            const match = res.find(b => b.variant_id && String(b.variant_id) === String(v.id) && !Number(b.is_primary));
+            return match ? { ...v, barcode: match.barcode || v.barcode || '' } : v;
+          }));
+        }
       })
       .catch(() => setEditingProductBarcodes([]))
       .finally(() => setLoadingProductBarcodes(false));
@@ -796,7 +807,7 @@ export default function AdminProductsPage() {
   const handleAddVariant = () => {
     setVariants([
       ...variants,
-      { color_name: '', color_hex: '#1e293b', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
+      { color_name: '', color_hex: '#1e293b', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
     ]);
   };
 
@@ -1032,7 +1043,8 @@ export default function AdminProductsPage() {
         color_hex: c.hex,
         size_name: '',
         sku: '',
-        image_url: c.img || c.image_url || ''
+        image_url: c.img || c.image_url || '',
+        barcode: ''
       })) : []);
 
     if (sourceVariants.length > 0) {
@@ -1042,11 +1054,12 @@ export default function AdminProductsPage() {
         size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
         stock_quantity: 0,
         sku: v.sku || '',
-        image_url: v.image_url || ''
+        image_url: v.image_url || '',
+        barcode: v.barcode || ''
       })));
     } else {
       setVariants([
-        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '' }
+        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
       ]);
     }
 
@@ -1877,135 +1890,6 @@ export default function AdminProductsPage() {
             </div>
           )}
 
-          {/* Scan Barcode to Auto-Detect & Fill Product Details */}
-          <div style={{ background: '#eef6ff', border: '1.5px solid #bfdbfe', borderRadius: '10px', padding: '16px 18px', marginBottom: '18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
-              <div>
-                <strong style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Icon name="barcode" size={16} />
-                  <span>Scan Barcode to Auto-Detect Product</span>
-                </strong>
-                <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
-                  Scan with a USB/Bluetooth scanner or type internal / external barcode. Detected details can be picked or auto-filled.
-                </div>
-              </div>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '3px 9px', borderRadius: '12px' }}>
-                {scanLoading ? 'Detecting…' : 'Ready'}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
-              <input
-                ref={scanInputRef}
-                type="text"
-                data-scan-capture="true"
-                className="form-control"
-                placeholder="Scan barcode / QR code here…"
-                value={scanCode}
-                disabled={scanLoading}
-                onChange={(e) => setScanCode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleBarcodeScanned(scanCode);
-                }}
-                style={{ flex: '1 1 260px', height: '40px', fontSize: '14px', fontFamily: 'monospace', borderColor: '#93c5fd' }}
-              />
-              <button
-                type="button"
-                className="admin-btn admin-btn-primary"
-                disabled={scanLoading || !scanCode.trim()}
-                onClick={() => handleBarcodeScanned(scanCode)}
-                style={{ height: '40px', padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Icon name="search" size={14} />
-                <span>{scanLoading ? 'Detecting...' : 'Detect'}</span>
-              </button>
-            </div>
-
-            {formData.barcode && (
-              <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#1e3a8a', background: '#dbeafe', padding: '6px 12px', borderRadius: '6px' }}>
-                <Icon name="barcode" size={14} />
-                <span>Active / Scanned Barcode:</span>
-                <strong style={{ fontFamily: 'monospace', fontSize: '13px' }}>{formData.barcode}</strong>
-              </div>
-            )}
-
-            {scanStatus && (
-              <div
-                style={{
-                  marginTop: '10px',
-                  padding: '9px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12.5px',
-                  fontWeight: 600,
-                  background: scanStatus.type === 'success' ? '#dcfce7' : scanStatus.type === 'error' ? '#fee2e2' : '#fef9c3',
-                  color: scanStatus.type === 'success' ? '#166534' : scanStatus.type === 'error' ? '#991b1b' : '#854d0e',
-                  border: `1px solid ${scanStatus.type === 'success' ? '#86efac' : scanStatus.type === 'error' ? '#fecaca' : '#fde68a'}`
-                }}
-              >
-                {scanStatus.message}
-              </div>
-            )}
-
-            {detectedProduct && (
-              <div style={{ marginTop: '12px', padding: '12px 14px', background: '#ffffff', border: '1.5px solid #93c5fd', borderRadius: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
-                  <strong style={{ fontSize: '12.5px', color: '#1e3a8a' }}>Detected Product Details</strong>
-                  <button
-                    type="button"
-                    onClick={() => applyAllDetectedFields(detectedProduct)}
-                    style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
-                  >
-                    ✓ Apply All Fields
-                  </button>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '12px' }}>
-                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ overflow: 'hidden', marginRight: '6px' }}>
-                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>NAME</div>
-                      <div style={{ fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detectedProduct.name || detectedProduct.product_name || '—'}</div>
-                    </div>
-                    <button type="button" onClick={() => applyDetectedField('name', detectedProduct.name || detectedProduct.product_name)} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
-                  </div>
-                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>PRICE / SALE</div>
-                      <div style={{ fontWeight: 800, color: '#0f172a' }}>₹{detectedProduct.price || detectedProduct.sale_price || '—'}</div>
-                    </div>
-                    <button type="button" onClick={() => { if (detectedProduct.price) applyDetectedField('price', String(detectedProduct.price)); if (detectedProduct.sale_price) applyDetectedField('sale_price', String(detectedProduct.sale_price)); }} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
-                  </div>
-                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>MRP</div>
-                      <div style={{ fontWeight: 800, color: '#0f172a' }}>₹{detectedProduct.mrp || '—'}</div>
-                    </div>
-                    <button type="button" onClick={() => applyDetectedField('mrp', String(detectedProduct.mrp || ''))} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
-                  </div>
-                  {detectedProduct.category_id && (
-                    <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>CATEGORY</div>
-                        <div style={{ fontWeight: 800, color: '#0f172a' }}>ID #{detectedProduct.category_id}</div>
-                      </div>
-                      <button type="button" onClick={() => applyDetectedField('category_id', String(detectedProduct.category_id))} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
-                    </div>
-                  )}
-                  {detectedProduct.description && (
-                    <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gridColumn: '1 / -1' }}>
-                      <div style={{ overflow: 'hidden', marginRight: '6px' }}>
-                        <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>DESCRIPTION</div>
-                        <div style={{ fontSize: '11px', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detectedProduct.description}</div>
-                      </div>
-                      <button type="button" onClick={() => applyDetectedField('description', detectedProduct.description)} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Basic Details */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
             <div className="form-group">
@@ -2690,7 +2574,7 @@ export default function AdminProductsPage() {
                   key={idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.1fr 85px 105px 95px 1.4fr auto',
+                    gridTemplateColumns: '1fr 78px 92px 78px 1.15fr 1.3fr auto',
                     gap: '8px',
                     alignItems: 'center',
                     background: '#ffffff',
@@ -2746,6 +2630,27 @@ export default function AdminProductsPage() {
                       style={{ height: '36px', fontSize: '13px' }}
                       value={v.stock_quantity}
                       onChange={(e) => handleVariantChange(idx, 'stock_quantity', parseInt(e.target.value, 10) || 0)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Barcode</label>
+                    <input
+                      type="text"
+                      data-variant-scan="true"
+                      className="form-control"
+                      placeholder="Scan / type barcode"
+                      style={{ height: '36px', fontSize: '12px', fontFamily: 'monospace' }}
+                      value={v.barcode || ''}
+                      onChange={(e) => handleVariantChange(idx, 'barcode', e.target.value.trim())}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      title="Focus here and scan a barcode to capture it for this variant"
                     />
                   </div>
 
@@ -2964,12 +2869,141 @@ export default function AdminProductsPage() {
             </div>
           )}
 
-          {/* New Image Upload */}
-          <ImageUploader
-            label={editingProduct ? "Upload Additional Images (Saved to Cloudflare R2)" : "Upload Product Cover Image"}
-            currentImage={editingProduct?.primary_image || editingProduct?.gallery?.[0]}
-            onFileSelect={(file) => setSelectedFile(file)}
-          />
+          {/* New Image Upload + Barcode Scanner (side by side) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) minmax(300px, 1.3fr)', gap: '16px', alignItems: 'start', marginBottom: '18px' }}>
+            <ImageUploader
+              label={editingProduct ? "Upload Additional Images (Saved to Cloudflare R2)" : "Upload Product Cover Image"}
+              currentImage={editingProduct?.primary_image || editingProduct?.gallery?.[0]}
+              onFileSelect={(file) => setSelectedFile(file)}
+            />
+
+            {/* Scan Barcode to Auto-Detect & Fill Product Details */}
+            <div className="form-group" style={{ background: '#eef6ff', border: '1.5px solid #bfdbfe', borderRadius: '10px', padding: '14px 16px', marginBottom: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: '13.5px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Icon name="barcode" size={16} />
+                  <span>Scan Barcode to Auto-Detect Product</span>
+                </strong>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '3px 9px', borderRadius: '12px' }}>
+                  {scanLoading ? 'Detecting…' : 'Ready'}
+                </span>
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#475569', marginBottom: '8px' }}>
+                Scan with a USB/Bluetooth scanner or type internal / external barcode.
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+                <input
+                  ref={scanInputRef}
+                  type="text"
+                  data-scan-capture="true"
+                  className="form-control"
+                  placeholder="Scan barcode / QR code here…"
+                  value={scanCode}
+                  disabled={scanLoading}
+                  onChange={(e) => setScanCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleBarcodeScanned(scanCode);
+                  }}
+                  style={{ flex: '1 1 160px', height: '40px', fontSize: '14px', fontFamily: 'monospace', borderColor: '#93c5fd' }}
+                />
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  disabled={scanLoading || !scanCode.trim()}
+                  onClick={() => handleBarcodeScanned(scanCode)}
+                  style={{ height: '40px', padding: '0 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Icon name="search" size={14} />
+                  <span>{scanLoading ? 'Detecting...' : 'Detect'}</span>
+                </button>
+              </div>
+
+              {formData.barcode && (
+                <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#1e3a8a', background: '#dbeafe', padding: '6px 12px', borderRadius: '6px' }}>
+                  <Icon name="barcode" size={14} />
+                  <span>Active / Scanned Barcode:</span>
+                  <strong style={{ fontFamily: 'monospace', fontSize: '13px' }}>{formData.barcode}</strong>
+                </div>
+              )}
+
+              {scanStatus && (
+                <div
+                  style={{
+                    marginTop: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12.5px',
+                    fontWeight: 600,
+                    background: scanStatus.type === 'success' ? '#dcfce7' : scanStatus.type === 'error' ? '#fee2e2' : '#fef9c3',
+                    color: scanStatus.type === 'success' ? '#166534' : scanStatus.type === 'error' ? '#991b1b' : '#854d0e',
+                    border: `1px solid ${scanStatus.type === 'success' ? '#86efac' : scanStatus.type === 'error' ? '#fecaca' : '#fde68a'}`
+                  }}
+                >
+                  {scanStatus.message}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {detectedProduct && (
+            <div style={{ marginBottom: '18px', padding: '12px 14px', background: '#ffffff', border: '1.5px solid #93c5fd', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
+                <strong style={{ fontSize: '12.5px', color: '#1e3a8a' }}>Detected Product Details</strong>
+                <button
+                  type="button"
+                  onClick={() => applyAllDetectedFields(detectedProduct)}
+                  style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  ✓ Apply All Fields
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '12px' }}>
+                <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ overflow: 'hidden', marginRight: '6px' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>NAME</div>
+                    <div style={{ fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detectedProduct.name || detectedProduct.product_name || '—'}</div>
+                  </div>
+                  <button type="button" onClick={() => applyDetectedField('name', detectedProduct.name || detectedProduct.product_name)} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>PRICE / SALE</div>
+                    <div style={{ fontWeight: 800, color: '#0f172a' }}>₹{detectedProduct.price || detectedProduct.sale_price || '—'}</div>
+                  </div>
+                  <button type="button" onClick={() => { if (detectedProduct.price) applyDetectedField('price', String(detectedProduct.price)); if (detectedProduct.sale_price) applyDetectedField('sale_price', String(detectedProduct.sale_price)); }} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>MRP</div>
+                    <div style={{ fontWeight: 800, color: '#0f172a' }}>₹{detectedProduct.mrp || '—'}</div>
+                  </div>
+                  <button type="button" onClick={() => applyDetectedField('mrp', String(detectedProduct.mrp || ''))} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                </div>
+                {detectedProduct.category_id && (
+                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>CATEGORY</div>
+                      <div style={{ fontWeight: 800, color: '#0f172a' }}>ID #{detectedProduct.category_id}</div>
+                    </div>
+                    <button type="button" onClick={() => applyDetectedField('category_id', String(detectedProduct.category_id))} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                  </div>
+                )}
+                {detectedProduct.description && (
+                  <div style={{ background: '#f8fafc', padding: '7px 9px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gridColumn: '1 / -1' }}>
+                    <div style={{ overflow: 'hidden', marginRight: '6px' }}>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>DESCRIPTION</div>
+                      <div style={{ fontSize: '11px', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detectedProduct.description}</div>
+                    </div>
+                    <button type="button" onClick={() => applyDetectedField('description', detectedProduct.description)} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}>Pick</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Barcode Generation & Thermal Printing Section (On Product Edit Place) */}
           {editingProduct && (

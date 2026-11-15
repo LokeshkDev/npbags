@@ -26,6 +26,8 @@ export default function useScannerInput(onScan, options = {}) {
     if (!enabled) return;
 
     const activeEl = document.activeElement;
+    // Let dedicated per-variant barcode inputs handle their own scans
+    if (activeEl?.getAttribute('data-variant-scan') === 'true') return;
     const isScanCaptureEl =
       activeEl?.getAttribute('data-scan-capture') === 'true' ||
       activeEl?.id === 'pos-barcode-scanner-input' ||

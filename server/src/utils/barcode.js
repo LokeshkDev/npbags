@@ -227,10 +227,49 @@ async function generateProductBarcodes(productId, variants = [], userId = null, 
   return generated;
 }
 
+/**
+ * Assigns a caller-supplied barcode to a specific product variant.
+ * - Re-links an existing barcode row that already belongs to this product.
+ * - Insert a new barcode row when the code is still free.
+ * - Silently ignores codes that belong to a different product / are invalid.
+ */
+async function assignVariantBarcode(pool, productId, variantId, { size, color, barcode } = {}, userId = null) {
+  const code = String(barcode || '').trim();
+  if (!code) return null;
+
+  const existing = await pool.query('SELECT id, product_id FROM product_barcodes WHERE barcode = ? LIMIT 1', [code]);
+  if (Array.isArray(existing) && existing.length > 0) {
+    const row = existing[0];
+    if (String(row.product_id) !== String(productId)) return null;
+    await pool.query(
+      `UPDATE product_barcodes
+       SET variant_id = ?, size = ?, color = ?, is_primary = 0, status = 'active'
+       WHERE id = ?`,
+      [variantId, size || null, color || null, row.id]
+    );
+    return { barcode: code, id: row.id };
+  }
+
+  const sequence = await getNextBarcodeSequence(pool);
+  try {
+    const result = await pool.query(
+      `INSERT INTO product_barcodes
+        (product_id, variant_id, size, color, barcode, barcode_sequence, is_primary, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 'active', ?)`,
+      [productId, variantId, size || null, color || null, code, sequence, userId || null]
+    );
+    return { barcode: code, id: result.insertId };
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return null;
+    throw error;
+  }
+}
+
 module.exports = {
   encodeCode128,
   generateBarcodeSVG,
   generateUniqueBarcodeNumber,
   getNextBarcodeSequence,
-  generateProductBarcodes
+  generateProductBarcodes,
+  assignVariantBarcode
 };

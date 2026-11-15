@@ -84,6 +84,7 @@ const newBillItem = () => ({
   product_name: '',
   variant_id: '',
   variant_info: '',
+  variant_quantities: {},
   quantity: 1,
   purchase_rate: '',
   purchase_rate_alias: '',
@@ -608,6 +609,7 @@ export default function AdminVendorsPage() {
           product_name: item.product_name || '',
           variant_id: item.variant_id ? String(item.variant_id) : '',
           variant_info: item.variant_info || '',
+          variant_quantities: item.variant_id ? { [String(item.variant_id)]: Number(item.quantity) || 1 } : {},
           quantity: Number(item.quantity) || 1,
           purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
           purchase_rate_alias: item.purchase_rate_alias || '',
@@ -755,8 +757,9 @@ export default function AdminVendorsPage() {
       updateBillItem(index, {
         product_name: match.name,
         product_id: match.id,
-        variant_id: firstVar ? String(firstVar.id) : '',
+        variant_id: vars.length > 0 ? '' : (firstVar ? String(firstVar.id) : ''),
         variant_info: firstVar ? [firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
+        variant_quantities: {},
         purchase_rate: match.purchased_rate !== null && match.purchased_rate !== undefined
           ? String(match.purchased_rate)
           : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : ''),
@@ -767,8 +770,33 @@ export default function AdminVendorsPage() {
         expiry_date: toDateInput(match.expiry_date)
       });
     } else {
-      updateBillItem(index, { product_name: value, product_id: '', variant_id: '', variant_info: '' });
+      updateBillItem(index, { product_name: value, product_id: '', variant_id: '', variant_info: '', variant_quantities: {} });
     }
+  };
+
+  // Set the quantity for a single variant on a bill line. The line quantity is
+  // kept as the sum of all per-variant quantities so totals stay in sync.
+  const setVariantQuantity = (index, variantId, rawQty) => {
+    setBillForm(prev => {
+      const items = prev.items.map((item, idx) => {
+        if (idx !== index) return item;
+        const quantities = { ...(item.variant_quantities || {}) };
+        const qty = Math.max(0, parseInt(rawQty, 10) || 0);
+        if (qty > 0) quantities[String(variantId)] = qty;
+        else delete quantities[String(variantId)];
+        const total = Object.values(quantities).reduce((sum, q) => sum + (Number(q) || 0), 0);
+        const appliedForVariant = String(item.variant_id || '') === String(variantId)
+          ? Math.max(0, Number(item.stock_applied_qty) || 0)
+          : 0;
+        return {
+          ...item,
+          variant_quantities: quantities,
+          quantity: total > 0 ? total : '',
+          stock_applied_qty: appliedForVariant
+        };
+      });
+      return { ...prev, items };
+    });
   };
 
   const addBillItem = () => setBillForm(prev => ({ ...prev, items: [...prev.items, newBillItem()] }));
@@ -837,6 +865,7 @@ export default function AdminVendorsPage() {
     product_name: defaults?.product_name || '',
     variant_id: defaults?.variant_id || '',
     variant_info: defaults?.variant_info || '',
+    variant_quantities: defaults?.variant_id ? { [String(defaults.variant_id)]: 1 } : {},
     quantity: 1,
     purchase_rate: defaults?.purchase_rate || '',
     mrp: defaults?.mrp || '',
@@ -934,6 +963,9 @@ export default function AdminVendorsPage() {
     };
     const qty = Math.max(1, parseInt(quantity, 10) || 1);
     const newItem = { ...buildItemFromScanDefaults(itemDefaults), quantity: qty };
+    if (newItem.variant_id) {
+      newItem.variant_quantities = { [String(newItem.variant_id)]: qty };
+    }
     const branchId = billBranchId();
     const scannedCode = product.barcode || '';
     let appliedQty = 0;
@@ -1020,7 +1052,14 @@ export default function AdminVendorsPage() {
   const billTotals = useMemo(() => {
     return billForm.items.reduce((acc, item) => {
       const product = products.find(p => String(p.id) === String(item.product_id));
-      const costing = computeBillItemCosting(item, product);
+      const productVariants = Array.isArray(product?.variants) ? product.variants : [];
+      const variantTotal = Object.values(item.variant_quantities || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
+      // Skip variant lines that have no quantity entered yet
+      if (productVariants.length > 0 && variantTotal === 0 && !item.variant_id) {
+        return acc;
+      }
+      const effectiveQty = productVariants.length > 0 ? (variantTotal || Number(item.quantity) || 0) : item.quantity;
+      const costing = computeBillItemCosting({ ...item, quantity: effectiveQty }, product);
       acc.gross += costing.gross;
       acc.discount += costing.discountAmount;
       acc.net += costing.netAmount;
@@ -1067,37 +1106,73 @@ export default function AdminVendorsPage() {
       payment_method: billForm.payment_method,
       notes: billForm.notes,
       confirm: Boolean(billForm.confirm),
-      items: validItems.map(item => {
+      items: validItems.flatMap(item => {
         const product = products.find(p => String(p.id) === String(item.product_id));
-        const costing = computeBillItemCosting(item, product);
-        return {
-          product_id: item.product_id || null,
-          product_name: item.product_name,
-          variant_id: item.variant_id ? Number(item.variant_id) : null,
-          variant_info: item.variant_info || null,
-          scanned_barcode: item.barcode || null,
-          stock_applied_qty: Math.max(0, Number(item.stock_applied_qty) || 0),
-          stock_scan_applied: Math.max(0, Number(item.stock_scan_applied) || 0),
-          quantity: Number(item.quantity) || 1,
-          purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
-          rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0,
-          purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
-          mrp: costing.mrpValue || null,
-          gst_type: item.gst_type || 'exclusive',
-          gst_rate: parseFloat(item.gst_rate) || 0,
-          discount_type: costing.discountType,
-          discount_value: costing.discountType === 'percent'
-            ? Math.min(100, Math.max(0, parseAmount(item.discount_value)))
-            : Math.max(0, parseAmount(item.discount_value)),
-          discount_amount: costing.discountAmount,
-          landing_cost: costing.landingUnit,
-          purchase_margin: costing.purchaseMargin,
-          landing_margin: costing.landingMargin,
-          manufacturing_date: item.manufacturing_date || null,
-          expiry_date: item.expiry_date || null
+        const buildPayload = (variantId, variantInfo, qty, stockApplied) => {
+          const quantity = Math.max(1, Number(qty) || 1);
+          const costing = computeBillItemCosting({ ...item, quantity }, product);
+          return {
+            product_id: item.product_id || null,
+            product_name: item.product_name,
+            variant_id: variantId ? Number(variantId) : null,
+            variant_info: variantInfo || null,
+            scanned_barcode: item.barcode || null,
+            stock_applied_qty: Math.max(0, Number(stockApplied) || 0),
+            stock_scan_applied: 0,
+            quantity,
+            purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
+            rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0,
+            purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
+            mrp: costing.mrpValue || null,
+            gst_type: item.gst_type || 'exclusive',
+            gst_rate: parseFloat(item.gst_rate) || 0,
+            discount_type: costing.discountType,
+            discount_value: costing.discountType === 'percent'
+              ? Math.min(100, Math.max(0, parseAmount(item.discount_value)))
+              : Math.max(0, parseAmount(item.discount_value)),
+            discount_amount: costing.discountAmount,
+            landing_cost: costing.landingUnit,
+            purchase_margin: costing.purchaseMargin,
+            landing_margin: costing.landingMargin,
+            manufacturing_date: item.manufacturing_date || null,
+            expiry_date: item.expiry_date || null
+          };
         };
+
+        const productVariants = Array.isArray(product?.variants) ? product.variants : [];
+        const variantQuantities = item.variant_quantities || {};
+        const variantEntries = Object.entries(variantQuantities)
+          .map(([vid, q]) => [vid, Number(q) || 0])
+          .filter(([, q]) => q > 0);
+
+        // Products with variants: emit one bill line per variant so each
+        // variant's stock is updated separately in a single confirmation.
+        if (productVariants.length > 0) {
+          if (variantEntries.length > 0) {
+            return variantEntries.map(([vid, qty]) => {
+              const v = productVariants.find(x => String(x.id) === String(vid));
+              const info = v ? [v.color_name, v.size_name].filter(Boolean).join(' / ') : null;
+              const applied = String(item.variant_id || '') === String(vid)
+                ? Math.max(0, Number(item.stock_applied_qty) || 0)
+                : 0;
+              return buildPayload(vid, info, qty, applied);
+            });
+          }
+          // Scanned single-variant line without an explicit per-variant map
+          if (item.variant_id) {
+            return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty)];
+          }
+          // No quantities entered for any variant — skip this line
+          return [];
+        }
+
+        return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty)];
       })
     };
+    if (payload.items.length === 0) {
+      setBillError('Enter a received quantity for at least one variant.');
+      return;
+    }
 
     try {
       setSavingBill(true);
@@ -2410,29 +2485,28 @@ export default function AdminVendorsPage() {
                           </div>
                           <div>
                             {variants.length > 0 ? (
-                              <select value={item.variant_id} onChange={(e) => {
-                                const variant = variants.find(v => String(v.id) === e.target.value);
-                                updateBillItem(index, {
-                                  variant_id: e.target.value,
-                                  variant_info: variant ? [variant.color_name, variant.size_name].filter(Boolean).join(' / ') : ''
-                                });
-                              }} style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff' }}>
-                                <option value="">Main product (all variants)</option>
-                                {variants.map(v => <option key={v.id} value={v.id}>{[v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`} (Stock: {v.stock_quantity ?? 0})</option>)}
-                              </select>
+                              <div style={{ padding: '7px 9px', borderRadius: '5px', border: '1px dashed #93c5fd', background: '#eff6ff', fontSize: '11px', color: '#1e3a8a', fontWeight: 700 }}>
+                                {variants.length} variant{variants.length > 1 ? 's' : ''} · enter qty below
+                              </div>
                             ) : (
                               <input type="text" value={item.variant_info} onChange={(e) => updateBillItem(index, { variant_info: e.target.value })} placeholder="Variant/size (optional)" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
                             )}
                           </div>
                           <div>
-                            <input
-                              type="number"
-                              min="1"
-                              value={item.quantity}
-                              onChange={(e) => updateBillItem(index, { quantity: e.target.value })}
-                              style={{ width: '100%', padding: '7px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }}
-                              title={`Current stock is ${currentStock}. Adding ${addQty} will make new stock ${newTotalStock}.`}
-                            />
+                            {variants.length > 0 ? (
+                              <div style={{ padding: '7px 6px', borderRadius: '5px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '12px', textAlign: 'center', fontWeight: 800, color: '#0f172a' }} title="Total quantity across all variants">
+                                {Object.values(item.variant_quantities || {}).reduce((sum, q) => sum + (Number(q) || 0), 0)}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => updateBillItem(index, { quantity: e.target.value })}
+                                style={{ width: '100%', padding: '7px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }}
+                                title={`Current stock is ${currentStock}. Adding ${addQty} will make new stock ${newTotalStock}.`}
+                              />
+                            )}
                           </div>
                           <input type="text" value={item.purchase_rate} onChange={(e) => updateBillItem(index, { purchase_rate: e.target.value })} placeholder="Rate" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} title="Purchased rate" />
                           <div>
@@ -2471,6 +2545,42 @@ export default function AdminVendorsPage() {
                           </div>
                           <button type="button" onClick={() => removeBillItem(index)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '5px', padding: '5px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
                         </div>
+
+                        {/* Per-variant stock entry — each variant is updated separately */}
+                        {variants.length > 0 && (
+                          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>🧮 Variant Stock Update (each variant separately)</span>
+                              <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty per variant</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '6px' }}>
+                              {variants.map(v => {
+                                const vId = String(v.id);
+                                const qty = Number(item.variant_quantities?.[vId]) || 0;
+                                const current = Number(v.stock_quantity) || 0;
+                                const projected = current + qty;
+                                const label = [v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`;
+                                return (
+                                  <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1fr 62px', gap: '6px', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '5px', padding: '5px 7px' }}>
+                                    <div style={{ overflow: 'hidden' }}>
+                                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>{label}</div>
+                                      <div style={{ fontSize: '9.5px', color: '#64748b' }}>Stock {current}{qty > 0 ? ` → ${projected}` : ''}</div>
+                                    </div>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={qty || ''}
+                                      placeholder="0"
+                                      onChange={(e) => setVariantQuantity(index, vId, e.target.value)}
+                                      style={{ width: '100%', padding: '6px 4px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }}
+                                      title={`Add stock for ${label}`}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Purchase Order Costing & Margins */}
                         <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>

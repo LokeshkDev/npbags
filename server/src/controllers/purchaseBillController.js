@@ -323,7 +323,7 @@ async function applyStockForBill(tx, bill, items, direction, userId) {
     );
 
     if (existingVariants.length > 0) {
-      // Apply stock to the first/primary variant
+      // Apply stock to the first/primary variant when no specific variant was passed
       const primaryVariant = existingVariants[0];
       const beforeV = parseInt(primaryVariant.stock_quantity, 10) || 0;
       const afterV = Math.max(0, beforeV + signedQty);

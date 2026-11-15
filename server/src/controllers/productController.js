@@ -3,7 +3,7 @@ const { query } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { processUploadedFile, deleteUploadedFile } = require('../middleware/upload');
 const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
-const { generateProductBarcodes } = require('../utils/barcode');
+const { generateProductBarcodes, assignVariantBarcode } = require('../utils/barcode');
 
 // Every regional branch gets a branch_stocks row for a product so it shows up
 // in the branch catalog as Hidden (is_active = 0) until explicitly made visible.
@@ -681,19 +681,35 @@ async function createProduct(req, res, next) {
     }
 
     for (const v of parsedVariants) {
-      await query(
+      const normalizedSize = (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null;
+      const variantResult = await query(
         `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, sku, image_url)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           v.color_name || 'Standard',
           v.color_hex || '#000000',
-          (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null,
+          normalizedSize,
           v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 0,
           v.sku || null,
           v.image_url || null
         ]
       );
+
+      // Persist a scanner-captured barcode for this specific variant
+      if (v.barcode && String(v.barcode).trim()) {
+        try {
+          await assignVariantBarcode(
+            { query },
+            id,
+            variantResult.insertId,
+            { size: normalizedSize, color: v.color_name || 'Standard', barcode: v.barcode },
+            req.user?.id || null
+          );
+        } catch (bErr) {
+          console.warn('[Product Create] Could not assign variant barcode:', bErr.message);
+        }
+      }
 
       // If variant has an image_url, ensure it is also linked in product_images with color_name
       if (v.image_url && v.image_url.trim()) {
@@ -1038,19 +1054,35 @@ async function updateProduct(req, res, next) {
       if (Array.isArray(parsedVariants)) {
         await query(`DELETE FROM product_variants WHERE product_id = ?`, [id]);
         for (const v of parsedVariants) {
-          await query(
+          const normalizedSize = (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null;
+          const variantResult = await query(
             `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, sku, image_url)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
               v.color_name || 'Standard',
               v.color_hex || '#000000',
-              (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null,
+              normalizedSize,
               v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 50,
               v.sku || null,
               v.image_url || null
             ]
           );
+
+          // Persist / re-link a scanner-captured barcode for this variant
+          if (v.barcode && String(v.barcode).trim()) {
+            try {
+              await assignVariantBarcode(
+                { query },
+                id,
+                variantResult.insertId,
+                { size: normalizedSize, color: v.color_name || 'Standard', barcode: v.barcode },
+                req.user?.id || null
+              );
+            } catch (bErr) {
+              console.warn('[Product Update] Could not assign variant barcode:', bErr.message);
+            }
+          }
 
           // If variant has an image_url, ensure it is also linked in product_images with color_name
           if (v.image_url && v.image_url.trim()) {
