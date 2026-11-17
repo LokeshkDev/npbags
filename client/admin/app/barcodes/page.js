@@ -1012,13 +1012,16 @@ export default function AdminBarcodesPage() {
                 </div>
               ) : (
                 /* Normal 35x25mm single sticker */
-                <div style={{ width: '130px', height: '94px', border: '1px solid #000', borderRadius: '4px', background: '#fff', padding: '5px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
-                  <div style={{ height: '42px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '7.5px', fontFamily: 'monospace', fontWeight: 700, padding: '0 2px' }}>
-                    <span>{customPrintItem.barcode}</span>
-                    <span>{customPrintItem.purchase_rate_alias || (customPrintItem.purchased_rate ? `₹${customPrintItem.purchased_rate}` : '')}</span>
+                <div style={{ width: '130px', height: '94px', border: '1px solid #000', borderRadius: '4px', background: '#fff', padding: '3px 4px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
+                  <div style={{ height: '26px', width: '100%', border: '1px dashed #93c5fd', background: '#eff6ff', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '6.5px', fontWeight: 800, color: '#1d4ed8' }}>
+                    PRE-PRINTED LOGO
                   </div>
-                  <div style={{ fontSize: '10.5px', fontWeight: 900 }}>
+                  <div style={{ height: '28px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '7px', fontWeight: 700, padding: '0 2px' }}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 800 }}>{customPrintItem.barcode}</span>
+                    <span style={{ maxWidth: '58%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{customPrintItem.product_name || customPrintItem.name || customPrintItem.purchase_rate_alias || ''}</span>
+                  </div>
+                  <div style={{ fontSize: '10px', fontWeight: 900, lineHeight: 1 }}>
                     MRP ₹{customPrintItem.mrp || customPrintItem.price || '—'}
                   </div>
                 </div>

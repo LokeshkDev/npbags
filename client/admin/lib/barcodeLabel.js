@@ -144,19 +144,21 @@ export function getLabelDetails(item, options = {}) {
 
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  // Only show the clean Rate Alias (Arrival Code) in simple font, never prefix with P.RATE
-  const rateHtml = label.rate
-    ? `<span class="rate-text">${label.rate}</span>`
-    : '<span class="rate-text"></span>';
-  const sequenceHtml = label.sequence ? ` <span class="seq-text">#${label.sequence}</span>` : '';
+  const rawName = label.productName || '';
+  const cleanName = rawName.length > 24 ? rawName.slice(0, 24) : rawName;
+  const productHtml = cleanName
+    ? `<span class="pname-text" title="${rawName}">${cleanName}</span>`
+    : '<span class="pname-text"></span>';
+  const logoSpaceMm = options.topLogoOffsetMm !== undefined ? options.topLogoOffsetMm : 7.5;
+  const logoSpaceHtml = logoSpaceMm > 0 ? `<div class="logo-space" style="height:${logoSpaceMm}mm;"></div>` : '';
   const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
-  const svgHtml = getCleanBarcodeSVG(item, { height: 50, quietZone: 12 });
+  const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
 
   return `
     <div class="barcode-sticker">
-      ${storeNameHtml}
+      ${storeNameHtml || logoSpaceHtml}
       <div class="barcode-svg-container">${svgHtml}</div>
-      <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}${sequenceHtml}</span>${rateHtml}</div>
+      <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}</span>${productHtml}</div>
       <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
     </div>
   `;
@@ -165,11 +167,9 @@ export function renderNormalSticker(item, options = {}) {
 export function renderJewellerySticker(item, options = {}) {
   const label = getLabelDetails(item, options);
   const storeName = options.storeName || 'NP Grand';
-  const sequenceHtml = label.sequence ? ` <span class="jewel-seq">#${label.sequence}</span>` : '';
-  const rateHtml = label.rate ? `<div class="jewel-rate-row">${label.rate}</div>` : '';
   const rawName = label.productName || item.barcode || 'JEWELLERY';
-  const cleanName = rawName.length > 22 ? rawName.slice(0, 20) + '..' : rawName;
-  const svgHtml = getCleanBarcodeSVG(item, { height: 42, quietZone: 10 });
+  const cleanName = rawName.length > 22 ? rawName.slice(0, 22) : rawName;
+  const svgHtml = getCleanBarcodeSVG(item, { height: 20, quietZone: 10 });
 
   return `
     <div class="jewel-sticker-wrapper">
@@ -178,7 +178,7 @@ export function renderJewellerySticker(item, options = {}) {
         <div class="jewel-flap jewel-flap-left">
           <div class="jewel-store">${storeName}</div>
           <div class="jewel-barcode-svg">${svgHtml}</div>
-          <div class="jewel-code">${item.barcode || 'NO BARCODE'}${sequenceHtml}</div>
+          <div class="jewel-code">${item.barcode || 'NO BARCODE'}</div>
         </div>
 
         <!-- CENTER TAIL (20mm x 3mm) - Narrow Bridge Loops through Jewellery -->
@@ -189,7 +189,6 @@ export function renderJewellerySticker(item, options = {}) {
         <!-- RIGHT FLAP (30mm x 12mm) - Reverse Face of Tag (Details & Price) -->
         <div class="jewel-flap jewel-flap-right">
           <div class="jewel-pname" title="${label.productName || ''}">${cleanName}</div>
-          ${rateHtml ? rateHtml : '<div style="height:5.5pt;"></div>'}
           <div class="jewel-mrp"><span class="jewel-mrp-lbl">MRP </span>₹${label.mrp}</div>
         </div>
       </div>
@@ -306,7 +305,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   }
   .jewel-barcode-svg {
     width: 27mm;
-    height: 5.2mm;
+    height: 3mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -332,9 +331,6 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     letter-spacing: 0.1px;
     white-space: nowrap;
   }
-  .jewel-code .jewel-seq {
-    font-size: 4.2pt;
-  }
   .jewel-tail-zone {
     width: 20mm;
     height: 12mm;
@@ -358,17 +354,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     text-transform: uppercase;
     max-width: 28mm;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .jewel-rate-row {
-    font-size: 5.5pt;
-    font-weight: 800;
-    line-height: 1;
-    color: #000000 !important;
-    max-width: 28mm;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     white-space: nowrap;
   }
   .jewel-mrp {
@@ -433,7 +419,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     width: 35mm;
     height: 25mm;
     border: none;
-    padding: 1.2mm 1.5mm;
+    padding: 0 1.5mm 1mm 1.5mm;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -444,6 +430,12 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     color: #000000 !important;
     background: #ffffff !important;
   }
+  .logo-space {
+    width: 100%;
+    height: 7.5mm;
+    flex-shrink: 0;
+    background: transparent !important;
+  }
   .store-name {
     font-size: 7.5pt;
     font-weight: 900;
@@ -452,7 +444,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   }
   .barcode-svg-container {
     width: 32mm;
-    height: 13.5mm;
+    height: 7.5mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -484,26 +476,22 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     font-weight: 700;
     font-family: monospace;
     letter-spacing: 0.2px;
-    max-width: 55%;
+    max-width: 50%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: #000000 !important;
   }
-  .code-text .seq-text {
-    font-size: 4.5pt;
-    letter-spacing: 0;
-  }
-  .rate-text {
+  .pname-text {
     font-size: 6pt;
     font-weight: 700;
     font-family: Arial, Helvetica, sans-serif;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.1px;
     line-height: 1;
-    max-width: 48%;
+    max-width: 50%;
     text-align: right;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     white-space: nowrap;
     color: #000000 !important;
   }
