@@ -35,6 +35,16 @@ function normalizePurchaseRate(value) {
   return trimmed === '' ? null : trimmed;
 }
 
+function normalizeDateValue(val) {
+  if (val === undefined || val === null) return null;
+  const str = String(val).trim();
+  if (!str) return null;
+  if (/^\d{4}-\d{2}$/.test(str)) {
+    return `${str}-01`;
+  }
+  return str;
+}
+
 function normalizeGstType(value) {
   const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (['without_gst', 'exclusive', 'excl', 'without'].includes(normalized)) return 'exclusive';
@@ -632,8 +642,8 @@ async function createProduct(req, res, next) {
         h,
         l,
         shipping_info || null,
-        manufacturing_date || null,
-        expiry_date || null,
+        normalizeDateValue(manufacturing_date),
+        normalizeDateValue(expiry_date),
         seo_title || null,
         seo_description || null,
         seo_keywords || null,
@@ -977,10 +987,10 @@ async function updateProduct(req, res, next) {
         l,
         shipping_info !== undefined ? shipping_info : null,
         shipping_info !== undefined ? shipping_info : null,
-        manufacturing_date !== undefined ? (manufacturing_date || null) : null,
-        manufacturing_date !== undefined ? (manufacturing_date || null) : null,
-        expiry_date !== undefined ? (expiry_date || null) : null,
-        expiry_date !== undefined ? (expiry_date || null) : null,
+        manufacturing_date !== undefined ? normalizeDateValue(manufacturing_date) : null,
+        manufacturing_date !== undefined ? normalizeDateValue(manufacturing_date) : null,
+        expiry_date !== undefined ? normalizeDateValue(expiry_date) : null,
+        expiry_date !== undefined ? normalizeDateValue(expiry_date) : null,
         seo_title !== undefined ? seo_title : null,
         seo_title !== undefined ? seo_title : null,
         seo_description !== undefined ? seo_description : null,

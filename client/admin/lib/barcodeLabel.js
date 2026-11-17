@@ -144,12 +144,20 @@ export function getLabelDetails(item, options = {}) {
 
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  const rawName = label.productName || '';
+  const secondaryText = firstNonEmpty(
+    options.secondaryText,
+    item?.purchase_rate_alias,
+    item?.rate_alias,
+    item?.alias,
+    label.productName,
+    ''
+  );
+  const rawName = secondaryText ? String(secondaryText).trim() : '';
   const cleanName = rawName.length > 24 ? rawName.slice(0, 24) : rawName;
   const productHtml = cleanName
     ? `<span class="pname-text" title="${rawName}">${cleanName}</span>`
     : '<span class="pname-text"></span>';
-  const logoSpaceMm = options.topLogoOffsetMm !== undefined ? options.topLogoOffsetMm : 7.5;
+  const logoSpaceMm = options.topLogoOffsetMm !== undefined ? options.topLogoOffsetMm : 4.8;
   const logoSpaceHtml = logoSpaceMm > 0 ? `<div class="logo-space" style="height:${logoSpaceMm}mm;"></div>` : '';
   const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
   const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
@@ -386,7 +394,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
 <title>${options.title || 'Barcode Stickers (35x25mm)'}</title>
 <style>
   @page {
-    size: 105mm 25mm;
+    size: 110mm 25mm;
     margin: 0;
   }
   * {
@@ -405,24 +413,24 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     font-weight: 700;
-    width: 105mm;
+    width: 110mm;
   }
   .sticker-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 0;
-    padding: 0;
-    margin: 0;
-    width: 105mm;
+    gap: 2mm;
+    padding: 0 0.5mm;
+    margin: 0 auto;
+    width: 110mm;
   }
   .barcode-sticker {
     width: 35mm;
     height: 25mm;
     border: none;
-    padding: 0 1.5mm 1mm 1.5mm;
+    padding: 0 1.2mm;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     text-align: center;
     page-break-inside: avoid;
@@ -432,7 +440,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   }
   .logo-space {
     width: 100%;
-    height: 7.5mm;
+    height: 4.8mm;
     flex-shrink: 0;
     background: transparent !important;
   }
@@ -444,7 +452,8 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   }
   .barcode-svg-container {
     width: 32mm;
-    height: 7.5mm;
+    height: 6.5mm;
+    margin-top: 0.6mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -467,7 +476,8 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     justify-content: space-between;
     align-items: center;
     gap: 1mm;
-    padding: 0 0.5mm;
+    padding: 0 0.2mm;
+    margin-top: 0.6mm;
     line-height: 1;
     color: #000000 !important;
   }
@@ -483,7 +493,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     color: #000000 !important;
   }
   .pname-text {
-    font-size: 6pt;
+    font-size: 5.8pt;
     font-weight: 700;
     font-family: Arial, Helvetica, sans-serif;
     letter-spacing: 0.1px;
@@ -496,10 +506,11 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     color: #000000 !important;
   }
   .mrp-text {
-    font-size: 11pt;
+    font-size: 10pt;
     font-weight: 900;
     line-height: 1;
     letter-spacing: -0.2px;
+    margin-top: 0.8mm;
     white-space: nowrap;
     color: #000000 !important;
   }

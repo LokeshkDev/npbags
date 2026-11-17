@@ -22,6 +22,7 @@ const agingController = require('../controllers/agingController');
 const purchaseBillController = require('../controllers/purchaseBillController');
 const purchaseScanController = require('../controllers/purchaseScanController');
 const heldBillController = require('../controllers/heldBillController');
+const brandController = require('../controllers/brandController');
 
 // All admin routes require authentication and admin role
 router.use(authenticate, requireAdmin);
@@ -46,6 +47,12 @@ router.post('/products/:id/images', upload.single('image'), productController.up
 router.post('/categories', upload.single('image'), categoryController.createCategory);
 router.put('/categories/:id', upload.single('image'), categoryController.updateCategory);
 router.delete('/categories/:id', categoryController.deleteCategory);
+
+// Brands
+router.get('/brands', brandController.getAllBrands);
+router.post('/brands', brandController.createBrand);
+router.put('/brands/:id', brandController.updateBrand);
+router.delete('/brands/:id', brandController.deleteBrand);
 
 // Orders
 router.get('/orders', orderController.getAllOrdersAdmin);

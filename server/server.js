@@ -163,6 +163,8 @@ async function startServer() {
   try {
     const { ensureVendorBillingTables } = require('./src/scripts/migrate-vendor-purchase-billing');
     await ensureVendorBillingTables();
+    const migrateBrands = require('./src/scripts/migrate-brands');
+    await migrateBrands();
   } catch (migErr) {
     console.warn('[DB Auto-Migration] Warning during startup table check:', migErr.message);
   }

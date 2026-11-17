@@ -28,10 +28,15 @@ import {
   getAdminProductPurchaseRateHistory,
   getAdminBranches,
   getAdminBranchStocks,
-  updateAdminBranchProductStock
+  updateAdminBranchProductStock,
+  getAdminBrands,
+  createAdminBrand,
+  updateAdminBrand,
+  deleteAdminBrand
 } from '../../lib/api';
 import { useAdminAuth } from '../../lib/auth';
 import useScannerInput from '../../hooks/useScannerInput';
+import { printBarcodeLabels, getCleanBarcodeSVG } from '../../lib/barcodeLabel';
 
 const toDateInput = (value) => {
   if (!value) return '';
@@ -103,10 +108,21 @@ export default function AdminProductsPage() {
   const [barcodePopupProduct, setBarcodePopupProduct] = useState(null);
   const [popupBarcodes, setPopupBarcodes] = useState([]);
   const [loadingPopupBarcodes, setLoadingPopupBarcodes] = useState(false);
+  const [barcodeStickerFormat, setBarcodeStickerFormat] = useState('normal_35x25');
 
   const galleryFileInputRef = useRef(null);
   const replaceFileInputRef = useRef(null);
   const [replacingImageId, setReplacingImageId] = useState(null);
+
+  // Brands management state
+  const [brandsList, setBrandsList] = useState([]);
+  const [loadingBrands, setLoadingBrands] = useState(false);
+  const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
+  const [brandInputName, setBrandInputName] = useState('');
+  const [editingBrandId, setEditingBrandId] = useState(null);
+  const [savingBrand, setSavingBrand] = useState(false);
+  const [brandSearchQuery, setBrandSearchQuery] = useState('');
+  const brandInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -242,6 +258,96 @@ export default function AdminProductsPage() {
     });
   };
 
+  const loadBrands = async () => {
+    setLoadingBrands(true);
+    try {
+      const res = await getAdminBrands();
+      let list = [];
+      if (Array.isArray(res)) {
+        list = res;
+      } else if (res && Array.isArray(res.data)) {
+        list = res.data;
+      } else if (res && Array.isArray(res.brands)) {
+        list = res.brands;
+      }
+      setBrandsList(list);
+    } catch (err) {
+      console.warn('Failed to load brands:', err);
+    } finally {
+      setLoadingBrands(false);
+    }
+  };
+
+  const openBrandModal = (brandToEdit = null) => {
+    if (brandToEdit && typeof brandToEdit === 'object') {
+      setEditingBrandId(brandToEdit.id);
+      setBrandInputName(brandToEdit.name || '');
+    } else if (typeof brandToEdit === 'string' && brandToEdit.trim()) {
+      setEditingBrandId(null);
+      setBrandInputName(brandToEdit.trim());
+    } else {
+      setEditingBrandId(null);
+      setBrandInputName('');
+    }
+    setBrandSearchQuery('');
+    setIsBrandModalOpen(true);
+    loadBrands();
+  };
+
+  useEffect(() => {
+    if (isBrandModalOpen) {
+      loadBrands();
+    }
+  }, [isBrandModalOpen]);
+
+  const handleSaveBrand = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const clean = String(brandInputName || '').trim();
+    if (!clean) {
+      alert('Please enter a brand name.');
+      return;
+    }
+    setSavingBrand(true);
+    try {
+      if (editingBrandId) {
+        await updateAdminBrand(editingBrandId, { name: clean });
+        const oldBrand = brandsList.find(b => b.id === editingBrandId);
+        if (oldBrand && formData.brand === oldBrand.name) {
+          setFormData(prev => ({ ...prev, brand: clean }));
+        }
+      } else {
+        await createAdminBrand({ name: clean });
+        // Auto-select the newly added brand in the form
+        setFormData(prev => ({ ...prev, brand: clean }));
+      }
+      setBrandInputName('');
+      setEditingBrandId(null);
+      await loadBrands();
+    } catch (err) {
+      alert(err.message || 'Failed to save brand');
+    } finally {
+      setSavingBrand(false);
+    }
+  };
+
+  const handleDeleteBrand = async (brandItem) => {
+    if (!brandItem || !brandItem.id) return;
+    if (!window.confirm(`Delete brand "${brandItem.name}"?`)) return;
+    try {
+      await deleteAdminBrand(brandItem.id);
+      if (formData.brand === brandItem.name) {
+        setFormData(prev => ({ ...prev, brand: '' }));
+      }
+      if (editingBrandId === brandItem.id) {
+        setEditingBrandId(null);
+        setBrandInputName('');
+      }
+      await loadBrands();
+    } catch (err) {
+      alert(err.message || 'Failed to delete brand');
+    }
+  };
+
   const loadData = () => {
     getAdminProducts({ limit: 1000, status: 'all' })
       .then(data => {
@@ -255,6 +361,8 @@ export default function AdminProductsPage() {
         if (Array.isArray(data)) setCategories(data);
       })
       .catch(() => {});
+
+    loadBrands();
   };
 
   const handleToggleProductStatus = async (p, field) => {
@@ -726,78 +834,34 @@ export default function AdminProductsPage() {
 
     getProductBarcodes(prod.id)
       .then(res => {
-        if (Array.isArray(res)) setPopupBarcodes(res);
+        const list = Array.isArray(res) ? res : (res?.data || []);
+        setPopupBarcodes(list);
       })
       .catch(() => setPopupBarcodes([]))
       .finally(() => setLoadingPopupBarcodes(false));
   };
 
-  // Print thermal barcode sticker
-  const printProductThermalSticker = (barcodeItem, copies = 3) => {
-    const priceVal = barcodeItem.price || barcodeItem.sale_price || editingProduct?.sale_price || editingProduct?.price || barcodePopupProduct?.price || 999;
-    const rateVal = barcodeItem.purchased_rate || editingProduct?.purchased_rate || barcodePopupProduct?.purchased_rate || '';
-    const rateDisplay = rateVal === '' || rateVal === null || rateVal === undefined
-      ? '—'
-      : (Number.isFinite(Number(rateVal)) ? `₹${Number(rateVal).toLocaleString('en-IN')}` : String(rateVal));
+  // Print thermal barcode sticker using standardized 35x25mm (or 80x12mm jewellery) engine
+  const printProductThermalSticker = (barcodeItem, copies = 3, format = barcodeStickerFormat) => {
+    const parentProd = barcodePopupProduct || editingProduct || {};
+    const priceVal = barcodeItem.mrp || barcodeItem.price || barcodeItem.sale_price || parentProd.mrp || parentProd.price || parentProd.sale_price || 999;
+    const prodName = barcodeItem.product_name || parentProd.name || barcodeItem.name || '';
+    const rateVal = barcodeItem.purchased_rate || barcodeItem.purchase_price || parentProd.purchased_rate || parentProd.purchase_price || '';
+    const aliasVal = barcodeItem.purchase_rate_alias || barcodeItem.rate_alias || parentProd.purchase_rate_alias || parentProd.rate_alias || '';
 
-    const printHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Print Barcode Stickers - ${barcodeItem.barcode}</title>
-<style>
-  @page { size: 105mm 25mm; margin: 0; }
-  * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0;
-    font-family: Arial, Helvetica, sans-serif;
-    color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    font-weight: 700;
-  }
-  .sticker-row { display: flex; flex-wrap: wrap; gap: 2mm; padding: 1mm 2mm; }
-  .barcode-sticker {
-    width: 32mm; height: 23mm; border: 0.5px solid #000000; padding: 1mm;
-    display: flex; flex-direction: column; justify-content: space-between;
-    align-items: center; text-align: center; page-break-inside: avoid;
-  }
-  .store-name { font-size: 7.5pt; font-weight: 900; letter-spacing: 0.2px; }
-  .barcode-svg-container { width: 28mm; height: 9mm; display: flex; align-items: center; justify-content: center; }
-  .barcode-svg-container svg { width: 100%; height: 100%; fill: #000000 !important; stroke: #000000 !important; }
-  .info-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; width: 100%; padding: 0 0.5mm; line-height: 1; }
-  .code-text { font-size: 5.5pt; font-weight: 700; font-family: monospace; letter-spacing: 0.2px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rate-text { font-size: 5.5pt; font-weight: 700; line-height: 1; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mrp-text { font-size: 11pt; font-weight: 900; line-height: 1; letter-spacing: -0.2px; white-space: nowrap; }
-  .mrp-text .mrp-label { font-size: 6.5pt; font-weight: 900; letter-spacing: 0; }
-</style>
-</head>
-<body>
-  <div class="sticker-row">
-    ${Array.from({ length: copies }).map(() => `
-      <div class="barcode-sticker">
-        <div class="store-name">NP Grand</div>
-        <div class="barcode-svg-container">${barcodeItem.svg || ''}</div>
-        <div class="info-row"><span class="code-text">${barcodeItem.barcode}</span><span class="rate-text">${rateDisplay}</span></div>
-        <div class="mrp-text"><span class="mrp-label">MRP </span>₹${Number(priceVal).toLocaleString('en-IN')}</div>
-      </div>
-    `).join('')}
-  </div>
-</body>
-</html>
-    `;
+    const itemToPrint = {
+      ...barcodeItem,
+      barcode: barcodeItem.barcode || barcodeItem.code,
+      product_name: prodName,
+      mrp: priceVal,
+      purchased_rate: rateVal,
+      purchase_rate_alias: aliasVal
+    };
 
-    const printWin = window.open('', '_blank', 'width=600,height=400');
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(printHtml);
-      printWin.document.close();
-      setTimeout(() => {
-        printWin.focus();
-        printWin.print();
-        printWin.close();
-      }, 350);
-    }
+    printBarcodeLabels(itemToPrint, copies, {
+      stickerType: format,
+      topLogoOffsetMm: 4.8
+    });
   };
 
   // Variant helpers
@@ -1271,11 +1335,10 @@ export default function AdminProductsPage() {
     return g === '' || g === 'none';
   }).length;
 
-  const brandOptions = [...new Set(
-    products
-      .map(p => String(p.brand || '').trim())
-      .filter(Boolean)
-  )].sort((a, b) => a.localeCompare(b));
+  const brandOptions = [...new Set([
+    ...brandsList.map(b => String(b.name || '').trim()),
+    ...products.map(p => String(p.brand || '').trim())
+  ].filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   const countInStock = products.filter(p => getProductStock(p) > 10).length;
   const countLowStock = products.filter(p => {
@@ -1997,14 +2060,49 @@ export default function AdminProductsPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Brand</label>
-              <input
-                type="text"
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="form-label" style={{ marginBottom: 0 }}>Brand</label>
+                <button
+                  type="button"
+                  onClick={() => openBrandModal()}
+                  style={{
+                    background: '#ecfdf5',
+                    border: '1px solid #bbf7d0',
+                    color: '#065935',
+                    fontWeight: 700,
+                    fontSize: '11.5px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Add, edit, or delete brands"
+                >
+                  + Add / Manage Brands
+                </button>
+              </div>
+              <select
                 className="form-control"
-                placeholder="e.g. Nike, NP Grand"
-                value={formData.brand}
-                onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-              />
+                value={formData.brand || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '__add_new__') {
+                    openBrandModal();
+                  } else {
+                    setFormData({ ...formData, brand: val });
+                  }
+                }}
+              >
+                <option value="">-- Select Brand --</option>
+                {brandOptions.map(bName => (
+                  <option key={bName} value={bName}>{bName}</option>
+                ))}
+                <option value="__add_new__" style={{ fontWeight: 800, color: '#065935', background: '#ecfdf5' }}>
+                  ➕ + Add New Brand...
+                </option>
+              </select>
             </div>
 
             <div className="form-group">
@@ -2444,13 +2542,86 @@ export default function AdminProductsPage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Manufacturing Date</label>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={formData.manufacturing_date || ''}
-                  onChange={(e) => setFormData({ ...formData, manufacturing_date: e.target.value })}
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Manufacturing Date</label>
+                  {formData.manufacturing_date && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, manufacturing_date: '' })}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#64748b',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        padding: 0,
+                        textDecoration: 'underline'
+                      }}
+                      title="Clear manufacturing date"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {(() => {
+                  const mfgParts = String(formData.manufacturing_date || '').split('-');
+                  const mfgYear = mfgParts[0] && mfgParts[0].length === 4 ? mfgParts[0] : '';
+                  const mfgMonth = mfgParts[1] ? mfgParts[1].padStart(2, '0') : '';
+                  const currentYear = new Date().getFullYear();
+                  const yearList = Array.from({ length: 22 }, (_, i) => (currentYear + 2) - i);
+
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', marginTop: '6px' }}>
+                      <select
+                        className="form-control"
+                        value={mfgMonth}
+                        onChange={(e) => {
+                          const newMonth = e.target.value;
+                          const yr = mfgYear || String(currentYear);
+                          if (newMonth) {
+                            setFormData({ ...formData, manufacturing_date: `${yr}-${newMonth}-01` });
+                          } else if (!mfgYear) {
+                            setFormData({ ...formData, manufacturing_date: '' });
+                          } else {
+                            setFormData({ ...formData, manufacturing_date: '' });
+                          }
+                        }}
+                      >
+                        <option value="">Month</option>
+                        <option value="01">01 - Jan</option>
+                        <option value="02">02 - Feb</option>
+                        <option value="03">03 - Mar</option>
+                        <option value="04">04 - Apr</option>
+                        <option value="05">05 - May</option>
+                        <option value="06">06 - Jun</option>
+                        <option value="07">07 - Jul</option>
+                        <option value="08">08 - Aug</option>
+                        <option value="09">09 - Sep</option>
+                        <option value="10">10 - Oct</option>
+                        <option value="11">11 - Nov</option>
+                        <option value="12">12 - Dec</option>
+                      </select>
+                      <select
+                        className="form-control"
+                        value={mfgYear}
+                        onChange={(e) => {
+                          const newYear = e.target.value;
+                          const mo = mfgMonth || '01';
+                          if (newYear) {
+                            setFormData({ ...formData, manufacturing_date: `${newYear}-${mo}-01` });
+                          } else {
+                            setFormData({ ...formData, manufacturing_date: '' });
+                          }
+                        }}
+                      >
+                        <option value="">Year</option>
+                        {yearList.map(yr => (
+                          <option key={yr} value={String(yr)}>{yr}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Expiry Date</label>
@@ -3232,31 +3403,104 @@ export default function AdminProductsPage() {
       <Modal
         isOpen={!!barcodePopupProduct}
         onClose={() => setBarcodePopupProduct(null)}
-        title={`Barcode Details: ${barcodePopupProduct?.name}`}
-        maxWidth="620px"
+        title={`🏷️ Barcode & Labels: ${barcodePopupProduct?.name || ''}`}
+        maxWidth="740px"
       >
         {barcodePopupProduct && (
           <div>
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
+            {/* Header Product Card */}
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
               <img
                 src={barcodePopupProduct.primary_image || barcodePopupProduct.image || barcodePopupProduct.gallery?.[0] || '/assets/brand-logo.png'}
                 alt=""
-                style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff' }}
+                style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', flexShrink: 0 }}
               />
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>
-                  {barcodePopupProduct.name}
-                </h3>
-                <div style={{ fontSize: '12.5px', color: '#64748b' }}>
-                  Category: <strong>{categories.find(c => String(c.id) === String(barcodePopupProduct.category_id))?.name || 'General'}</strong> &bull; Price: <strong style={{ color: '#065935' }}>₹{barcodePopupProduct.price}</strong>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', margin: '0 0 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {barcodePopupProduct.name}
+                  </h3>
+                  <span style={{ fontSize: '11px', background: '#ecfdf5', color: '#065935', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, border: '1px solid #a7f3d0' }}>
+                    {categories.find(c => String(c.id) === String(barcodePopupProduct.category_id))?.name || 'General'}
+                  </span>
                 </div>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
-                  Storefront URL: <code>/product/{barcodePopupProduct.slug || barcodePopupProduct.id}</code>
+                <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', gap: '14px', marginTop: '4px', flexWrap: 'wrap' }}>
+                  <span>MRP: <strong style={{ color: '#0f172a', fontWeight: 800 }}>₹{Number(barcodePopupProduct.mrp || barcodePopupProduct.price || 0).toLocaleString('en-IN')}</strong></span>
+                  {barcodePopupProduct.purchased_rate && (
+                    <span>Arrival/Cost: <strong style={{ color: '#475569' }}>₹{Number(barcodePopupProduct.purchased_rate).toLocaleString('en-IN')}</strong></span>
+                  )}
+                  {barcodePopupProduct.brand && (
+                    <span>Brand: <strong style={{ color: '#065935' }}>{barcodePopupProduct.brand}</strong></span>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            {/* Sticker Format Selector Bar */}
+            <div style={{ background: '#f1f5f9', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#475569' }}>PRINT FORMAT:</span>
+                <button
+                  type="button"
+                  onClick={() => setBarcodeStickerFormat('normal_35x25')}
+                  style={{
+                    padding: '5px 11px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    border: barcodeStickerFormat === 'normal_35x25' ? '1.5px solid #065935' : '1px solid #cbd5e1',
+                    background: barcodeStickerFormat === 'normal_35x25' ? '#ecfdf5' : '#ffffff',
+                    color: barcodeStickerFormat === 'normal_35x25' ? '#065935' : '#475569'
+                  }}
+                >
+                  🏷️ Normal Sticker (35×25mm · 3-in-a-row)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBarcodeStickerFormat('jewellery_80x12')}
+                  style={{
+                    padding: '5px 11px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    border: barcodeStickerFormat === 'jewellery_80x12' ? '1.5px solid #065935' : '1px solid #cbd5e1',
+                    background: barcodeStickerFormat === 'jewellery_80x12' ? '#ecfdf5' : '#ffffff',
+                    color: barcodeStickerFormat === 'jewellery_80x12' ? '#065935' : '#475569'
+                  }}
+                >
+                  💍 Jewellery Tag (80×12mm)
+                </button>
+              </div>
+
+              {popupBarcodes.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    popupBarcodes.forEach(b => printProductThermalSticker(b, barcodeStickerFormat === 'jewellery_80x12' ? 1 : 3, barcodeStickerFormat));
+                  }}
+                  style={{
+                    background: '#065935',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  🖨️ Print All Barcodes ({barcodeStickerFormat === 'jewellery_80x12' ? '1x each' : '3x each'})
+                </button>
+              )}
+            </div>
+
+            {/* Barcode Cards List */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <strong style={{ fontSize: '13px', color: '#0f172a' }}>
                 REGISTERED PRODUCT BARCODES ({popupBarcodes.length})
               </strong>
@@ -3280,16 +3524,16 @@ export default function AdminProductsPage() {
             </div>
 
             {loadingPopupBarcodes ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+              <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
                 Loading barcodes...
               </div>
             ) : popupBarcodes.length === 0 ? (
-              <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center' }}>
+              <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center' }}>
                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
                   No Barcodes Generated Yet
                 </div>
                 <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
-                  Generate Code 128 barcodes formatted as NP-XXXX for label printing and hardware scanners.
+                  Generate Code 128 barcodes formatted as NP-XXXX for thermal label printing and hardware scanners.
                 </div>
                 <button
                   type="button"
@@ -3310,85 +3554,179 @@ export default function AdminProductsPage() {
                 </button>
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: '10px', maxHeight: '300px', overflowY: 'auto' }}>
-                {popupBarcodes.map((b, idx) => (
-                  <div
-                    key={b.id || idx}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: '#ffffff',
-                      padding: '12px 14px',
-                      borderRadius: '8px',
-                      border: '1px solid #e2e8f0',
-                      flexWrap: 'wrap',
-                      gap: '12px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div
-                        style={{ width: '120px', height: '38px', background: '#f8fafc', padding: '2px 4px', borderRadius: '4px', border: '1px solid #e2e8f0' }}
-                        dangerouslySetInnerHTML={{ __html: b.svg }}
-                      />
-                      <div>
-                        <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '14px', color: '#065935' }}>
-                          {b.barcode}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>
-                          <span style={{ fontWeight: 800, color: b.is_primary ? '#065935' : '#0369a1' }}>
-                            {b.is_primary ? 'PRIMARY' : 'VARIANT'}
-                          </span>
-                          {b.color_name && ` · ${b.color_name}`}
-                          {b.size_name && ` · ${b.size_name}`}
-                          {b.sku && ` · SKU: ${b.sku}`}
+              <div style={{ display: 'grid', gap: '14px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
+                {popupBarcodes.map((b, idx) => {
+                  const mrpVal = b.mrp || barcodePopupProduct.mrp || barcodePopupProduct.price || 0;
+                  const rightLabel = b.purchase_rate_alias || barcodePopupProduct.name || b.product_name || '';
+
+                  return (
+                    <div
+                      key={b.id || idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: '#ffffff',
+                        padding: '12px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                        flexWrap: 'wrap',
+                        gap: '16px'
+                      }}
+                    >
+                      {/* Left: Authentic Sticker Visual Preview */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+                        {barcodeStickerFormat === 'jewellery_80x12' ? (
+                          /* Jewellery 80x12mm Unfolded Tag Preview */
+                          <div style={{ width: '220px', height: '54px', border: '1px solid #000', borderRadius: '4px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 6px', boxSizing: 'border-box', flexShrink: 0 }}>
+                            <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '0.5px dashed #cbd5e1', paddingRight: '4px' }}>
+                              <div style={{ fontSize: '7px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
+                              <div style={{ height: '22px', width: '100%', display: 'flex', alignItems: 'center' }} dangerouslySetInnerHTML={{ __html: getCleanBarcodeSVG(b, { height: 22, quietZone: 6 }) || b.svg || '' }} />
+                              <div style={{ fontSize: '6.5px', fontFamily: 'monospace', fontWeight: 700 }}>{b.barcode}</div>
+                            </div>
+                            <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <div style={{ width: '100%', height: '8px', borderTop: '1px dashed #64748b', borderBottom: '1px dashed #64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <span style={{ fontSize: '5.5px', color: '#94a3b8' }}>bridge</span>
+                              </div>
+                            </div>
+                            <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', textAlign: 'right', borderLeft: '0.5px dashed #cbd5e1', paddingLeft: '4px' }}>
+                              <div style={{ fontSize: '7px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                                {rightLabel}
+                              </div>
+                              <div style={{ fontSize: '9px', fontWeight: 900 }}>
+                                MRP ₹{Number(mrpVal).toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Normal 35x25mm Sticker Preview Matching Physical Roll */
+                          <div style={{
+                            width: '140px',
+                            height: '100px',
+                            border: '1.5px solid #0f172a',
+                            borderRadius: '4px',
+                            background: '#ffffff',
+                            padding: '3px 5px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'flex-start',
+                            alignItems: 'center',
+                            textAlign: 'center',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                            flexShrink: 0
+                          }}>
+                            {/* Pre-printed Logo Space Indicator (4.8mm) */}
+                            <div style={{
+                              height: '20px',
+                              width: '100%',
+                              border: '1px dashed #93c5fd',
+                              background: '#eff6ff',
+                              borderRadius: '2px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '6.5px',
+                              fontWeight: 800,
+                              color: '#1d4ed8'
+                            }}>
+                              PRE-PRINTED LOGO (4.8mm)
+                            </div>
+
+                            {/* Crisp Code 128 SVG */}
+                            <div
+                              style={{ height: '28px', width: '100%', marginTop: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              dangerouslySetInnerHTML={{ __html: getCleanBarcodeSVG(b, { height: 28, quietZone: 8 }) || b.svg || '' }}
+                            />
+
+                            {/* Info Line: Barcode & Product Name / Arrival Code */}
+                            <div style={{ width: '100%', marginTop: '3px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '7.5px', fontWeight: 800, padding: '0 1px', lineHeight: 1 }}>
+                              <span style={{ fontFamily: 'monospace', color: '#0f172a' }}>{b.barcode}</span>
+                              <span style={{ maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right', color: '#0f172a' }}>
+                                {rightLabel}
+                              </span>
+                            </div>
+
+                            {/* MRP */}
+                            <div style={{ fontSize: '11px', fontWeight: 900, lineHeight: 1, marginTop: '4px', color: '#000000' }}>
+                              <span style={{ fontSize: '7px', fontWeight: 900 }}>MRP </span>₹{Number(mrpVal).toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Middle: Details & Meta */}
+                        <div>
+                          <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '15px', color: '#065935' }}>
+                            {b.barcode}
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
+                            <span style={{ fontWeight: 800, color: b.is_primary ? '#065935' : '#0369a1', background: b.is_primary ? '#ecfdf5' : '#f0f9ff', padding: '1px 6px', borderRadius: '4px' }}>
+                              {b.is_primary ? 'PRIMARY' : 'VARIANT'}
+                            </span>
+                            {b.color_name && ` · ${b.color_name}`}
+                            {b.size_name && ` · Size: ${b.size_name}`}
+                            {b.sku && ` · SKU: ${b.sku}`}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>
+                            Specs: {barcodeStickerFormat === 'jewellery_80x12' ? '80×12mm Jewellery Dumbbell Tag' : '35×25mm 3-in-a-row · 4.8mm Top Logo Gap'}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        type="button"
-                        onClick={() => printProductThermalSticker(b, 3)}
-                        style={{
-                          background: '#065935',
-                          color: '#ffffff',
-                          border: 'none',
-                          borderRadius: '5px',
-                          padding: '6px 12px',
-                          fontSize: '11.5px',
-                          fontWeight: 800,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Print 3x
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => printProductThermalSticker(b, 1)}
-                        style={{
-                          background: '#ffffff',
-                          border: '1px solid #cbd5e1',
-                          color: '#0f172a',
-                          borderRadius: '5px',
-                          padding: '6px 10px',
-                          fontSize: '11.5px',
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Print 1x
-                      </button>
+                      {/* Right: Print Actions */}
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => printProductThermalSticker(b, barcodeStickerFormat === 'jewellery_80x12' ? 1 : 3, barcodeStickerFormat)}
+                          style={{
+                            background: '#065935',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '8px 14px',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            boxShadow: '0 2px 4px rgba(6, 89, 53, 0.2)'
+                          }}
+                          title={barcodeStickerFormat === 'jewellery_80x12' ? 'Print 1x Jewellery Tag' : 'Print 3x Stickers (1 Full Row)'}
+                        >
+                          🖨️ {barcodeStickerFormat === 'jewellery_80x12' ? 'Print 1x Tag' : 'Print 3x (1 Row)'}
+                        </button>
+
+                        {barcodeStickerFormat !== 'jewellery_80x12' && (
+                          <button
+                            type="button"
+                            onClick={() => printProductThermalSticker(b, 1, barcodeStickerFormat)}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid #cbd5e1',
+                              color: '#0f172a',
+                              borderRadius: '6px',
+                              padding: '8px 12px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                            title="Print 1 single sticker"
+                          >
+                            Print 1x
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
               <Link
                 href="/barcodes"
-                style={{ fontSize: '12px', color: '#065935', fontWeight: 800, textDecoration: 'none' }}
+                style={{ fontSize: '12.5px', color: '#065935', fontWeight: 800, textDecoration: 'none' }}
               >
                 Go to Full Barcode Registry &rarr;
               </Link>
@@ -3403,6 +3741,244 @@ export default function AdminProductsPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Brand Manager Popup Modal */}
+      <Modal
+        isOpen={isBrandModalOpen}
+        onClose={() => {
+          setIsBrandModalOpen(false);
+          setEditingBrandId(null);
+          setBrandInputName('');
+          setBrandSearchQuery('');
+        }}
+        title="🏷️ Manage Product Brands"
+        maxWidth="560px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Add / Edit Brand Form */}
+          <form
+            onSubmit={handleSaveBrand}
+            style={{
+              background: editingBrandId ? '#fef3c7' : '#ecfdf5',
+              border: editingBrandId ? '1.5px solid #fde68a' : '1.5px solid #a7f3d0',
+              borderRadius: '10px',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: editingBrandId ? '#92400e' : '#065935' }}>
+                {editingBrandId ? '✏️ Edit Brand Name' : '➕ Add New Brand'}
+              </span>
+              {editingBrandId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingBrandId(null);
+                    setBrandInputName('');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#92400e',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textDecoration: 'underline'
+                  }}
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                ref={brandInputRef}
+                type="text"
+                className="form-control"
+                placeholder="Brand name (e.g. Nike, Puma, NP Grand)"
+                value={brandInputName}
+                onChange={(e) => setBrandInputName(e.target.value)}
+                style={{ flex: 1, background: '#ffffff' }}
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={savingBrand || !brandInputName.trim()}
+                style={{
+                  background: editingBrandId ? '#d97706' : '#065935',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '9px 18px',
+                  borderRadius: '6px',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  cursor: (savingBrand || !brandInputName.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: (savingBrand || !brandInputName.trim()) ? 0.6 : 1,
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}
+              >
+                {savingBrand ? 'Saving...' : editingBrandId ? 'Save' : '+ Add Brand'}
+              </button>
+            </div>
+            <div style={{ fontSize: '11px', color: editingBrandId ? '#b45309' : '#047857' }}>
+              {editingBrandId
+                ? 'Renaming this brand will also update any products currently tagged with it.'
+                : 'Saving will automatically select this brand in the product form.'}
+            </div>
+          </form>
+
+          {/* Search & Brands List Section */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#334155' }}>
+                All Brands ({brandsList.length})
+              </span>
+              {loadingBrands && <span style={{ fontSize: '11px', color: '#64748b' }}>Refreshing...</span>}
+            </div>
+
+            <input
+              type="text"
+              className="form-control"
+              placeholder="🔍 Search brands..."
+              value={brandSearchQuery}
+              onChange={(e) => setBrandSearchQuery(e.target.value)}
+              style={{ marginBottom: '10px', fontSize: '12px', padding: '7px 12px' }}
+            />
+
+            <div
+              style={{
+                maxHeight: '260px',
+                overflowY: 'auto',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                background: '#ffffff'
+              }}
+            >
+              {(() => {
+                const q = brandSearchQuery.trim().toLowerCase();
+                const filtered = brandsList.filter(b => !q || String(b.name || '').toLowerCase().includes(q));
+
+                if (loadingBrands && brandsList.length === 0) {
+                  return (
+                    <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
+                      Loading brand directory...
+                    </div>
+                  );
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div style={{ padding: '24px 16px', textAlign: 'center', color: '#94a3b8', fontSize: '12.5px' }}>
+                      {q ? `No brands matching "${brandSearchQuery}"` : 'No brands added yet. Type a name above to add one!'}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div>
+                    {filtered.map(b => {
+                      const isSelected = formData.brand && formData.brand.toLowerCase() === b.name.toLowerCase();
+                      const isEditing = editingBrandId === b.id;
+
+                      return (
+                        <div
+                          key={b.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 14px',
+                            borderBottom: '1px solid #f1f5f9',
+                            background: isEditing ? '#fef9c3' : isSelected ? '#f0fdf4' : '#ffffff',
+                            transition: 'background 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <span style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {b.name}
+                            </span>
+                            {Number(b.product_count) > 0 && (
+                              <span style={{ fontSize: '10.5px', background: '#f1f5f9', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                {b.product_count} {b.product_count === 1 ? 'item' : 'items'}
+                              </span>
+                            )}
+                            {isSelected && (
+                              <span style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                ✓ Selected
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBrandId(b.id);
+                                setBrandInputName(b.name);
+                                brandInputRef.current?.focus();
+                              }}
+                              style={{
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: '#334155',
+                                cursor: 'pointer'
+                              }}
+                              title="Edit brand name"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBrand(b)}
+                              style={{
+                                background: '#fef2f2',
+                                border: '1px solid #fecaca',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: '#dc2626',
+                                cursor: 'pointer'
+                              }}
+                              title="Delete brand"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              onClick={() => {
+                setIsBrandModalOpen(false);
+                setEditingBrandId(null);
+                setBrandInputName('');
+                setBrandSearchQuery('');
+              }}
+            >
+              Done / Close
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

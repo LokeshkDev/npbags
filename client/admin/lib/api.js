@@ -171,6 +171,31 @@ export async function deleteAdminCategory(id) {
   });
 }
 
+// Brands
+export async function getAdminBrands() {
+  return adminFetch('/admin/brands');
+}
+
+export async function createAdminBrand(data) {
+  return adminFetch('/admin/brands', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateAdminBrand(id, data) {
+  return adminFetch(`/admin/brands/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteAdminBrand(id) {
+  return adminFetch(`/admin/brands/${id}`, {
+    method: 'DELETE'
+  });
+}
+
 // Orders
 export async function getAdminOrders(params = {}) {
   const query = new URLSearchParams(params).toString();
