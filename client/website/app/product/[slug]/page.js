@@ -239,8 +239,24 @@ export default function ProductDetailPage({ params }) {
     );
   }
 
-  const price = typeof product.price === 'number' ? product.price : parseFloat(product.price || 0);
-  const salePrice = typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0);
+  const matchedVariant = (product.variants || []).find(v => {
+    const colorMatch = !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase();
+    const sizeMatch = !selectedSize || String(v.size_name).toLowerCase() === String(selectedSize).toLowerCase();
+    return colorMatch && sizeMatch;
+  }) || (product.variants || []).find(v => !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase());
+
+  const price = matchedVariant?.price !== null && matchedVariant?.price !== undefined
+    ? parseFloat(matchedVariant.price)
+    : (typeof product.price === 'number' ? product.price : parseFloat(product.price || 0));
+
+  const salePrice = matchedVariant?.sale_price !== null && matchedVariant?.sale_price !== undefined
+    ? parseFloat(matchedVariant.sale_price)
+    : (typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0));
+
+  const mrp = matchedVariant?.mrp !== null && matchedVariant?.mrp !== undefined
+    ? parseFloat(matchedVariant.mrp)
+    : (typeof product.mrp === 'number' ? product.mrp : parseFloat(product.mrp || 0));
+
   const hasSale = salePrice > 0 && salePrice < price;
   const currentUnitPrice = hasSale ? salePrice : price;
   const totalPrice = (currentUnitPrice * qty).toFixed(2);
@@ -315,21 +331,27 @@ export default function ProductDetailPage({ params }) {
   };
 
   const handleAddToCart = () => {
-    addToCart(product, {
-      qty,
-      size: selectedSize,
-      color: selectedColor,
-      image: activeImage
-    });
+    addToCart(
+      { ...product, price, sale_price: salePrice, mrp },
+      {
+        qty,
+        size: selectedSize,
+        color: selectedColor,
+        image: activeImage
+      }
+    );
   };
 
   const handleBuyNow = () => {
-    addToCart(product, {
-      qty,
-      size: selectedSize,
-      color: selectedColor,
-      image: activeImage
-    });
+    addToCart(
+      { ...product, price, sale_price: salePrice, mrp },
+      {
+        qty,
+        size: selectedSize,
+        color: selectedColor,
+        image: activeImage
+      }
+    );
     router.push('/checkout');
   };
 

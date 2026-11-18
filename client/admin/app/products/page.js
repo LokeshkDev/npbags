@@ -75,6 +75,7 @@ export default function AdminProductsPage() {
   const [productImages, setProductImages] = useState([]);
   const [variants, setVariants] = useState([]);
   const [isUploadingVariantIndex, setIsUploadingVariantIndex] = useState(null);
+  const [detectingVariantIdx, setDetectingVariantIdx] = useState(null);
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -485,8 +486,14 @@ export default function AdminProductsPage() {
     } else if (params.get('from') === 'vendor_bill') {
       const vId = params.get('vendor_id') || '';
       const pName = params.get('product_name') || '';
-      setVendorBillContext({ vendor_id: vId, product_name: pName });
-      openAddModal(null, { vendor_id: vId, name: pName });
+      const bCode = params.get('barcode') || '';
+      setVendorBillContext({ vendor_id: vId, product_name: pName, barcode: bCode });
+      openAddModal(null, { vendor_id: vId, name: pName, barcode: bCode });
+      if (bCode) {
+        setTimeout(() => {
+          handleBarcodeScanned(bCode);
+        }, 200);
+      }
     }
   }, []);
 
@@ -505,12 +512,23 @@ export default function AdminProductsPage() {
   const openAddModal = (presetCategoryId = null, extraDefaults = {}) => {
     setEditingProduct(null);
     setProductImages([]);
-    setScanCode('');
+    setScanCode(extraDefaults.barcode || '');
     setScanStatus(null);
     setDetectedProduct(null);
     setScanLoading(false);
     setVariants([
-      { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
+      {
+        color_name: 'Standard',
+        color_hex: '#111827',
+        size_name: '',
+        stock_quantity: 0,
+        image_url: '',
+        sku: '',
+        barcode: extraDefaults.barcode || '',
+        mrp: '',
+        price: '',
+        sale_price: ''
+      }
     ]);
     const presetCat = presetCategoryId
       ? categories.find(c => String(c.id) === String(presetCategoryId))
@@ -519,7 +537,7 @@ export default function AdminProductsPage() {
     setFormData({
       name: extraDefaults.name || '',
       slug: extraDefaults.name ? extraDefaults.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : '',
-      barcode: '',
+      barcode: extraDefaults.barcode || '',
       brand: extraDefaults.brand || '',
       category_id: firstCat?.id || '',
       gender: firstCat?.gender || 'none',
@@ -664,7 +682,10 @@ export default function AdminProductsPage() {
         stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
         sku: v.sku || '',
         image_url: v.image_url || '',
-        barcode: v.barcode || ''
+        barcode: v.barcode || '',
+        mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (p.mrp ? String(p.mrp) : ''),
+        price: v.price !== null && v.price !== undefined ? String(v.price) : (p.price ? String(p.price) : ''),
+        sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (p.sale_price ? String(p.sale_price) : '')
       })));
     } else if (Array.isArray(p.colors) && p.colors.length > 0) {
       setVariants(p.colors.map(c => ({
@@ -674,11 +695,25 @@ export default function AdminProductsPage() {
         stock_quantity: c.stock_quantity !== undefined ? c.stock_quantity : 50,
         sku: '',
         image_url: c.img || '',
-        barcode: ''
+        barcode: '',
+        mrp: p.mrp ? String(p.mrp) : '',
+        price: p.price ? String(p.price) : '',
+        sale_price: p.sale_price ? String(p.sale_price) : ''
       })));
     } else {
       setVariants([
-        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 50, image_url: '', sku: '', barcode: '' }
+        {
+          color_name: 'Standard',
+          color_hex: '#111827',
+          size_name: '',
+          stock_quantity: 50,
+          image_url: '',
+          sku: '',
+          barcode: '',
+          mrp: p.mrp ? String(p.mrp) : '',
+          price: p.price ? String(p.price) : '',
+          sale_price: p.sale_price ? String(p.sale_price) : ''
+        }
       ]);
     }
 
@@ -720,7 +755,10 @@ export default function AdminProductsPage() {
             stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
             sku: v.sku || '',
             image_url: v.image_url || '',
-            barcode: v.barcode || ''
+            barcode: v.barcode || '',
+            mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (detailed.mrp ? String(detailed.mrp) : ''),
+            price: v.price !== null && v.price !== undefined ? String(v.price) : (detailed.price ? String(detailed.price) : ''),
+            sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (detailed.sale_price ? String(detailed.sale_price) : '')
           })));
         }
         if (Array.isArray(detailed.branch_stocks)) {
@@ -868,7 +906,18 @@ export default function AdminProductsPage() {
   const handleAddVariant = () => {
     setVariants([
       ...variants,
-      { color_name: '', color_hex: '#1e293b', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
+      {
+        color_name: '',
+        color_hex: '#1e293b',
+        size_name: '',
+        stock_quantity: 0,
+        image_url: '',
+        sku: '',
+        barcode: '',
+        mrp: formData.mrp || '',
+        price: formData.price || '',
+        sale_price: formData.sale_price || ''
+      }
     ]);
   };
 
@@ -884,6 +933,81 @@ export default function AdminProductsPage() {
     const updated = [...variants];
     updated[index][field] = value;
     setVariants(updated);
+  };
+
+  const handleDetectVariantBarcode = async (index, codeToDetect) => {
+    const target = variants[index];
+    const code = String(codeToDetect !== undefined ? codeToDetect : target?.barcode || '').trim();
+    if (!code) {
+      alert('Please enter or scan a barcode in this variant first.');
+      return;
+    }
+    setDetectingVariantIdx(index);
+    try {
+      const res = await scanPurchaseBarcode(code);
+      if (res && res.found) {
+        setVariants(prev => {
+          const updated = [...prev];
+          const v = { ...updated[index] };
+          v.barcode = code;
+          if (res.color_name && (!v.color_name || v.color_name === 'Standard' || v.color_name === 'Default')) {
+            v.color_name = res.color_name;
+          }
+          if (res.color_hex && (!v.color_hex || v.color_hex === '#111827' || v.color_hex === '#000000')) {
+            v.color_hex = res.color_hex;
+          }
+          if (res.size_name && !v.size_name) {
+            v.size_name = res.size_name;
+          }
+          if (res.price !== undefined && res.price !== null && (v.price === '' || v.price === null || v.price === undefined)) {
+            v.price = res.price;
+          }
+          if (res.sale_price !== undefined && res.sale_price !== null && (v.sale_price === '' || v.sale_price === null || v.sale_price === undefined)) {
+            v.sale_price = res.sale_price;
+          }
+          if (res.mrp !== undefined && res.mrp !== null && (v.mrp === '' || v.mrp === null || v.mrp === undefined)) {
+            v.mrp = res.mrp;
+          }
+          if (res.stock_quantity !== undefined && res.stock_quantity !== null && (v.stock_quantity === 0 || !v.stock_quantity)) {
+            v.stock_quantity = res.stock_quantity;
+          }
+          if (res.image && !v.image_url) {
+            v.image_url = res.image;
+          }
+          v._detectionMsg = `✓ Found: ${res.product_name || 'Product'}${res.color_name ? ` (${res.color_name})` : ''}${res.mrp ? ` • MRP ₹${res.mrp}` : ''}`;
+          v._detectionType = 'success';
+          updated[index] = v;
+          return updated;
+        });
+      } else {
+        setVariants(prev => {
+          const updated = [...prev];
+          const v = { ...updated[index] };
+          v.barcode = code;
+          v._detectionMsg = `ℹ Barcode "${code}" is new / unregistered.`;
+          v._detectionType = 'info';
+          updated[index] = v;
+          return updated;
+        });
+      }
+    } catch (err) {
+      setVariants(prev => {
+        const updated = [...prev];
+        const v = { ...updated[index] };
+        v.barcode = code;
+        if (/not found|No item|No matching/i.test(err.message || '')) {
+          v._detectionMsg = `ℹ Barcode "${code}" is new / unregistered.`;
+          v._detectionType = 'info';
+        } else {
+          v._detectionMsg = `⚠ ${err.message || 'Could not verify barcode.'}`;
+          v._detectionType = 'error';
+        }
+        updated[index] = v;
+        return updated;
+      });
+    } finally {
+      setDetectingVariantIdx(null);
+    }
   };
 
   const handleUploadVariantImage = async (index, file) => {
@@ -2624,13 +2748,85 @@ export default function AdminProductsPage() {
                 })()}
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Expiry Date</label>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={formData.expiry_date || ''}
-                  onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Expiry Date</label>
+                  {formData.expiry_date && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, expiry_date: '' })}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#64748b',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        padding: 0,
+                        textDecoration: 'underline'
+                      }}
+                      title="Clear expiry date"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {(() => {
+                  const expParts = String(formData.expiry_date || '').split('-');
+                  const expYear = expParts[0] && expParts[0].length === 4 ? expParts[0] : '';
+                  const expMonth = expParts[1] ? expParts[1].padStart(2, '0') : '';
+                  const currentYear = new Date().getFullYear();
+                  // Expiry dates are typically current year or up to 15 years in the future
+                  const expYearList = Array.from({ length: 18 }, (_, i) => (currentYear - 2) + i);
+
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', marginTop: '6px' }}>
+                      <select
+                        className="form-control"
+                        value={expMonth}
+                        onChange={(e) => {
+                          const newMonth = e.target.value;
+                          const yr = expYear || String(currentYear);
+                          if (newMonth) {
+                            setFormData({ ...formData, expiry_date: `${yr}-${newMonth}-01` });
+                          } else {
+                            setFormData({ ...formData, expiry_date: '' });
+                          }
+                        }}
+                      >
+                        <option value="">Month</option>
+                        <option value="01">01 - Jan</option>
+                        <option value="02">02 - Feb</option>
+                        <option value="03">03 - Mar</option>
+                        <option value="04">04 - Apr</option>
+                        <option value="05">05 - May</option>
+                        <option value="06">06 - Jun</option>
+                        <option value="07">07 - Jul</option>
+                        <option value="08">08 - Aug</option>
+                        <option value="09">09 - Sep</option>
+                        <option value="10">10 - Oct</option>
+                        <option value="11">11 - Nov</option>
+                        <option value="12">12 - Dec</option>
+                      </select>
+                      <select
+                        className="form-control"
+                        value={expYear}
+                        onChange={(e) => {
+                          const newYear = e.target.value;
+                          const mo = expMonth || '01';
+                          if (newYear) {
+                            setFormData({ ...formData, expiry_date: `${newYear}-${mo}-01` });
+                          } else {
+                            setFormData({ ...formData, expiry_date: '' });
+                          }
+                        }}
+                      >
+                        <option value="">Year</option>
+                        {expYearList.map(yr => (
+                          <option key={yr} value={String(yr)}>{yr}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -2788,169 +2984,287 @@ export default function AdminProductsPage() {
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {variants.map((v, idx) => (
                 <div
                   key={idx}
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 78px 92px 78px 1.15fr 1.3fr auto',
-                    gap: '8px',
-                    alignItems: 'center',
                     background: '#ffffff',
-                    padding: '10px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #e5e7eb'
+                    padding: '14px',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
                   }}
                 >
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Color Name</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="e.g. Warm Oatmeal"
-                      style={{ height: '36px', fontSize: '13px' }}
-                      value={v.color_name}
-                      onChange={(e) => handleVariantChange(idx, 'color_name', e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Color</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="color"
-                        style={{ width: '32px', height: '36px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-                        value={v.color_hex || '#000000'}
-                        onChange={(e) => handleVariantChange(idx, 'color_hex', e.target.value)}
-                      />
-                      <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'monospace' }}>{v.color_hex}</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Size (Optional)</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="e.g. 18L, M"
-                      style={{ height: '36px', fontSize: '12px' }}
-                      value={v.size_name || ''}
-                      onChange={(e) => handleVariantChange(idx, 'size_name', e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Stock (Qty)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="form-control"
-                      placeholder="0"
-                      style={{ height: '36px', fontSize: '13px' }}
-                      value={v.stock_quantity}
-                      onChange={(e) => handleVariantChange(idx, 'stock_quantity', parseInt(e.target.value, 10) || 0)}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Barcode</label>
-                    <input
-                      type="text"
-                      data-variant-scan="true"
-                      className="form-control"
-                      placeholder="Scan / type barcode"
-                      style={{ height: '36px', fontSize: '12px', fontFamily: 'monospace' }}
-                      value={v.barcode || ''}
-                      onChange={(e) => handleVariantChange(idx, 'barcode', e.target.value.trim())}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      title="Focus here and scan a barcode to capture it for this variant"
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--muted)', display: 'block' }}>Color Image URL / Upload</label>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {/* Tier 1: Attributes & Stock */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1.1fr 85px 0.9fr 85px 1.5fr auto',
+                      gap: '10px',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Color Name
+                      </label>
                       <input
                         type="text"
                         className="form-control"
-                        placeholder="Image URL or upload"
-                        style={{ height: '36px', fontSize: '12px' }}
-                        value={v.image_url || ''}
-                        onChange={(e) => handleVariantChange(idx, 'image_url', e.target.value)}
+                        placeholder="e.g. Warm Oatmeal"
+                        style={{ height: '36px', fontSize: '13px' }}
+                        value={v.color_name}
+                        onChange={(e) => handleVariantChange(idx, 'color_name', e.target.value)}
                       />
-                      <label
-                        className="admin-btn admin-btn-outline"
-                        style={{ height: '36px', padding: '0 8px', display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0, whiteSpace: 'nowrap', fontSize: '11px' }}
-                        title="Upload Image for this Color"
-                      >
-                        <Icon name="upload" size={14} />
-                        <span>{isUploadingVariantIndex === idx ? '...' : 'Upload'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={(e) => handleUploadVariantImage(idx, e.target.files[0])}
-                        />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Color
                       </label>
-                      {v.image_url && (
-                        <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                          <img
-                            src={v.image_url}
-                            alt="Variant"
-                            style={{ width: '34px', height: '34px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
-                            title={v.image_url}
-                            onError={(e) => {
-                              e.currentTarget.onerror = null;
-                              e.currentTarget.src = '/assets/brand-logo.png';
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleVariantChange(idx, 'image_url', '')}
-                            style={{
-                              position: 'absolute',
-                              top: '-6px',
-                              right: '-6px',
-                              background: '#ef4444',
-                              color: '#ffffff',
-                              border: 'none',
-                              borderRadius: '50%',
-                              width: '16px',
-                              height: '16px',
-                              fontSize: '11px',
-                              lineHeight: '15px',
-                              textAlign: 'center',
-                              cursor: 'pointer',
-                              padding: 0,
-                              fontWeight: 'bold',
-                              boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
-                            }}
-                            title="Remove image from this variant"
-                          >
-                            ×
-                          </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <input
+                          type="color"
+                          style={{ width: '32px', height: '36px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                          value={v.color_hex || '#000000'}
+                          onChange={(e) => handleVariantChange(idx, 'color_hex', e.target.value)}
+                        />
+                        <span style={{ fontSize: '10px', color: '#64748b', fontFamily: 'monospace' }}>{v.color_hex}</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Size (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. 18L, M, Free Size"
+                        style={{ height: '36px', fontSize: '12.5px' }}
+                        value={v.size_name || ''}
+                        onChange={(e) => handleVariantChange(idx, 'size_name', e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Stock (Qty)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="form-control"
+                        placeholder="0"
+                        style={{ height: '36px', fontSize: '13px', fontWeight: 700 }}
+                        value={v.stock_quantity}
+                        onChange={(e) => handleVariantChange(idx, 'stock_quantity', parseInt(e.target.value, 10) || 0)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Barcode (Code 128)
+                      </label>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <input
+                          type="text"
+                          data-variant-scan="true"
+                          className="form-control"
+                          placeholder="Scan / type barcode"
+                          style={{ height: '36px', fontSize: '12px', fontFamily: 'monospace', minWidth: 0, flex: 1 }}
+                          value={v.barcode || ''}
+                          onChange={(e) => handleVariantChange(idx, 'barcode', e.target.value.trim())}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDetectVariantBarcode(idx, e.currentTarget.value);
+                            }
+                          }}
+                          title="Focus here and scan barcode or press Enter to auto-detect"
+                        />
+                        <button
+                          type="button"
+                          className="admin-btn admin-btn-outline"
+                          disabled={detectingVariantIdx === idx || !v.barcode}
+                          onClick={() => handleDetectVariantBarcode(idx, v.barcode)}
+                          style={{
+                            height: '36px',
+                            padding: '0 8px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                            background: '#f8fafc',
+                            borderColor: '#cbd5e1',
+                            cursor: detectingVariantIdx === idx ? 'not-allowed' : 'pointer'
+                          }}
+                          title="Detect product/variant details from barcode"
+                        >
+                          {detectingVariantIdx === idx ? '⏳' : '🔍'}
+                        </button>
+                      </div>
+                      {v._detectionMsg && (
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            marginTop: '3px',
+                            color: v._detectionType === 'success' ? '#15803d' : v._detectionType === 'info' ? '#1d4ed8' : '#b91c1c',
+                            lineHeight: 1.2
+                          }}
+                        >
+                          {v._detectionMsg}
                         </div>
                       )}
                     </div>
+
+                    <div style={{ paddingTop: '16px' }}>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-outline"
+                        style={{ color: '#ef4444', borderColor: '#fca5a5', background: '#fef2f2', padding: '6px 9px' }}
+                        onClick={() => handleRemoveVariant(idx)}
+                        title="Remove variant"
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
                   </div>
 
-                  <div style={{ paddingTop: '16px' }}>
-                    <button
-                      type="button"
-                      className="admin-btn admin-btn-outline"
-                      style={{ color: '#ef4444', borderColor: '#ef4444', padding: '6px 8px' }}
-                      onClick={() => handleRemoveVariant(idx)}
-                      title="Remove variant"
-                    >
-                      <Icon name="trash" size={14} />
-                    </button>
+                  {/* Tier 2: MRP, Selling/Regular Price, Sale/Offer Price & Color Image */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '130px 150px 150px 1fr',
+                      gap: '12px',
+                      alignItems: 'center',
+                      background: '#f8fafc',
+                      padding: '10px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0'
+                    }}
+                  >
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '3px' }}>
+                        MRP (₹) <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="form-control"
+                        placeholder={formData.mrp ? `e.g. ${formData.mrp}` : 'MRP'}
+                        style={{ height: '34px', fontSize: '12.5px', fontWeight: 700, background: '#ffffff' }}
+                        value={v.mrp !== undefined && v.mrp !== null ? v.mrp : ''}
+                        onChange={(e) => handleVariantChange(idx, 'mrp', e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 800, color: '#065935', display: 'block', marginBottom: '3px' }}>
+                        Selling / Reg. Price (₹) <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="form-control"
+                        placeholder={formData.price ? `e.g. ${formData.price}` : 'Price'}
+                        style={{ height: '34px', fontSize: '12.5px', fontWeight: 700, background: '#ffffff', color: '#065935' }}
+                        value={v.price !== undefined && v.price !== null ? v.price : ''}
+                        onChange={(e) => handleVariantChange(idx, 'price', e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 800, color: '#b45309', display: 'block', marginBottom: '3px' }}>
+                        Sale / Offer Price (₹)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="form-control"
+                        placeholder={formData.sale_price ? `e.g. ${formData.sale_price}` : 'Optional'}
+                        style={{ height: '34px', fontSize: '12.5px', fontWeight: 700, background: '#ffffff', color: '#b45309' }}
+                        value={v.sale_price !== undefined && v.sale_price !== null ? v.sale_price : ''}
+                        onChange={(e) => handleVariantChange(idx, 'sale_price', e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '3px' }}>
+                        Color Image URL / Upload
+                      </label>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Image URL or upload"
+                          style={{ height: '34px', fontSize: '12px', background: '#ffffff' }}
+                          value={v.image_url || ''}
+                          onChange={(e) => handleVariantChange(idx, 'image_url', e.target.value)}
+                        />
+                        <label
+                          className="admin-btn admin-btn-outline"
+                          style={{ height: '34px', padding: '0 10px', display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0, whiteSpace: 'nowrap', fontSize: '11px' }}
+                          title="Upload Image for this Color"
+                        >
+                          <Icon name="upload" size={14} />
+                          <span style={{ marginLeft: '4px' }}>{isUploadingVariantIndex === idx ? '...' : 'Upload'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleUploadVariantImage(idx, e.target.files[0])}
+                          />
+                        </label>
+                        {v.image_url && (
+                          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                            <img
+                              src={v.image_url}
+                              alt="Variant"
+                              style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                              title={v.image_url}
+                              onError={(e) => {
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.src = '/assets/brand-logo.png';
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleVariantChange(idx, 'image_url', '')}
+                              style={{
+                                position: 'absolute',
+                                top: '-6px',
+                                right: '-6px',
+                                background: '#ef4444',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '50%',
+                                width: '16px',
+                                height: '16px',
+                                fontSize: '11px',
+                                lineHeight: '15px',
+                                textAlign: 'center',
+                                cursor: 'pointer',
+                                padding: 0,
+                                fontWeight: 'bold',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                              }}
+                              title="Remove image from this variant"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -265,6 +265,7 @@ export default function AdminVendorsPage() {
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState('');
   const [pendingNewProduct, setPendingNewProduct] = useState(null);
+  const [detectingItemIndex, setDetectingItemIndex] = useState(null);
   const [savingScannedProduct, setSavingScannedProduct] = useState(false);
 
   const showToast = (text, type = 'success') => {
@@ -445,7 +446,7 @@ export default function AdminVendorsPage() {
     }
   }, []);
 
-  const handleRedirectNewProduct = (prefillName = '') => {
+  const handleRedirectNewProduct = (prefillName = '', prefillBarcode = '') => {
     try {
       window.sessionStorage.setItem('vendor_purchase_bill_draft', JSON.stringify(billForm));
     } catch (e) {
@@ -454,7 +455,12 @@ export default function AdminVendorsPage() {
     const params = new URLSearchParams();
     params.set('from', 'vendor_bill');
     if (billForm.vendor_id) params.set('vendor_id', String(billForm.vendor_id));
-    if (prefillName && typeof prefillName === 'string') params.set('product_name', prefillName.trim());
+    if (prefillName && typeof prefillName === 'string' && prefillName.trim()) {
+      params.set('product_name', prefillName.trim());
+    }
+    if (prefillBarcode && typeof prefillBarcode === 'string' && prefillBarcode.trim()) {
+      params.set('barcode', prefillBarcode.trim());
+    }
     router.push(`/products?${params.toString()}`);
   };
 
@@ -759,28 +765,112 @@ export default function AdminVendorsPage() {
   };
 
   const handleItemProductName = (index, value) => {
-    const match = products.find(p => String(p.name || '').trim().toLowerCase() === value.trim().toLowerCase());
+    const val = String(value || '').trim();
+    if (!val) {
+      updateBillItem(index, { product_name: '', product_id: '', variant_id: '', variant_info: '', variant_quantities: {}, new_variants: [], barcode: '' });
+      return;
+    }
+    const valLower = val.toLowerCase();
+
+    // 1. Try matching product name
+    let match = products.find(p => String(p.name || '').trim().toLowerCase() === valLower);
+    let matchedVariant = null;
+
+    // 2. Try matching product barcode or SKU
+    if (!match) {
+      match = products.find(p =>
+        (p.barcode && String(p.barcode).trim().toLowerCase() === valLower) ||
+        (p.sku && String(p.sku).trim().toLowerCase() === valLower)
+      );
+    }
+
+    // 3. Try matching variant barcode or SKU
+    if (!match) {
+      for (const p of products) {
+        if (Array.isArray(p.variants)) {
+          const vFound = p.variants.find(v =>
+            (v.barcode && String(v.barcode).trim().toLowerCase() === valLower) ||
+            (v.sku && String(v.sku).trim().toLowerCase() === valLower)
+          );
+          if (vFound) {
+            match = p;
+            matchedVariant = vFound;
+            break;
+          }
+        }
+      }
+    }
+
     if (match) {
       const vars = Array.isArray(match.variants) ? match.variants : [];
-      const firstVar = vars.length > 0 ? vars[0] : null;
+      const firstVar = matchedVariant || (vars.length > 0 ? vars[0] : null);
+      const chosenVarId = matchedVariant ? String(matchedVariant.id) : (vars.length > 0 ? '' : (firstVar ? String(firstVar.id) : ''));
+      const activeRate = (matchedVariant && (matchedVariant.price || matchedVariant.sale_price))
+        ? String(matchedVariant.price || matchedVariant.sale_price)
+        : (match.purchased_rate !== null && match.purchased_rate !== undefined && String(match.purchased_rate).trim() !== ''
+          ? String(match.purchased_rate)
+          : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : ''));
+      const activeMrp = (matchedVariant && matchedVariant.mrp)
+        ? String(matchedVariant.mrp)
+        : (match.mrp !== null && match.mrp !== undefined ? String(match.mrp) : '');
+
       updateBillItem(index, {
         product_name: match.name,
         product_id: match.id,
-        variant_id: vars.length > 0 ? '' : (firstVar ? String(firstVar.id) : ''),
+        variant_id: chosenVarId,
         variant_info: firstVar ? [firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
-        variant_quantities: {},
+        variant_quantities: matchedVariant ? { [String(matchedVariant.id)]: 1 } : {},
         new_variants: [],
-        purchase_rate: match.purchased_rate !== null && match.purchased_rate !== undefined
-          ? String(match.purchased_rate)
-          : (match.purchase_price !== null && match.purchase_price !== undefined ? String(match.purchase_price) : ''),
-        mrp: match.mrp !== null && match.mrp !== undefined ? String(match.mrp) : '',
+        barcode: matchedVariant?.barcode || match.barcode || val,
+        purchase_rate: activeRate,
+        mrp: activeMrp,
         gst_type: match.gst_type || 'exclusive',
         gst_rate: match.gst_rate !== null && match.gst_rate !== undefined ? String(match.gst_rate) : '18',
         manufacturing_date: toDateInput(match.manufacturing_date),
         expiry_date: toDateInput(match.expiry_date)
       });
     } else {
-      updateBillItem(index, { product_name: value, product_id: '', variant_id: '', variant_info: '', variant_quantities: {}, new_variants: [] });
+      updateBillItem(index, { product_name: value, barcode: val, product_id: '', variant_id: '', variant_info: '', variant_quantities: {}, new_variants: [] });
+    }
+  };
+
+  const handleDetectItemBarcode = async (index, codeToDetect) => {
+    const item = billForm.items[index];
+    const code = String(codeToDetect !== undefined ? codeToDetect : item?.product_name || item?.barcode || '').trim();
+    if (!code) {
+      showToast('Enter or scan a barcode/name first', 'info');
+      return;
+    }
+    setDetectingItemIndex(index);
+    try {
+      const res = await scanPurchaseBarcode(code, adminUser?.branch_id || null);
+      if (res && res.found) {
+        updateBillItem(index, {
+          product_name: res.product_name,
+          product_id: res.product_id,
+          variant_id: res.variant_id ? String(res.variant_id) : '',
+          variant_info: res.variant ? [res.variant.color_name, res.variant.size_name].filter(Boolean).join(' / ') : '',
+          variant_quantities: res.variant_id ? { [String(res.variant_id)]: 1 } : {},
+          barcode: res.barcode || code,
+          purchase_rate: res.purchased_rate !== null && res.purchased_rate !== undefined && String(res.purchased_rate).trim() !== ''
+            ? String(res.purchased_rate)
+            : (res.purchase_price !== null && res.purchase_price !== undefined ? String(res.purchase_price) : ''),
+          mrp: res.mrp !== null && res.mrp !== undefined ? String(res.mrp) : '',
+          gst_type: res.gst_type || 'exclusive',
+          gst_rate: res.gst_rate !== null && res.gst_rate !== undefined ? String(res.gst_rate) : '18',
+          manufacturing_date: toDateInput(res.manufacturing_date),
+          expiry_date: toDateInput(res.expiry_date)
+        });
+        showToast(`Auto-detected: ${res.product_name}`, 'success');
+      } else {
+        updateBillItem(index, { barcode: code });
+        showToast(`Product not found for "${code}". Click "+ Add New Product" below.`, 'info');
+      }
+    } catch (err) {
+      updateBillItem(index, { barcode: code });
+      showToast(err.message || 'Product not found', 'error');
+    } finally {
+      setDetectingItemIndex(null);
     }
   };
 
@@ -2431,8 +2521,30 @@ export default function AdminVendorsPage() {
                     onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#92400e' }}>New product detected — capture details to add it to the catalog</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '11px', color: '#b45309', background: '#fef3c7', borderRadius: '4px', padding: '2px 7px' }}>{pendingNewProduct.scanned_code}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#92400e' }}>Product not found in catalog:</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '11.5px', fontWeight: 800, color: '#b45309', background: '#fef3c7', borderRadius: '4px', padding: '2px 8px', border: '1px solid #fde68a' }}>{pendingNewProduct.scanned_code}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRedirectNewProduct(pendingNewProduct.name || '', pendingNewProduct.scanned_code)}
+                        style={{
+                          background: '#065935',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '5px 12px',
+                          fontSize: '11.5px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                        title="Open full Add Product page with barcode auto-detection and variants"
+                      >
+                        <span>➕ Add New Product for &quot;{pendingNewProduct.scanned_code}&quot;</span>
+                      </button>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                       <div>
@@ -2534,19 +2646,73 @@ export default function AdminVendorsPage() {
                       <div key={item.key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '10px 10px', marginBottom: '8px' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '2.1fr 1.2fr 0.7fr 0.9fr 1.3fr 0.9fr 0.32fr', gap: '8px', alignItems: 'center' }}>
                           <div>
-                            <input list="purchase-product-options" value={item.product_name} onChange={(e) => handleItemProductName(index, e.target.value)} placeholder="Type product name or select from catalog" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }} />
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <input
+                                list="purchase-product-options"
+                                value={item.product_name}
+                                onChange={(e) => handleItemProductName(index, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDetectItemBarcode(index, e.currentTarget.value);
+                                  }
+                                }}
+                                placeholder="Scan/type barcode or product name"
+                                style={{
+                                  width: '100%',
+                                  padding: '7px 9px',
+                                  borderRadius: '5px',
+                                  border: item.product_id ? '1px solid #86efac' : '1px solid #cbd5e1',
+                                  fontSize: '12px'
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleDetectItemBarcode(index, item.product_name)}
+                                disabled={detectingItemIndex === index || !item.product_name}
+                                style={{
+                                  padding: '0 8px',
+                                  borderRadius: '5px',
+                                  border: '1px solid #cbd5e1',
+                                  background: '#f8fafc',
+                                  color: '#334155',
+                                  fontSize: '11px',
+                                  cursor: detectingItemIndex === index ? 'not-allowed' : 'pointer'
+                                }}
+                                title="Auto-detect product by barcode or name"
+                              >
+                                {detectingItemIndex === index ? '⏳' : '🔍'}
+                              </button>
+                            </div>
                             {item.product_id ? (
-                              <div style={{ fontSize: '9.5px', color: '#15803d', marginTop: '2px', fontWeight: 700 }}>✓ Linked to catalog product</div>
+                              <div style={{ fontSize: '9.5px', color: '#15803d', marginTop: '2px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span>✓ Linked to catalog</span>
+                                {item.barcode && <span style={{ fontFamily: 'monospace', color: '#64748b' }}>({item.barcode})</span>}
+                              </div>
                             ) : (
                               item.product_name && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
                                   <span style={{ fontSize: '10px', color: '#b45309', fontWeight: 700 }}>Not in catalog:</span>
                                   <button
                                     type="button"
-                                    onClick={() => handleRedirectNewProduct(item.product_name)}
-                                    style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', borderRadius: '4px', padding: '1px 6px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}
+                                    onClick={() => handleRedirectNewProduct(item.product_name, item.barcode || item.product_name)}
+                                    style={{
+                                      background: '#fef3c7',
+                                      border: '1px solid #fde68a',
+                                      color: '#92400e',
+                                      borderRadius: '4px',
+                                      padding: '1px 8px',
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
                                   >
-                                    + Add New Product to Catalog
+                                    <span>➕ Add New Product</span>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>({item.barcode || item.product_name})</span>
                                   </button>
                                 </div>
                               )

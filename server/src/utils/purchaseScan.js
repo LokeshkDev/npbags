@@ -234,6 +234,9 @@ async function resolveProductByScan(queryFn, rawCode) {
 
   const barcodeRows = await queryFn(
     `SELECT p.*, pb.barcode AS matched_barcode, pb.is_primary,
+            COALESCE(pv.mrp, p.mrp) AS mrp,
+            COALESCE(pv.price, p.price) AS price,
+            COALESCE(pv.sale_price, p.sale_price) AS sale_price,
             pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
             pv.color_name AS matched_color_name, pv.size_name AS matched_size_name,
             pv.stock_quantity AS matched_variant_stock
@@ -250,7 +253,11 @@ async function resolveProductByScan(queryFn, rawCode) {
   }
 
   const skuRows = await queryFn(
-    `SELECT p.*, pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
+    `SELECT p.*,
+            COALESCE(pv.mrp, p.mrp) AS mrp,
+            COALESCE(pv.price, p.price) AS price,
+            COALESCE(pv.sale_price, p.sale_price) AS sale_price,
+            pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
             pv.color_name AS matched_color_name, pv.size_name AS matched_size_name,
             pv.stock_quantity AS matched_variant_stock
      FROM product_variants pv

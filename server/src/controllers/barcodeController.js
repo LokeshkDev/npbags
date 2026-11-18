@@ -18,7 +18,10 @@ async function getProductBarcodes(req, res, next) {
 
     const barcodes = await query(
       `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity,
-              p.name AS product_name, p.mrp, p.purchase_price, p.purchased_rate
+              COALESCE(pv.price, p.price) AS price,
+              COALESCE(pv.sale_price, p.sale_price) AS sale_price,
+              COALESCE(pv.mrp, p.mrp, p.price) AS mrp,
+              p.name AS product_name, p.purchase_price, p.purchased_rate
        FROM product_barcodes pb
        JOIN products p ON pb.product_id = p.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
@@ -57,7 +60,10 @@ async function generateBarcodesForProduct(req, res, next) {
     // Fetch the full active list after generation
     const barcodes = await query(
       `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity,
-              p.name AS product_name, p.mrp, p.purchase_price, p.purchased_rate
+              COALESCE(pv.price, p.price) AS price,
+              COALESCE(pv.sale_price, p.sale_price) AS sale_price,
+              COALESCE(pv.mrp, p.mrp, p.price) AS mrp,
+              p.name AS product_name, p.purchase_price, p.purchased_rate
        FROM product_barcodes pb
        JOIN products p ON pb.product_id = p.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
@@ -102,8 +108,12 @@ async function lookupBarcode(req, res, next) {
 
     // 1. Direct barcode match in product_barcodes
     const barcodeRows = await query(
-      `SELECT pb.*, p.name AS product_name, p.slug, p.price, p.sale_price, p.hsn_code,
-              p.barcode_short_name, p.mrp, p.purchase_price, p.purchased_rate, p.stock AS product_stock,
+      `SELECT pb.*, p.name AS product_name, p.slug,
+              COALESCE(pv.price, p.price) AS price,
+              COALESCE(pv.sale_price, p.sale_price) AS sale_price,
+              p.hsn_code, p.barcode_short_name,
+              COALESCE(pv.mrp, p.mrp, p.price) AS mrp,
+              p.purchase_price, p.purchased_rate, p.stock AS product_stock,
               pv.id AS variant_id, pv.sku, pv.color_name, pv.color_hex,
               pv.size_name, pv.stock_quantity, pv.image_url AS variant_image
        FROM product_barcodes pb
