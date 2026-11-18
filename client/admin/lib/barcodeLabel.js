@@ -137,7 +137,7 @@ export function getLabelDetails(item, options = {}) {
 
   return {
     mrp: formatLabelMoney(mrpValue, '—'),
-    sellingPrice: sellingPriceValue && Number(sellingPriceValue) > 0 ? formatLabelMoney(sellingPriceValue) : '',
+    sellingPrice: '',
     rate: showPurchaseRate ? rate : '',
     sequence,
     productName: productName ? String(productName).trim() : ''
@@ -164,9 +164,7 @@ export function renderNormalSticker(item, options = {}) {
   const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
   const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
 
-  const priceDisplayHtml = (label.sellingPrice && label.sellingPrice !== label.mrp)
-    ? `<span class="mrp-label">MRP </span>₹${label.mrp} <span class="sp-text" style="font-size: 8.5pt; font-weight: 800; color: #0f172a; margin-left: 6px;">₹${label.sellingPrice}</span>`
-    : `<span class="mrp-label">MRP </span>₹${label.mrp}`;
+  const priceDisplayHtml = `<span class="mrp-label">MRP </span>₹${label.mrp}`;
 
   return `
     <div class="barcode-sticker">
@@ -185,9 +183,7 @@ export function renderJewellerySticker(item, options = {}) {
   const cleanName = rawName.length > 22 ? rawName.slice(0, 22) : rawName;
   const svgHtml = getCleanBarcodeSVG(item, { height: 20, quietZone: 10 });
 
-  const jewelPriceHtml = (label.sellingPrice && label.sellingPrice !== label.mrp)
-    ? `<span class="jewel-mrp-lbl">MRP </span>₹${label.mrp} <span style="font-size:7pt;font-weight:800;margin-left:3px;">₹${label.sellingPrice}</span>`
-    : `<span class="jewel-mrp-lbl">MRP </span>₹${label.mrp}`;
+  const jewelPriceHtml = `<span class="jewel-mrp-lbl">MRP </span>₹${label.mrp}`;
 
   return `
     <div class="jewel-sticker-wrapper">

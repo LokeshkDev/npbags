@@ -3561,7 +3561,7 @@ export default function AdminVendorsPage() {
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Barcode</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
                         <th style={{ padding: '8px 10px', textAlign: 'right' }}>P. Rate</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>MRP / SP</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>MRP</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Labels</th>
                       </tr>
                     </thead>
@@ -3575,13 +3575,8 @@ export default function AdminVendorsPage() {
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'center' }}>{item.quantity || 1}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right' }}>{item.purchase_rate ? `₹${money(item.purchase_rate)}` : '—'}</td>
-                          <td style={{ padding: '7px 10px', textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700 }}>{item.mrp ? `₹${money(item.mrp)}` : '—'}</div>
-                            {(item.sale_price || item.price) && String(item.sale_price || item.price) !== String(item.mrp) && (
-                              <div style={{ fontSize: '10px', color: '#15803d', fontWeight: 700 }}>
-                                SP: ₹{money(item.sale_price || item.price)}
-                              </div>
-                            )}
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 800 }}>
+                            {item.mrp ? `₹${money(item.mrp)}` : '—'}
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 800 }}>{item.barcode ? barcodeCopiesForItem(item) : 0}</td>
                         </tr>
