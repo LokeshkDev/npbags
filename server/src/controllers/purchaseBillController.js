@@ -245,10 +245,23 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
       const requestedSku = String(requestedNewVariant.sku || '').trim();
       const generatedSku = `NP-${product.id}-${slugify(`${colorName}-${sizeName}`, { lower: false, strict: true }) || Date.now()}`;
       const newSku = (requestedSku || generatedSku).slice(0, 64);
+      const vPurchaseRate = requestedNewVariant.purchase_rate !== undefined && requestedNewVariant.purchase_rate !== null && requestedNewVariant.purchase_rate !== ''
+        ? parseFloat(requestedNewVariant.purchase_rate)
+        : (item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null);
       const insertVariant = await tx.query(
-        `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, sku)
-         VALUES (?, ?, ?, ?, 0, ?)`,
-        [product.id, colorName, colorHex, sizeName, newSku]
+        `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, purchase_price, sku, mrp, price, sale_price)
+         VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        [
+          product.id,
+          colorName,
+          colorHex,
+          sizeName,
+          vPurchaseRate,
+          newSku,
+          requestedNewVariant.mrp ? parseFloat(requestedNewVariant.mrp) : (item.mrp ? parseFloat(item.mrp) : null),
+          requestedNewVariant.price ? parseFloat(requestedNewVariant.price) : (item.price ? parseFloat(item.price) : null),
+          requestedNewVariant.sale_price ? parseFloat(requestedNewVariant.sale_price) : (requestedNewVariant.price ? parseFloat(requestedNewVariant.price) : (item.sale_price || item.price ? parseFloat(item.sale_price || item.price) : null))
+        ]
       );
       variantId = insertVariant.insertId;
     }
@@ -263,6 +276,23 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     if (variants.length === 0) throw httpError(`Selected variant does not belong to ${product.name}`, 400);
     const variant = variants[0];
     variantInfo = variantInfo || [variant.color_name, variant.size_name].filter(Boolean).join(' / ');
+
+    // Update variant purchase rate, MRP and selling price if specified on this bill item
+    const vPurchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null;
+    const vMrp = item.mrp !== undefined && item.mrp !== null && item.mrp !== '' ? parseFloat(item.mrp) : null;
+    const vPrice = item.price !== undefined && item.price !== null && item.price !== '' ? parseFloat(item.price) : null;
+    const vSalePrice = item.sale_price !== undefined && item.sale_price !== null && item.sale_price !== '' ? parseFloat(item.sale_price) : vPrice;
+    if (vPurchaseRate !== null || vMrp !== null || vPrice !== null) {
+      await tx.query(
+        `UPDATE product_variants
+         SET purchase_price = COALESCE(?, purchase_price),
+             mrp = COALESCE(?, mrp),
+             price = COALESCE(?, price),
+             sale_price = COALESCE(?, sale_price)
+         WHERE id = ?`,
+        [vPurchaseRate, vMrp, vPrice, vSalePrice, variantId]
+      );
+    }
   }
 
   return {
@@ -510,9 +540,12 @@ async function getPurchaseBillBarcodes(req, res, next) {
     const items = await query(
       `SELECT pbi.id AS bill_item_id, pbi.product_id, pbi.variant_id, pbi.product_name,
               pbi.variant_info, pbi.quantity, pbi.purchase_rate, pbi.rate_value, pbi.purchase_rate_alias, pbi.mrp,
+              pbi.price AS item_price, pbi.sale_price AS item_sale_price,
               p.name AS catalog_name, p.price, p.sale_price, p.mrp AS catalog_mrp,
               p.purchase_price, p.purchased_rate,
-              pv.color_name, pv.size_name, pv.sku
+              pv.color_name, pv.size_name, pv.sku,
+              pv.purchase_price AS variant_purchase_price,
+              pv.mrp AS variant_mrp, pv.price AS variant_price, pv.sale_price AS variant_sale_price
        FROM purchase_bill_items pbi
        LEFT JOIN products p ON pbi.product_id = p.id
        LEFT JOIN product_variants pv ON pbi.variant_id = pv.id
@@ -548,7 +581,17 @@ async function getPurchaseBillBarcodes(req, res, next) {
         : null;
       const primaryMatch = productBarcodes.find(barcode => Number(barcode.is_primary) === 1);
       const chosen = variantMatch || primaryMatch || productBarcodes[0] || null;
-      const purchaseRate = item.purchase_rate || item.rate_value || item.purchased_rate || item.purchase_price || null;
+      const purchaseRate = item.purchase_rate || item.rate_value || item.variant_purchase_price || item.purchased_rate || item.purchase_price || null;
+
+      const effectiveMrp = item.mrp !== null && item.mrp !== undefined && item.mrp !== ''
+        ? item.mrp
+        : (item.variant_mrp || item.catalog_mrp);
+      const effectivePrice = item.item_price !== null && item.item_price !== undefined && item.item_price !== ''
+        ? item.item_price
+        : (item.variant_price || item.price);
+      const effectiveSalePrice = item.item_sale_price !== null && item.item_sale_price !== undefined && item.item_sale_price !== ''
+        ? item.item_sale_price
+        : (item.variant_sale_price || item.sale_price || effectivePrice);
 
       return {
         bill_item_id: item.bill_item_id,
@@ -562,9 +605,9 @@ async function getPurchaseBillBarcodes(req, res, next) {
         is_primary: chosen ? chosen.is_primary : 0,
         svg: chosen ? generateBarcodeSVG(chosen.barcode, { height: 50, moduleWidth: 1, quietZone: 12 }) : '',
         quantity: parseInt(item.quantity, 10) || 1,
-        mrp: item.mrp !== null && item.mrp !== undefined && item.mrp !== '' ? item.mrp : item.catalog_mrp,
-        price: item.price,
-        sale_price: item.sale_price,
+        mrp: effectiveMrp,
+        price: effectivePrice,
+        sale_price: effectiveSalePrice,
         purchase_rate: purchaseRate,
         purchased_rate: purchaseRate,
         purchase_price: item.purchase_price,
@@ -864,9 +907,10 @@ async function createPurchaseBill(req, res, next) {
           ? Math.max(0, Number.parseFloat(item.gst_rate) || 0)
           : Math.max(0, Number.parseFloat(resolved.product_gst_rate) || 0);
         const sellingPrice = toMoney(
-          resolved.product_sale_price !== null && resolved.product_sale_price !== undefined && Number(resolved.product_sale_price) > 0
+          item.sale_price || item.price ||
+          (resolved.product_sale_price !== null && resolved.product_sale_price !== undefined && Number(resolved.product_sale_price) > 0
             ? resolved.product_sale_price
-            : resolved.product_price
+            : resolved.product_price)
         );
         const lineCosting = computeLineCosting({
           rateValue,
@@ -892,6 +936,8 @@ async function createPurchaseBill(req, res, next) {
           rate_value: rateValue,
           purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
           mrp: mrpValue,
+          price: item.price ? toMoney(item.price) : sellingPrice,
+          sale_price: item.sale_price ? toMoney(item.sale_price) : sellingPrice,
           gst_type: gstType,
           gst_rate: gstRate,
           selling_price: sellingPrice,
@@ -974,11 +1020,11 @@ async function createPurchaseBill(req, res, next) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
-            quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, gst_type, gst_rate,
+            quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, price, sale_price, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
             landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
             stock_applied_qty, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             billId,
             item.product_id,
@@ -990,6 +1036,8 @@ async function createPurchaseBill(req, res, next) {
             item.rate_value || 0,
             item.purchase_rate_alias || null,
             item.mrp || null,
+            item.price || null,
+            item.sale_price || item.price || null,
             item.gst_type || null,
             item.gst_rate !== undefined ? item.gst_rate : null,
             item.discount_type || 'flat',
@@ -1097,9 +1145,10 @@ async function updatePurchaseBill(req, res, next) {
           ? Math.max(0, Number.parseFloat(item.gst_rate) || 0)
           : Math.max(0, Number.parseFloat(resolved.product_gst_rate) || 0);
         const sellingPrice = toMoney(
-          resolved.product_sale_price !== null && resolved.product_sale_price !== undefined && Number(resolved.product_sale_price) > 0
+          item.sale_price || item.price ||
+          (resolved.product_sale_price !== null && resolved.product_sale_price !== undefined && Number(resolved.product_sale_price) > 0
             ? resolved.product_sale_price
-            : resolved.product_price
+            : resolved.product_price)
         );
         const lineCosting = computeLineCosting({
           rateValue,
@@ -1125,6 +1174,8 @@ async function updatePurchaseBill(req, res, next) {
           rate_value: rateValue,
           purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
           mrp: mrpValue,
+          price: item.price ? toMoney(item.price) : sellingPrice,
+          sale_price: item.sale_price ? toMoney(item.sale_price) : sellingPrice,
           gst_type: gstType,
           gst_rate: gstRate,
           selling_price: sellingPrice,
@@ -1204,11 +1255,11 @@ async function updatePurchaseBill(req, res, next) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
             purchase_bill_id, product_id, variant_id, product_name, variant_info,
-            quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, gst_type, gst_rate,
+            quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, price, sale_price, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
             landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
             stock_applied_qty, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             item.product_id,
@@ -1220,6 +1271,8 @@ async function updatePurchaseBill(req, res, next) {
             item.rate_value || 0,
             item.purchase_rate_alias || null,
             item.mrp || null,
+            item.price || null,
+            item.sale_price || item.price || null,
             item.gst_type || null,
             item.gst_rate !== undefined ? item.gst_rate : null,
             item.discount_type || 'flat',

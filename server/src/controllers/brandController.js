@@ -8,21 +8,30 @@ const { sendSuccess, sendError } = require('../utils/response');
 async function getAllBrands(req, res, next) {
   try {
     const brands = await query(`
-      SELECT 
-        b.id,
-        b.name,
-        b.logo_url,
-        b.sort_order,
-        b.is_active,
-        COUNT(p.id) AS product_count
-      FROM brands b
-      LEFT JOIN products p ON LOWER(TRIM(p.brand)) = LOWER(TRIM(b.name))
-      WHERE b.is_active = 1
-      GROUP BY b.id
-      ORDER BY b.sort_order ASC, b.name ASC
+      SELECT id, name, logo_url, sort_order, is_active
+      FROM brands
+      WHERE is_active = 1
+      ORDER BY sort_order ASC, name ASC
     `);
 
-    return sendSuccess(res, brands, 'Brands retrieved successfully');
+    // Safely tally product counts in memory without collation mismatch or join locks
+    let productCounts = {};
+    try {
+      const pRows = await query(`SELECT brand FROM products WHERE brand IS NOT NULL AND TRIM(brand) != ''`);
+      (pRows || []).forEach(p => {
+        const bKey = String(p.brand || '').trim().toLowerCase();
+        if (bKey) productCounts[bKey] = (productCounts[bKey] || 0) + 1;
+      });
+    } catch (countErr) {
+      console.warn('Could not fetch brand product counts:', countErr.message);
+    }
+
+    const result = (brands || []).map(b => ({
+      ...b,
+      product_count: productCounts[String(b.name || '').trim().toLowerCase()] || 0
+    }));
+
+    return sendSuccess(res, result, 'Brands retrieved successfully');
   } catch (error) {
     next(error);
   }
@@ -43,29 +52,46 @@ async function createBrand(req, res, next) {
 
     // Check for duplicate (case-insensitive)
     const existing = await query(
-      'SELECT id, name FROM brands WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1',
+      'SELECT id, name, logo_url, is_active FROM brands WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1',
       [cleanName]
     );
 
     if (existing && existing.length > 0) {
-      // If inactive, reactivate it
-      await query('UPDATE brands SET is_active = 1 WHERE id = ?', [existing[0].id]);
-      return sendSuccess(res, existing[0], 'Brand already exists and is active', 200);
+      const brand = existing[0];
+      if (Number(brand.is_active) === 0) {
+        await query('UPDATE brands SET is_active = 1 WHERE id = ?', [brand.id]);
+      }
+      return sendSuccess(res, { ...brand, is_active: 1 }, 'Brand already exists and is active', 200);
     }
 
-    const result = await query(
-      'INSERT INTO brands (name, logo_url, is_active) VALUES (?, ?, 1)',
-      [cleanName, logo_url ? String(logo_url).trim() : '']
-    );
+    try {
+      const result = await query(
+        'INSERT INTO brands (name, logo_url, is_active) VALUES (?, ?, 1)',
+        [cleanName, logo_url ? String(logo_url).trim() : '']
+      );
 
-    const newBrand = {
-      id: result.insertId,
-      name: cleanName,
-      logo_url: logo_url || '',
-      product_count: 0
-    };
+      const newBrand = {
+        id: result.insertId,
+        name: cleanName,
+        logo_url: logo_url || '',
+        is_active: 1,
+        product_count: 0
+      };
 
-    return sendSuccess(res, newBrand, 'Brand created successfully', 201);
+      return sendSuccess(res, newBrand, 'Brand created successfully', 201);
+    } catch (insertErr) {
+      if (insertErr.code === 'ER_DUP_ENTRY' || (insertErr.message && insertErr.message.includes('Duplicate entry'))) {
+        const fallbackRows = await query(
+          'SELECT id, name, logo_url, is_active FROM brands WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1',
+          [cleanName]
+        );
+        if (fallbackRows && fallbackRows.length > 0) {
+          await query('UPDATE brands SET is_active = 1 WHERE id = ?', [fallbackRows[0].id]);
+          return sendSuccess(res, { ...fallbackRows[0], is_active: 1 }, 'Brand already exists and is active', 200);
+        }
+      }
+      throw insertErr;
+    }
   } catch (error) {
     next(error);
   }
@@ -108,10 +134,14 @@ async function updateBrand(req, res, next) {
 
     // Sync products that used the old brand name
     if (oldName && oldName.toLowerCase() !== cleanName.toLowerCase()) {
-      await query(
-        'UPDATE products SET brand = ? WHERE LOWER(TRIM(brand)) = LOWER(TRIM(?))',
-        [cleanName, oldName]
-      );
+      try {
+        await query(
+          'UPDATE products SET brand = ? WHERE TRIM(brand) = ?',
+          [cleanName, oldName.trim()]
+        );
+      } catch (prodSyncErr) {
+        console.warn('Could not update products brand:', prodSyncErr.message);
+      }
     }
 
     const updated = {
@@ -139,10 +169,12 @@ async function deleteBrand(req, res, next) {
       return sendError(res, 'Brand not found.', 404);
     }
 
-    // Hard delete or set is_active = 0
+    const brandName = currentRows[0].name;
+
+    // Hard delete
     await query('DELETE FROM brands WHERE id = ?', [id]);
 
-    return sendSuccess(res, { id: parseInt(id, 10), name: currentRows[0].name }, 'Brand deleted successfully');
+    return sendSuccess(res, { id: parseInt(id, 10), name: brandName }, 'Brand deleted successfully');
   } catch (error) {
     next(error);
   }

@@ -21,12 +21,15 @@ async function migrateBrands() {
 
     // 3. Add unique index on name if not present
     try {
-      await query(`ALTER TABLE brands ADD UNIQUE KEY uq_brand_name (name)`);
-    } catch (err) {
-      if (!err.message.includes('Duplicate key') && !err.message.includes('already exists')) {
-        console.log('Note on unique index:', err.message);
+      const idxRows = await query(`
+        SELECT COUNT(*) AS count
+        FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'brands' AND INDEX_NAME = 'uq_brand_name'
+      `);
+      if (Number(idxRows[0]?.count || 0) === 0) {
+        await query(`ALTER TABLE brands ADD UNIQUE KEY uq_brand_name (name)`);
       }
-    }
+    } catch (_) {}
 
     // 4. Sync existing distinct brands from products table
     const syncRes = await query(`

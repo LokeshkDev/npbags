@@ -36,6 +36,7 @@ async function adminFetch(endpoint, options = {}) {
   }
 
   const res = await fetch(`${API_BASE}${endpoint}`, {
+    cache: 'no-store',
     ...options,
     headers
   });
@@ -173,7 +174,15 @@ export async function deleteAdminCategory(id) {
 
 // Brands
 export async function getAdminBrands() {
-  return adminFetch('/admin/brands');
+  try {
+    return await adminFetch('/admin/brands');
+  } catch (err) {
+    try {
+      return await adminFetch('/brands');
+    } catch (_) {
+      throw err;
+    }
+  }
 }
 
 export async function createAdminBrand(data) {

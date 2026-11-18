@@ -102,7 +102,8 @@ export function formatLabelMoney(value, fallback = '') {
 
 export function getLabelDetails(item, options = {}) {
   const showPurchaseRate = options.showPurchaseRate !== false;
-  const mrpValue = firstNonEmpty(item?.mrp, item?.price, item?.sale_price);
+  const mrpValue = firstNonEmpty(item?.mrp, item?.variant_mrp, item?.catalog_mrp, item?.price, item?.sale_price);
+  const sellingPriceValue = firstNonEmpty(item?.sale_price, item?.variant_sale_price, item?.price, item?.variant_price, item?.item_price);
   const aliasValue = firstNonEmpty(
     item?.purchase_rate_alias,
     item?.rate_alias,
@@ -136,6 +137,7 @@ export function getLabelDetails(item, options = {}) {
 
   return {
     mrp: formatLabelMoney(mrpValue, '—'),
+    sellingPrice: sellingPriceValue && Number(sellingPriceValue) > 0 ? formatLabelMoney(sellingPriceValue) : '',
     rate: showPurchaseRate ? rate : '',
     sequence,
     productName: productName ? String(productName).trim() : ''
@@ -162,12 +164,16 @@ export function renderNormalSticker(item, options = {}) {
   const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
   const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
 
+  const priceDisplayHtml = (label.sellingPrice && label.sellingPrice !== label.mrp)
+    ? `<span class="mrp-label">MRP </span>₹${label.mrp} <span class="sp-text" style="font-size: 8.5pt; font-weight: 800; color: #0f172a; margin-left: 6px;">₹${label.sellingPrice}</span>`
+    : `<span class="mrp-label">MRP </span>₹${label.mrp}`;
+
   return `
     <div class="barcode-sticker">
       ${storeNameHtml || logoSpaceHtml}
       <div class="barcode-svg-container">${svgHtml}</div>
       <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}</span>${productHtml}</div>
-      <div class="mrp-text"><span class="mrp-label">MRP </span>₹${label.mrp}</div>
+      <div class="mrp-text">${priceDisplayHtml}</div>
     </div>
   `;
 }
@@ -178,6 +184,10 @@ export function renderJewellerySticker(item, options = {}) {
   const rawName = label.productName || item.barcode || 'JEWELLERY';
   const cleanName = rawName.length > 22 ? rawName.slice(0, 22) : rawName;
   const svgHtml = getCleanBarcodeSVG(item, { height: 20, quietZone: 10 });
+
+  const jewelPriceHtml = (label.sellingPrice && label.sellingPrice !== label.mrp)
+    ? `<span class="jewel-mrp-lbl">MRP </span>₹${label.mrp} <span style="font-size:7pt;font-weight:800;margin-left:3px;">₹${label.sellingPrice}</span>`
+    : `<span class="jewel-mrp-lbl">MRP </span>₹${label.mrp}`;
 
   return `
     <div class="jewel-sticker-wrapper">
@@ -197,7 +207,7 @@ export function renderJewellerySticker(item, options = {}) {
         <!-- RIGHT FLAP (30mm x 12mm) - Reverse Face of Tag (Details & Price) -->
         <div class="jewel-flap jewel-flap-right">
           <div class="jewel-pname" title="${label.productName || ''}">${cleanName}</div>
-          <div class="jewel-mrp"><span class="jewel-mrp-lbl">MRP </span>₹${label.mrp}</div>
+          <div class="jewel-mrp">${jewelPriceHtml}</div>
         </div>
       </div>
     </div>

@@ -22,8 +22,10 @@ const barcodeRoutes = require('./src/routes/barcodeRoutes');
 const branchRoutes = require('./src/routes/branchRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
 const { getStoreSettings } = require('./src/controllers/settingsController');
+const brandController = require('./src/controllers/brandController');
 
 const app = express();
+app.set('etag', false);
 
 // CORS configuration - MUST run before other middlewares to guarantee preflight responses
 const configuredOrigins = [
@@ -103,6 +105,8 @@ const corsOptions = {
     'Accept',
     'Origin',
     'Cache-Control',
+    'Pragma',
+    'Expires',
     'X-File-Name'
   ],
   exposedHeaders: ['Content-Range', 'X-Content-Range', 'Authorization'],
@@ -123,6 +127,14 @@ app.use(morgan(env.nodeEnv === 'development' ? 'dev' : 'combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Anti-caching headers for API responses to prevent empty 304 payloads
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 // Static uploads serving
 app.use('/uploads', express.static(path.resolve(__dirname, 'uploads')));
 
@@ -138,6 +150,7 @@ app.get('/api/health', (req, res) => {
 
 // Settings & public routes
 app.get('/api/settings', getStoreSettings);
+app.get('/api/brands', brandController.getAllBrands);
 
 // API route registrations
 app.use('/api/auth', authRoutes);

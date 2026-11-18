@@ -271,7 +271,9 @@ export default function AdminProductsPage() {
       } else if (res && Array.isArray(res.brands)) {
         list = res.brands;
       }
-      setBrandsList(list);
+      if (Array.isArray(list)) {
+        setBrandsList(list);
+      }
     } catch (err) {
       console.warn('Failed to load brands:', err);
     } finally {
@@ -312,14 +314,29 @@ export default function AdminProductsPage() {
     try {
       if (editingBrandId) {
         await updateAdminBrand(editingBrandId, { name: clean });
-        const oldBrand = brandsList.find(b => b.id === editingBrandId);
-        if (oldBrand && formData.brand === oldBrand.name) {
+        const oldBrand = brandsList.find(b => String(b.id) === String(editingBrandId));
+        const oldName = oldBrand ? oldBrand.name : '';
+        if (formData.brand && oldName && formData.brand.toLowerCase() === oldName.toLowerCase()) {
           setFormData(prev => ({ ...prev, brand: clean }));
         }
+        if (brandFilter && oldName && brandFilter.toLowerCase() === oldName.toLowerCase()) {
+          setBrandFilter(clean);
+        }
+        setBrandsList(prev => prev.map(b => String(b.id) === String(editingBrandId) ? { ...b, name: clean } : b));
+        if (oldName) {
+          setProducts(prev => prev.map(p => String(p.brand || '').toLowerCase() === oldName.toLowerCase() ? { ...p, brand: clean } : p));
+        }
       } else {
-        await createAdminBrand({ name: clean });
+        const created = await createAdminBrand({ name: clean });
         // Auto-select the newly added brand in the form
         setFormData(prev => ({ ...prev, brand: clean }));
+        const newObj = (created && created.id)
+          ? created
+          : { id: Date.now(), name: clean, is_active: 1, product_count: 0 };
+        setBrandsList(prev => {
+          const filtered = prev.filter(b => String(b.name).toLowerCase() !== clean.toLowerCase());
+          return [...filtered, newObj].sort((a, b) => a.name.localeCompare(b.name));
+        });
       }
       setBrandInputName('');
       setEditingBrandId(null);
@@ -333,16 +350,22 @@ export default function AdminProductsPage() {
 
   const handleDeleteBrand = async (brandItem) => {
     if (!brandItem || !brandItem.id) return;
-    if (!window.confirm(`Delete brand "${brandItem.name}"?`)) return;
+    const brandName = String(brandItem.name || '').trim();
+    if (!window.confirm(`Delete brand "${brandName}"?`)) return;
     try {
       await deleteAdminBrand(brandItem.id);
-      if (formData.brand === brandItem.name) {
+      if (formData.brand && formData.brand.toLowerCase() === brandName.toLowerCase()) {
         setFormData(prev => ({ ...prev, brand: '' }));
+      }
+      if (brandFilter && brandFilter.toLowerCase() === brandName.toLowerCase()) {
+        setBrandFilter('all');
       }
       if (editingBrandId === brandItem.id) {
         setEditingBrandId(null);
         setBrandInputName('');
       }
+      setBrandsList(prev => prev.filter(b => String(b.id) !== String(brandItem.id) && String(b.name).toLowerCase() !== brandName.toLowerCase()));
+      setProducts(prev => prev.map(p => String(p.brand || '').toLowerCase() === brandName.toLowerCase() ? { ...p, brand: '' } : p));
       await loadBrands();
     } catch (err) {
       alert(err.message || 'Failed to delete brand');
@@ -683,6 +706,7 @@ export default function AdminProductsPage() {
         sku: v.sku || '',
         image_url: v.image_url || '',
         barcode: v.barcode || '',
+        purchase_price: v.purchase_price !== null && v.purchase_price !== undefined ? String(v.purchase_price) : (p.purchased_rate || p.purchase_price ? String(p.purchased_rate || p.purchase_price) : ''),
         mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (p.mrp ? String(p.mrp) : ''),
         price: v.price !== null && v.price !== undefined ? String(v.price) : (p.price ? String(p.price) : ''),
         sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (p.sale_price ? String(p.sale_price) : '')
@@ -696,6 +720,7 @@ export default function AdminProductsPage() {
         sku: '',
         image_url: c.img || '',
         barcode: '',
+        purchase_price: p.purchased_rate || p.purchase_price ? String(p.purchased_rate || p.purchase_price) : '',
         mrp: p.mrp ? String(p.mrp) : '',
         price: p.price ? String(p.price) : '',
         sale_price: p.sale_price ? String(p.sale_price) : ''
@@ -710,6 +735,7 @@ export default function AdminProductsPage() {
           image_url: '',
           sku: '',
           barcode: '',
+          purchase_price: p.purchased_rate || p.purchase_price ? String(p.purchased_rate || p.purchase_price) : '',
           mrp: p.mrp ? String(p.mrp) : '',
           price: p.price ? String(p.price) : '',
           sale_price: p.sale_price ? String(p.sale_price) : ''
@@ -756,6 +782,7 @@ export default function AdminProductsPage() {
             sku: v.sku || '',
             image_url: v.image_url || '',
             barcode: v.barcode || '',
+            purchase_price: v.purchase_price !== null && v.purchase_price !== undefined ? String(v.purchase_price) : (detailed.purchased_rate || detailed.purchase_price ? String(detailed.purchased_rate || detailed.purchase_price) : ''),
             mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (detailed.mrp ? String(detailed.mrp) : ''),
             price: v.price !== null && v.price !== undefined ? String(v.price) : (detailed.price ? String(detailed.price) : ''),
             sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (detailed.sale_price ? String(detailed.sale_price) : '')
@@ -914,6 +941,7 @@ export default function AdminProductsPage() {
         image_url: '',
         sku: '',
         barcode: '',
+        purchase_price: formData.purchased_rate || formData.purchase_price || '',
         mrp: formData.mrp || '',
         price: formData.price || '',
         sale_price: formData.sale_price || ''
@@ -1459,10 +1487,7 @@ export default function AdminProductsPage() {
     return g === '' || g === 'none';
   }).length;
 
-  const brandOptions = [...new Set([
-    ...brandsList.map(b => String(b.name || '').trim()),
-    ...products.map(p => String(p.brand || '').trim())
-  ].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const brandOptions = [...new Set(brandsList.map(b => String(b.name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   const countInStock = products.filter(p => getProductStock(p) > 10).length;
   const countLowStock = products.filter(p => {
@@ -2220,6 +2245,9 @@ export default function AdminProductsPage() {
                 }}
               >
                 <option value="">-- Select Brand --</option>
+                {formData.brand && !brandOptions.includes(formData.brand) && (
+                  <option value={formData.brand}>{formData.brand}</option>
+                )}
                 {brandOptions.map(bName => (
                   <option key={bName} value={bName}>{bName}</option>
                 ))}
@@ -3136,12 +3164,12 @@ export default function AdminProductsPage() {
                     </div>
                   </div>
 
-                  {/* Tier 2: MRP, Selling/Regular Price, Sale/Offer Price & Color Image */}
+                  {/* Tier 2: Purchase Rate, MRP, Selling/Regular Price, Sale/Offer Price & Color Image */}
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '130px 150px 150px 1fr',
-                      gap: '12px',
+                      gridTemplateColumns: '120px 120px 130px 130px 1fr',
+                      gap: '10px',
                       alignItems: 'center',
                       background: '#f8fafc',
                       padding: '10px 12px',
@@ -3149,6 +3177,22 @@ export default function AdminProductsPage() {
                       border: '1px solid #e2e8f0'
                     }}
                   >
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 800, color: '#4338ca', display: 'block', marginBottom: '3px' }}>
+                        Purchase Rate (₹)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="form-control"
+                        placeholder={formData.purchased_rate || formData.purchase_price ? `e.g. ${formData.purchased_rate || formData.purchase_price}` : 'Rate'}
+                        style={{ height: '34px', fontSize: '12.5px', fontWeight: 700, background: '#ffffff', color: '#3730a3' }}
+                        value={v.purchase_price !== undefined && v.purchase_price !== null ? v.purchase_price : ''}
+                        onChange={(e) => handleVariantChange(idx, 'purchase_price', e.target.value)}
+                      />
+                    </div>
+
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '3px' }}>
                         MRP (₹) <span style={{ color: '#ef4444' }}>*</span>
@@ -4213,8 +4257,14 @@ export default function AdminProductsPage() {
                             transition: 'background 0.15s ease'
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                            <span style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div
+                            onClick={() => {
+                              setFormData(prev => ({ ...prev, brand: b.name }));
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, cursor: 'pointer', flex: 1 }}
+                            title={`Click to select "${b.name}"`}
+                          >
+                            <span style={{ fontWeight: 800, fontSize: '13px', color: isSelected ? '#15803d' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {b.name}
                             </span>
                             {Number(b.product_count) > 0 && (
@@ -4230,6 +4280,26 @@ export default function AdminProductsPage() {
                           </div>
 
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData(prev => ({ ...prev, brand: b.name }));
+                                setIsBrandModalOpen(false);
+                              }}
+                              style={{
+                                background: isSelected ? '#dcfce7' : '#ecfdf5',
+                                border: isSelected ? '1px solid #86efac' : '1px solid #a7f3d0',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: '#065935',
+                                cursor: 'pointer'
+                              }}
+                              title={`Select "${b.name}" and close`}
+                            >
+                              {isSelected ? '✓ In Use' : 'Select'}
+                            </button>
                             <button
                               type="button"
                               onClick={() => {

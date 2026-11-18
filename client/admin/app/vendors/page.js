@@ -86,11 +86,16 @@ const newBillItem = () => ({
   variant_id: '',
   variant_info: '',
   variant_quantities: {},
+  variant_rates: {},
+  variant_mrps: {},
+  variant_prices: {},
   new_variants: [],
   quantity: 1,
   purchase_rate: '',
   purchase_rate_alias: '',
   mrp: '',
+  price: '',
+  sale_price: '',
   gst_type: 'exclusive',
   gst_rate: '18',
   discount_type: 'flat',
@@ -625,10 +630,15 @@ export default function AdminVendorsPage() {
           variant_id: item.variant_id ? String(item.variant_id) : '',
           variant_info: item.variant_info || '',
           variant_quantities: item.variant_id ? { [String(item.variant_id)]: Number(item.quantity) || 1 } : {},
+          variant_rates: item.variant_id && (item.purchase_rate || item.purchased_rate || item.rate_value) ? { [String(item.variant_id)]: String(item.purchase_rate || item.purchased_rate || item.rate_value) } : {},
+          variant_mrps: item.variant_id && item.mrp ? { [String(item.variant_id)]: String(item.mrp) } : {},
+          variant_prices: item.variant_id && (item.price || item.sale_price) ? { [String(item.variant_id)]: String(item.price || item.sale_price) } : {},
           quantity: Number(item.quantity) || 1,
           purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
           purchase_rate_alias: item.purchase_rate_alias || '',
           mrp: item.mrp !== null && item.mrp !== undefined ? String(item.mrp) : '',
+          price: item.price !== null && item.price !== undefined ? String(item.price) : '',
+          sale_price: item.sale_price !== null && item.sale_price !== undefined ? String(item.sale_price) : '',
           gst_type: item.gst_type || 'exclusive',
           gst_rate: item.gst_rate !== null && item.gst_rate !== undefined ? String(item.gst_rate) : '18',
           discount_type: item.discount_type === 'percent' ? 'percent' : 'flat',
@@ -899,6 +909,22 @@ export default function AdminVendorsPage() {
     });
   };
 
+  const setVariantField = (index, fieldName, variantId, val) => {
+    setBillForm(prev => {
+      const items = prev.items.map((item, idx) => {
+        if (idx !== index) return item;
+        const currentMap = { ...(item[fieldName] || {}) };
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          currentMap[String(variantId)] = val;
+        } else {
+          delete currentMap[String(variantId)];
+        }
+        return { ...item, [fieldName]: currentMap };
+      });
+      return { ...prev, items };
+    });
+  };
+
   // Draft a brand-new variant (color/size/SKU) for an existing catalog product.
   // It is created on the product when the purchase bill is saved.
   const addNewVariant = (index) => {
@@ -907,7 +933,7 @@ export default function AdminVendorsPage() {
         if (idx !== index) return item;
         const newVariants = [
           ...(item.new_variants || []),
-          { key: `nv-${newVariantKey++}`, color_name: '', size_name: '', sku: '', quantity: '' }
+          { key: `nv-${newVariantKey++}`, color_name: '', size_name: '', sku: '', quantity: '', purchase_rate: item.purchase_rate || '', mrp: item.mrp || '', price: '' }
         ];
         const next = { ...item, new_variants: newVariants };
         return { ...next, quantity: lineVariantQtyTotal(next) || item.quantity };
@@ -1007,9 +1033,15 @@ export default function AdminVendorsPage() {
     variant_id: defaults?.variant_id || '',
     variant_info: defaults?.variant_info || '',
     variant_quantities: defaults?.variant_id ? { [String(defaults.variant_id)]: 1 } : {},
+    variant_rates: defaults?.variant_id && defaults?.purchase_rate ? { [String(defaults.variant_id)]: String(defaults.purchase_rate) } : {},
+    variant_mrps: defaults?.variant_id && defaults?.mrp ? { [String(defaults.variant_id)]: String(defaults.mrp) } : {},
+    variant_prices: defaults?.variant_id && (defaults?.price || defaults?.sale_price) ? { [String(defaults.variant_id)]: String(defaults.price || defaults.sale_price) } : {},
+    new_variants: [],
     quantity: 1,
     purchase_rate: defaults?.purchase_rate || '',
     mrp: defaults?.mrp || '',
+    price: defaults?.price || '',
+    sale_price: defaults?.sale_price || '',
     gst_type: defaults?.gst_type || 'exclusive',
     gst_rate: defaults?.gst_rate || '18',
     discount_type: 'flat',
@@ -1251,9 +1283,19 @@ export default function AdminVendorsPage() {
       confirm: Boolean(billForm.confirm),
       items: validItems.flatMap(item => {
         const product = products.find(p => String(p.id) === String(item.product_id));
-        const buildPayload = (variantId, variantInfo, qty, stockApplied, newVariant = null) => {
+        const buildPayload = (variantId, variantInfo, qty, stockApplied, newVariant = null, extraPrices = null) => {
+          const effectiveRate = extraPrices?.purchase_rate !== undefined && extraPrices?.purchase_rate !== ''
+            ? extraPrices.purchase_rate
+            : item.purchase_rate;
           const quantity = Math.max(1, Number(qty) || 1);
-          const costing = computeBillItemCosting({ ...item, quantity }, product);
+          const costing = computeBillItemCosting({ ...item, quantity, purchase_rate: effectiveRate }, product);
+          const effectiveMrp = extraPrices?.mrp !== undefined && extraPrices?.mrp !== ''
+            ? extraPrices.mrp
+            : (costing.mrpValue || null);
+          const effectivePrice = extraPrices?.price !== undefined && extraPrices?.price !== ''
+            ? extraPrices.price
+            : null;
+
           return {
             product_id: item.product_id || null,
             product_name: item.product_name,
@@ -1264,10 +1306,12 @@ export default function AdminVendorsPage() {
             stock_applied_qty: Math.max(0, Number(stockApplied) || 0),
             stock_scan_applied: 0,
             quantity,
-            purchase_rate: item.purchase_rate !== '' ? String(item.purchase_rate) : null,
-            rate_value: parseFloat(String(item.purchase_rate).replace(/[^0-9.-]/g, '')) || 0,
+            purchase_rate: effectiveRate !== '' && effectiveRate !== null && effectiveRate !== undefined ? String(effectiveRate) : null,
+            rate_value: parseFloat(String(effectiveRate).replace(/[^0-9.-]/g, '')) || 0,
             purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
-            mrp: costing.mrpValue || null,
+            mrp: effectiveMrp,
+            price: effectivePrice,
+            sale_price: effectivePrice,
             gst_type: item.gst_type || 'exclusive',
             gst_rate: parseFloat(item.gst_rate) || 0,
             discount_type: costing.discountType,
@@ -1306,20 +1350,40 @@ export default function AdminVendorsPage() {
             const applied = String(item.variant_id || '') === String(vid)
               ? Math.max(0, Number(item.stock_applied_qty) || 0)
               : 0;
-            return buildPayload(vid, info, qty, applied);
+            const varRate = item.variant_rates?.[vid] !== undefined && item.variant_rates[vid] !== ''
+              ? item.variant_rates[vid]
+              : (v?.purchase_price || item.purchase_rate);
+            const varMrp = item.variant_mrps?.[vid] !== undefined && item.variant_mrps[vid] !== ''
+              ? item.variant_mrps[vid]
+              : (v?.mrp || item.mrp);
+            const varPrice = item.variant_prices?.[vid] !== undefined && item.variant_prices[vid] !== ''
+              ? item.variant_prices[vid]
+              : (v?.price || v?.sale_price);
+            return buildPayload(vid, info, qty, applied, null, { purchase_rate: varRate, mrp: varMrp, price: varPrice });
           });
           newVariantEntries.forEach(nv => {
             const info = [nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || String(nv.sku || '').trim() || 'New variant';
             lines.push(buildPayload(null, info, nv.quantity, 0, {
               color_name: String(nv.color_name || '').trim() || null,
               size_name: String(nv.size_name || '').trim() || null,
-              sku: String(nv.sku || '').trim() || null
+              sku: String(nv.sku || '').trim() || null,
+              purchase_rate: nv.purchase_rate ? parseFloat(nv.purchase_rate) : (item.purchase_rate ? parseFloat(item.purchase_rate) : null),
+              mrp: nv.mrp ? parseFloat(nv.mrp) : (item.mrp ? parseFloat(item.mrp) : null),
+              price: nv.price ? parseFloat(nv.price) : null
+            }, {
+              purchase_rate: nv.purchase_rate || item.purchase_rate,
+              mrp: nv.mrp || item.mrp,
+              price: nv.price
             }));
           });
           if (lines.length > 0) return lines;
           // Scanned single-variant line without an explicit per-variant map
           if (item.variant_id) {
-            return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty)];
+            return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty, null, {
+              purchase_rate: item.variant_rates?.[String(item.variant_id)] || item.purchase_rate,
+              mrp: item.variant_mrps?.[String(item.variant_id)] || item.mrp,
+              price: item.variant_prices?.[String(item.variant_id)]
+            })];
           }
           // No quantities entered for any variant — skip this line
           return [];
@@ -2783,53 +2847,128 @@ export default function AdminVendorsPage() {
 
                         {/* Per-variant stock entry — each variant is updated separately */}
                         {(item.product_id || variants.length > 0 || (item.new_variants || []).length > 0) && (
-                          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '8px' }}>
+                          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '8px' }}>
                               <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>🧮 Variant Stock Update (each variant separately)</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty per variant</span>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty, purchase rate, MRP &amp; selling price per variant</span>
                                 <button type="button" onClick={() => addNewVariant(index)} style={{ background: '#eff6ff', border: '1px solid #93c5fd', color: '#1d4ed8', borderRadius: '5px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                                   + NEW VARIANT
                                 </button>
                               </div>
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '6px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '8px' }}>
                               {variants.map(v => {
                                 const vId = String(v.id);
                                 const qty = Number(item.variant_quantities?.[vId]) || 0;
                                 const current = Number(v.stock_quantity) || 0;
                                 const projected = current + qty;
                                 const label = [v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`;
+                                const vRate = item.variant_rates?.[vId] !== undefined ? item.variant_rates[vId] : (v.purchase_price ?? item.purchase_rate ?? '');
+                                const vMrp = item.variant_mrps?.[vId] !== undefined ? item.variant_mrps[vId] : (v.mrp ?? item.mrp ?? '');
+                                const vPrice = item.variant_prices?.[vId] !== undefined ? item.variant_prices[vId] : (v.price ?? v.sale_price ?? '');
                                 return (
-                                  <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1fr 62px', gap: '6px', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '5px', padding: '5px 7px' }}>
+                                  <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1.1fr 55px 75px 75px 75px', gap: '6px', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '6px 8px' }}>
                                     <div style={{ overflow: 'hidden' }}>
-                                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>{label}</div>
+                                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>
+                                        {label}
+                                      </div>
                                       <div style={{ fontSize: '9.5px', color: '#64748b' }}>Stock {current}{qty > 0 ? ` → ${projected}` : ''}</div>
+                                      {v.barcode && <div style={{ fontSize: '9px', color: '#94a3b8', fontFamily: 'monospace' }}>{v.barcode}</div>}
                                     </div>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={qty || ''}
-                                      placeholder="0"
-                                      onChange={(e) => setVariantQuantity(index, vId, e.target.value)}
-                                      style={{ width: '100%', padding: '6px 4px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }}
-                                      title={`Add stock for ${label}`}
-                                    />
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#64748b', marginBottom: '2px', textTransform: 'uppercase' }}>Qty</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={qty || ''}
+                                        placeholder="0"
+                                        onChange={(e) => setVariantQuantity(index, vId, e.target.value)}
+                                        style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }}
+                                        title={`Add stock for ${label}`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#4338ca', marginBottom: '2px', textTransform: 'uppercase' }}>P. Rate (₹)</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={vRate}
+                                        placeholder={item.purchase_rate || '0.00'}
+                                        onChange={(e) => setVariantField(index, 'variant_rates', vId, e.target.value)}
+                                        style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#3730a3' }}
+                                        title={`Purchase Rate / Cost for ${label}`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#64748b', marginBottom: '2px', textTransform: 'uppercase' }}>MRP (₹)</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={vMrp}
+                                        placeholder={item.mrp || '0.00'}
+                                        onChange={(e) => setVariantField(index, 'variant_mrps', vId, e.target.value)}
+                                        style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700 }}
+                                        title={`MRP for ${label} (printed on barcode)`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#065935', marginBottom: '2px', textTransform: 'uppercase' }}>Selling (₹)</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={vPrice}
+                                        placeholder="0.00"
+                                        onChange={(e) => setVariantField(index, 'variant_prices', vId, e.target.value)}
+                                        style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#065935' }}
+                                        title={`Selling price for ${label}`}
+                                      />
+                                    </div>
                                   </div>
                                 );
                               })}
                             </div>
                             {(item.new_variants || []).length > 0 && (
-                              <div style={{ marginTop: '6px', display: 'grid', gap: '6px' }}>
+                              <div style={{ marginTop: '8px', display: 'grid', gap: '6px' }}>
                                 {(item.new_variants || []).map(nv => (
-                                  <div key={nv.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 62px 26px', gap: '6px', alignItems: 'center', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '5px', padding: '5px 7px' }}>
-                                    <input value={nv.color_name} onChange={(e) => updateNewVariant(index, nv.key, 'color_name', e.target.value)} placeholder="Colour (e.g. Red)" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
-                                    <input value={nv.size_name} onChange={(e) => updateNewVariant(index, nv.key, 'size_name', e.target.value)} placeholder="Size (e.g. M)" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
-                                    <input value={nv.sku} onChange={(e) => updateNewVariant(index, nv.key, 'sku', e.target.value)} placeholder="SKU (optional)" style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
-                                    <input type="number" min="0" value={nv.quantity || ''} onChange={(e) => updateNewVariant(index, nv.key, 'quantity', e.target.value)} placeholder="0" style={{ width: '100%', padding: '6px 4px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }} title="Received qty for this new variant" />
-                                    <button type="button" onClick={() => removeNewVariant(index, nv.key)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '5px', padding: '5px 0', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+                                  <div key={nv.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 55px 75px 75px 75px 26px', gap: '6px', alignItems: 'center', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '6px 8px' }}>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Colour</label>
+                                      <input value={nv.color_name} onChange={(e) => updateNewVariant(index, nv.key, 'color_name', e.target.value)} placeholder="e.g. Red" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Size</label>
+                                      <input value={nv.size_name} onChange={(e) => updateNewVariant(index, nv.key, 'size_name', e.target.value)} placeholder="e.g. M" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>SKU (Opt)</label>
+                                      <input value={nv.sku} onChange={(e) => updateNewVariant(index, nv.key, 'sku', e.target.value)} placeholder="Auto" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Qty</label>
+                                      <input type="number" min="0" value={nv.quantity || ''} onChange={(e) => updateNewVariant(index, nv.key, 'quantity', e.target.value)} placeholder="0" style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#4338ca', marginBottom: '2px', textTransform: 'uppercase' }}>P. Rate (₹)</label>
+                                      <input type="number" min="0" step="0.01" value={nv.purchase_rate || ''} onChange={(e) => updateNewVariant(index, nv.key, 'purchase_rate', e.target.value)} placeholder={item.purchase_rate || '0.00'} style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#3730a3' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>MRP (₹)</label>
+                                      <input type="number" min="0" step="0.01" value={nv.mrp || ''} onChange={(e) => updateNewVariant(index, nv.key, 'mrp', e.target.value)} placeholder={item.mrp || '0.00'} style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700 }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#065935', marginBottom: '2px', textTransform: 'uppercase' }}>Selling (₹)</label>
+                                      <input type="number" min="0" step="0.01" value={nv.price || ''} onChange={(e) => updateNewVariant(index, nv.key, 'price', e.target.value)} placeholder="0.00" style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#065935' }} />
+                                    </div>
+                                    <div style={{ paddingTop: '14px' }}>
+                                      <button type="button" onClick={() => removeNewVariant(index, nv.key)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '4px', padding: '5px 0', width: '100%', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+                                    </div>
                                   </div>
                                 ))}
-                                <div style={{ fontSize: '9.5px', color: '#92400e', fontWeight: 700 }}>New variants are created on the product when you save this bill.</div>
+                                <div style={{ fontSize: '9.5px', color: '#92400e', fontWeight: 700 }}>New variants are created on the product with Purchase Rate, MRP &amp; Selling Price when you save this bill.</div>
                               </div>
                             )}
                           </div>
@@ -2877,14 +3016,136 @@ export default function AdminVendorsPage() {
                               <div style={{ padding: '6px 7px', borderRadius: '5px', background: itemCosting.landingMargin < 0 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${itemCosting.landingMargin < 0 ? '#fecaca' : '#bbf7d0'}`, fontSize: '11.5px', fontWeight: 800, color: itemCosting.landingMargin < 0 ? '#b91c1c' : '#15803d' }}>{itemCosting.landingMargin.toFixed(1)}%</div>
                             </div>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.3fr 2.7fr', gap: '8px', alignItems: 'end', marginTop: '8px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.1fr 1.1fr 1.7fr', gap: '8px', alignItems: 'end', marginTop: '8px' }}>
                             <div>
-                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Manufacturing Date</label>
-                              <input type="date" value={item.manufacturing_date || ''} onChange={(e) => updateBillItem(index, { manufacturing_date: e.target.value })} style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Manufacturing</label>
+                                {item.manufacturing_date && (
+                                  <button type="button" onClick={() => updateBillItem(index, { manufacturing_date: '' })} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '9px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Clear</button>
+                                )}
+                              </div>
+                              {(() => {
+                                const mfgParts = String(item.manufacturing_date || '').split('-');
+                                const mfgYear = mfgParts[0] && mfgParts[0].length === 4 ? mfgParts[0] : '';
+                                const mfgMonth = mfgParts[1] ? mfgParts[1].padStart(2, '0') : '';
+                                const currentYear = new Date().getFullYear();
+                                const yearList = Array.from({ length: 22 }, (_, i) => (currentYear + 2) - i);
+
+                                return (
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '4px' }}>
+                                    <select
+                                      value={mfgMonth}
+                                      onChange={(e) => {
+                                        const newMonth = e.target.value;
+                                        const yr = mfgYear || String(currentYear);
+                                        if (newMonth) {
+                                          updateBillItem(index, { manufacturing_date: `${yr}-${newMonth}-01` });
+                                        } else {
+                                          updateBillItem(index, { manufacturing_date: '' });
+                                        }
+                                      }}
+                                      style={{ width: '100%', padding: '5px 3px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff' }}
+                                    >
+                                      <option value="">Month</option>
+                                      <option value="01">01 - Jan</option>
+                                      <option value="02">02 - Feb</option>
+                                      <option value="03">03 - Mar</option>
+                                      <option value="04">04 - Apr</option>
+                                      <option value="05">05 - May</option>
+                                      <option value="06">06 - Jun</option>
+                                      <option value="07">07 - Jul</option>
+                                      <option value="08">08 - Aug</option>
+                                      <option value="09">09 - Sep</option>
+                                      <option value="10">10 - Oct</option>
+                                      <option value="11">11 - Nov</option>
+                                      <option value="12">12 - Dec</option>
+                                    </select>
+                                    <select
+                                      value={mfgYear}
+                                      onChange={(e) => {
+                                        const newYear = e.target.value;
+                                        const mo = mfgMonth || '01';
+                                        if (newYear) {
+                                          updateBillItem(index, { manufacturing_date: `${newYear}-${mo}-01` });
+                                        } else {
+                                          updateBillItem(index, { manufacturing_date: '' });
+                                        }
+                                      }}
+                                      style={{ width: '100%', padding: '5px 3px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff' }}
+                                    >
+                                      <option value="">Year</option>
+                                      {yearList.map(yr => (
+                                        <option key={yr} value={String(yr)}>{yr}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })()}
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Expiry Date</label>
-                              <input type="date" value={item.expiry_date || ''} onChange={(e) => updateBillItem(index, { expiry_date: e.target.value })} style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>Expiry</label>
+                                {item.expiry_date && (
+                                  <button type="button" onClick={() => updateBillItem(index, { expiry_date: '' })} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '9px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Clear</button>
+                                )}
+                              </div>
+                              {(() => {
+                                const expParts = String(item.expiry_date || '').split('-');
+                                const expYear = expParts[0] && expParts[0].length === 4 ? expParts[0] : '';
+                                const expMonth = expParts[1] ? expParts[1].padStart(2, '0') : '';
+                                const currentYear = new Date().getFullYear();
+                                const expYearList = Array.from({ length: 18 }, (_, i) => (currentYear - 2) + i);
+
+                                return (
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '4px' }}>
+                                    <select
+                                      value={expMonth}
+                                      onChange={(e) => {
+                                        const newMonth = e.target.value;
+                                        const yr = expYear || String(currentYear);
+                                        if (newMonth) {
+                                          updateBillItem(index, { expiry_date: `${yr}-${newMonth}-01` });
+                                        } else {
+                                          updateBillItem(index, { expiry_date: '' });
+                                        }
+                                      }}
+                                      style={{ width: '100%', padding: '5px 3px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff' }}
+                                    >
+                                      <option value="">Month</option>
+                                      <option value="01">01 - Jan</option>
+                                      <option value="02">02 - Feb</option>
+                                      <option value="03">03 - Mar</option>
+                                      <option value="04">04 - Apr</option>
+                                      <option value="05">05 - May</option>
+                                      <option value="06">06 - Jun</option>
+                                      <option value="07">07 - Jul</option>
+                                      <option value="08">08 - Aug</option>
+                                      <option value="09">09 - Sep</option>
+                                      <option value="10">10 - Oct</option>
+                                      <option value="11">11 - Nov</option>
+                                      <option value="12">12 - Dec</option>
+                                    </select>
+                                    <select
+                                      value={expYear}
+                                      onChange={(e) => {
+                                        const newYear = e.target.value;
+                                        const mo = expMonth || '01';
+                                        if (newYear) {
+                                          updateBillItem(index, { expiry_date: `${newYear}-${mo}-01` });
+                                        } else {
+                                          updateBillItem(index, { expiry_date: '' });
+                                        }
+                                      }}
+                                      style={{ width: '100%', padding: '5px 3px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff' }}
+                                    >
+                                      <option value="">Year</option>
+                                      {expYearList.map(yr => (
+                                        <option key={yr} value={String(yr)}>{yr}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })()}
                             </div>
                             <div>
                               <label style={{ display: 'block', fontSize: '9.5px', fontWeight: 800, color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>
@@ -3300,7 +3561,7 @@ export default function AdminVendorsPage() {
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Barcode</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
                         <th style={{ padding: '8px 10px', textAlign: 'right' }}>P. Rate</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>MRP</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>MRP / SP</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Labels</th>
                       </tr>
                     </thead>
@@ -3314,7 +3575,14 @@ export default function AdminVendorsPage() {
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'center' }}>{item.quantity || 1}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right' }}>{item.purchase_rate ? `₹${money(item.purchase_rate)}` : '—'}</td>
-                          <td style={{ padding: '7px 10px', textAlign: 'right' }}>{item.mrp ? `₹${money(item.mrp)}` : '—'}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right' }}>
+                            <div style={{ fontWeight: 700 }}>{item.mrp ? `₹${money(item.mrp)}` : '—'}</div>
+                            {(item.sale_price || item.price) && String(item.sale_price || item.price) !== String(item.mrp) && (
+                              <div style={{ fontSize: '10px', color: '#15803d', fontWeight: 700 }}>
+                                SP: ₹{money(item.sale_price || item.price)}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 800 }}>{item.barcode ? barcodeCopiesForItem(item) : 0}</td>
                         </tr>
                       ))}

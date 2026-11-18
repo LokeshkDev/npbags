@@ -151,9 +151,11 @@ function normalizeNewProductPayload(input = {}) {
 function buildPurchaseItemFromScan(product = {}, variant = null, barcode = '') {
   const p = product || {};
   const v = variant || null;
-  const rateSource = p.purchased_rate !== null && p.purchased_rate !== undefined && String(p.purchased_rate).trim() !== ''
-    ? p.purchased_rate
-    : (p.purchase_price !== null && p.purchase_price !== undefined ? p.purchase_price : '');
+  const rateSource = v && v.purchase_price !== null && v.purchase_price !== undefined && String(v.purchase_price).trim() !== ''
+    ? v.purchase_price
+    : (p.purchased_rate !== null && p.purchased_rate !== undefined && String(p.purchased_rate).trim() !== ''
+      ? p.purchased_rate
+      : (p.purchase_price !== null && p.purchase_price !== undefined ? p.purchase_price : ''));
 
   return {
     product_id: p.id,
@@ -181,7 +183,8 @@ function buildFoundResult(row, matchType, code, source, payload, barcode) {
       sku: row.matched_variant_sku || null,
       color_name: row.matched_color_name || null,
       size_name: row.matched_size_name || null,
-      stock_quantity: parseInt(row.matched_variant_stock, 10) || 0
+      stock_quantity: parseInt(row.matched_variant_stock, 10) || 0,
+      purchase_price: row.matched_variant_purchase_price !== null && row.matched_variant_purchase_price !== undefined ? row.matched_variant_purchase_price : null
     }
     : null;
 
@@ -234,12 +237,15 @@ async function resolveProductByScan(queryFn, rawCode) {
 
   const barcodeRows = await queryFn(
     `SELECT p.*, pb.barcode AS matched_barcode, pb.is_primary,
+            COALESCE(pv.purchase_price, p.purchased_rate, p.purchase_price) AS purchased_rate,
+            COALESCE(pv.purchase_price, p.purchase_price) AS purchase_price,
             COALESCE(pv.mrp, p.mrp) AS mrp,
             COALESCE(pv.price, p.price) AS price,
             COALESCE(pv.sale_price, p.sale_price) AS sale_price,
             pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
             pv.color_name AS matched_color_name, pv.size_name AS matched_size_name,
-            pv.stock_quantity AS matched_variant_stock
+            pv.stock_quantity AS matched_variant_stock,
+            pv.purchase_price AS matched_variant_purchase_price
      FROM product_barcodes pb
      JOIN products p ON pb.product_id = p.id
      LEFT JOIN product_variants pv ON pb.variant_id = pv.id
@@ -254,12 +260,15 @@ async function resolveProductByScan(queryFn, rawCode) {
 
   const skuRows = await queryFn(
     `SELECT p.*,
+            COALESCE(pv.purchase_price, p.purchased_rate, p.purchase_price) AS purchased_rate,
+            COALESCE(pv.purchase_price, p.purchase_price) AS purchase_price,
             COALESCE(pv.mrp, p.mrp) AS mrp,
             COALESCE(pv.price, p.price) AS price,
             COALESCE(pv.sale_price, p.sale_price) AS sale_price,
             pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
             pv.color_name AS matched_color_name, pv.size_name AS matched_size_name,
-            pv.stock_quantity AS matched_variant_stock
+            pv.stock_quantity AS matched_variant_stock,
+            pv.purchase_price AS matched_variant_purchase_price
      FROM product_variants pv
      JOIN products p ON pv.product_id = p.id
      WHERE pv.sku = ?
