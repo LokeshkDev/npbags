@@ -207,6 +207,31 @@ function variantLabel(variant) {
   return parts.join(' / ') || variant.sku || (variant.id ? `Variant #${variant.id}` : '');
 }
 
+function toPositiveAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function itemMrpFor(variant, product) {
+  return toPositiveAmount(variant?.mrp)
+    || toPositiveAmount(product?.mrp)
+    || toPositiveAmount(product?.price)
+    || toPositiveAmount(variant?.price);
+}
+
+function itemSellingPriceFor(variant, product) {
+  return toPositiveAmount(variant?.sale_price)
+    || toPositiveAmount(variant?.price)
+    || toPositiveAmount(product?.sale_price)
+    || toPositiveAmount(product?.price);
+}
+
+function itemRegularPriceFor(variant, product) {
+  return toPositiveAmount(variant?.price)
+    || toPositiveAmount(product?.price)
+    || itemSellingPriceFor(variant, product);
+}
+
 function effectiveItemStock(item) {
   const direct = variantStock(item);
   if (direct !== null) return direct;
@@ -1113,7 +1138,7 @@ export function POSBillingModal() {
   const handlePickSuggestion = (prod, variant = null) => {
     if (!prod) return;
     const normalizedVariant = normalizeVariant(variant);
-    const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
+    const price = itemSellingPriceFor(variant, prod);
     const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
     const stock = normalizedVariant
       ? normalizedVariant.stock_quantity
@@ -1125,8 +1150,8 @@ export function POSBillingModal() {
       barcode: barcode,
       barcode_short_name: prod.barcode_short_name || prod.name,
       price: Number(price) || 0,
-      regular_price: Number(prod.price) || Number(price) || 0,
-      mrp: Number(prod.mrp) || Number(prod.price) || Number(price) || 0,
+      regular_price: itemRegularPriceFor(variant, prod),
+      mrp: itemMrpFor(variant, prod),
       gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
@@ -1225,7 +1250,7 @@ export function POSBillingModal() {
     const prod = match.product;
     const variant = match.matchedVariant;
     const normalizedVariant = normalizeVariant(variant);
-    const price = variant && variant.price ? variant.price : (prod.sale_price > 0 ? prod.sale_price : prod.price);
+    const price = itemSellingPriceFor(variant, prod);
     const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
     const stock = normalizedVariant
       ? normalizedVariant.stock_quantity
@@ -1237,8 +1262,8 @@ export function POSBillingModal() {
       barcode: barcode,
       barcode_short_name: prod.barcode_short_name || prod.name,
       price: Number(price) || 0,
-      regular_price: Number(prod.price) || Number(price) || 0,
-      mrp: Number(prod.mrp) || Number(prod.price) || Number(price) || 0,
+      regular_price: itemRegularPriceFor(variant, prod),
+      mrp: itemMrpFor(variant, prod),
       gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
       image: variant?.image_url || prod.image,
@@ -1267,6 +1292,9 @@ export function POSBillingModal() {
           copy[index] = {
             ...copy[index],
             variant: null,
+            price: itemSellingPriceFor(null, product),
+            mrp: itemMrpFor(null, product),
+            regular_price: itemRegularPriceFor(null, product),
             stock_quantity: productStock(product) ?? 0
           };
         }
@@ -1290,6 +1318,9 @@ export function POSBillingModal() {
           variant,
           barcode: variantBarcode,
           image: raw.image_url || copy[index].image,
+          price: itemSellingPriceFor(raw, product),
+          mrp: itemMrpFor(raw, product),
+          regular_price: itemRegularPriceFor(raw, product),
           stock_quantity: stock
         };
       }
@@ -3270,7 +3301,7 @@ export function POSBillingModal() {
                                   const vStock = variantStock(v);
                                   return (
                                     <option key={v.id} value={v.id}>
-                                      {variantLabel(v) || `Variant #${v.id}`} · Stock {vStock === null ? 0 : vStock}
+                                      {variantLabel(v) || `Variant #${v.id}`} · ₹{itemSellingPriceFor(v, catalogProduct)} · Stock {vStock === null ? 0 : vStock}
                                     </option>
                                   );
                                 })}
@@ -3344,7 +3375,7 @@ export function POSBillingModal() {
                             ₹{Number(item.mrp || item.regular_price || item.price || 0).toLocaleString('en-IN')}
                           </div>
                           <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>
-                            Product MRP
+                            {item.variant?.id ? 'Variant MRP' : 'Product MRP'}
                           </div>
                         </td>
                         {/* Selling Price Column: Bill-specific Selling Price (Editable only for this POS bill) */}
@@ -3734,7 +3765,7 @@ export function POSBillingModal() {
                                 {rowMatches.map((match, sIdx) => {
                                   const p = match.product;
                                   const v = match.matchedVariant;
-                                  const displayPrice = v && v.price ? v.price : (p.sale_price > 0 ? p.sale_price : p.price);
+                                  const displayPrice = itemSellingPriceFor(v, p);
                                   const bc = v?.barcode || p.barcode || `NP-${p.id}`;
                                   return (
                                     <div
@@ -4529,7 +4560,7 @@ export function POSBillingModal() {
                 searchModalMatches.map((match, sIdx) => {
                   const p = match.product;
                   const v = match.matchedVariant;
-                  const displayPrice = v && v.price ? v.price : (p.sale_price > 0 ? p.sale_price : p.price);
+                  const displayPrice = itemSellingPriceFor(v, p);
                   const bc = v?.barcode || p.barcode || `NP-${p.id}`;
                   return (
                     <div
