@@ -252,7 +252,7 @@ export function renderJewellerySticker(item, options = {}) {
         <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
         <div class="jewel-flap jewel-flap-2">
           <div class="jewel-mrp-row">
-            <span class="jewel-mrp-val">MRP:₹${label.mrp}</span>
+            <span class="jewel-mrp-val">MRP: ₹${label.mrp}</span>
           </div>
           <div class="jewel-barcode-num">${barcodeText}${sizeBadge}</div>
         </div>
@@ -268,6 +268,8 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
+  const offsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : -5;
+  const offsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : 0;
 
   const stickers = list.map(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
@@ -288,6 +290,18 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     size: 80mm 12mm;
     margin: 0 !important;
   }
+  @media print {
+    @page {
+      size: 80mm 12mm;
+      margin: 0 !important;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 80mm !important;
+      height: 12mm !important;
+    }
+  }
   * {
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
@@ -298,6 +312,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   html, body {
     margin: 0 !important;
     padding: 0 !important;
+    width: 80mm;
     font-family: Arial, Helvetica, sans-serif;
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
@@ -323,7 +338,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    overflow: hidden;
+    overflow: visible !important;
     box-sizing: border-box;
     background: #ffffff;
     color: #000000 !important;
@@ -334,6 +349,8 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     break-after: page;
   }
   .jewel-sticker {
+    position: relative;
+    top: ${offsetY}mm;
     width: 80mm;
     height: 12mm;
     min-height: 12mm;
@@ -343,9 +360,9 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     align-items: center;
     justify-content: flex-start;
     box-sizing: border-box;
-    overflow: hidden;
+    overflow: visible !important;
     margin: 0;
-    padding-left: 3.5mm;
+    padding-left: ${3.5 + offsetX}mm;
   }
   /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */
   .jewel-flap-1 {

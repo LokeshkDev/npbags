@@ -247,6 +247,14 @@ export default function AdminVendorsPage() {
   const [barcodePrintMode, setBarcodePrintMode] = useState('quantity');
   const [barcodePrintCopies, setBarcodePrintCopies] = useState(1);
   const [barcodeStickerFormat, setBarcodeStickerFormat] = useState('normal_35x25');
+  const [jewelOffsetY, setJewelOffsetY] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
+      return saved !== null ? Number(saved) : -5;
+    } catch {
+      return -5;
+    }
+  });
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
   const [recordingPayment, setRecordingPayment] = useState(false);
 
@@ -1519,7 +1527,8 @@ export default function AdminVendorsPage() {
 
     printBarcodeLabels(items, 1, {
       title: `Purchase Bill ${barcodePrintBill?.bill_number || ''} Barcodes`,
-      stickerType: barcodeStickerFormat
+      stickerType: barcodeStickerFormat,
+      jewelOffsetY: barcodeStickerFormat === 'jewellery_80x12' ? jewelOffsetY : 0
     });
     setBarcodePrintBill(null);
   };
@@ -3537,6 +3546,42 @@ export default function AdminVendorsPage() {
                       </div>
                     </button>
                   </div>
+
+                  {barcodeStickerFormat === 'jewellery_80x12' && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '7px', padding: '10px 12px', fontSize: '12px', color: '#92400e', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                        <span><strong>Vertical Offset (Gap Alignment):</strong> Shift up/down if print lands across the gap</span>
+                        <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>Active: {jewelOffsetY}mm</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
+                        {[-7, -6, -5, -4, -3, 0, 3].map(shift => (
+                          <button
+                            key={shift}
+                            type="button"
+                            onClick={() => {
+                              setJewelOffsetY(shift);
+                              try { window.localStorage.setItem('npgrand_jewel_offset_y', String(shift)); } catch {}
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '5px',
+                              border: jewelOffsetY === shift ? '1.5px solid #b45309' : '1px solid #cbd5e1',
+                              background: jewelOffsetY === shift ? '#b45309' : '#fff',
+                              color: jewelOffsetY === shift ? '#fff' : '#334155',
+                              fontWeight: 800,
+                              fontSize: '11.5px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {shift === 0 ? '0mm (None)' : `${shift > 0 ? '+' : ''}${shift}mm`}
+                          </button>
+                        ))}
+                        <span style={{ fontSize: '11px', color: '#78350f', marginLeft: '6px' }}>
+                          *Print dialog: set <strong>Margins: None</strong>
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>

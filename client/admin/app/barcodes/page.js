@@ -16,6 +16,14 @@ export default function AdminBarcodesPage() {
 
   // Default sticker format: 'normal_35x25' (3-Up) vs 'jewellery_80x12' (1-Up)
   const [stickerFormat, setStickerFormat] = useState('normal_35x25');
+  const [jewelOffsetY, setJewelOffsetY] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
+      return saved !== null ? Number(saved) : -5;
+    } catch {
+      return -5;
+    }
+  });
 
   // Product selector for bulk barcode management
   const [products, setProducts] = useState([]);
@@ -166,7 +174,15 @@ export default function AdminBarcodesPage() {
 
   // Open thermal sticker print dialog
   const printStickers = (barcodeItem, copies = 3, format = stickerFormat) => {
-    printBarcodeLabels(barcodeItem, copies, { stickerType: format });
+    let savedOffsetY = jewelOffsetY;
+    try {
+      const s = window.localStorage.getItem('npgrand_jewel_offset_y');
+      if (s !== null) savedOffsetY = Number(s);
+    } catch {}
+    printBarcodeLabels(barcodeItem, copies, {
+      stickerType: format,
+      jewelOffsetY: format === 'jewellery_80x12' ? savedOffsetY : 0
+    });
   };
 
   // Batch Print Selected Barcode Stickers
@@ -175,7 +191,15 @@ export default function AdminBarcodesPage() {
       alert('Please select at least one barcode sticker to print.');
       return;
     }
-    printBarcodeLabels(itemsToPrint, copiesPerItem, { stickerType: format });
+    let savedOffsetY = jewelOffsetY;
+    try {
+      const s = window.localStorage.getItem('npgrand_jewel_offset_y');
+      if (s !== null) savedOffsetY = Number(s);
+    } catch {}
+    printBarcodeLabels(itemsToPrint, copiesPerItem, {
+      stickerType: format,
+      jewelOffsetY: format === 'jewellery_80x12' ? savedOffsetY : 0
+    });
   };
 
   return (
@@ -259,6 +283,42 @@ export default function AdminBarcodesPage() {
                 <span>Jewellery Tag (80×12mm · 1-Up Dumbbell)</span>
               </button>
             </div>
+
+            {stickerFormat === 'jewellery_80x12' && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '7px', padding: '9px 12px', fontSize: '11.5px', color: '#92400e', marginTop: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                  <span><strong>Vertical Gap Offset:</strong> Shift up/down if print lands across label die-cut gap</span>
+                  <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>Active: {jewelOffsetY}mm</span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap' }}>
+                  {[-7, -6, -5, -4, -3, 0, 3].map(shift => (
+                    <button
+                      key={shift}
+                      type="button"
+                      onClick={() => {
+                        setJewelOffsetY(shift);
+                        try { window.localStorage.setItem('npgrand_jewel_offset_y', String(shift)); } catch {}
+                      }}
+                      style={{
+                        padding: '3px 9px',
+                        borderRadius: '5px',
+                        border: jewelOffsetY === shift ? '1.5px solid #b45309' : '1px solid #cbd5e1',
+                        background: jewelOffsetY === shift ? '#b45309' : '#fff',
+                        color: jewelOffsetY === shift ? '#fff' : '#334155',
+                        fontWeight: 800,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {shift === 0 ? '0mm (None)' : `${shift > 0 ? '+' : ''}${shift}mm`}
+                    </button>
+                  ))}
+                  <span style={{ fontSize: '10.5px', color: '#78350f', marginLeft: '6px' }}>
+                    *In print dialog: Set <strong>Margins: None</strong>
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Grid: 2 Columns (Left: Scanner Search / Right: Product Barcode Generator) */}
