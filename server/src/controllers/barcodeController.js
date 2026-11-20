@@ -135,14 +135,19 @@ async function lookupBarcode(req, res, next) {
     if (barcodeRows.length > 0) {
       const row = barcodeRows[0];
 
-      // Regional branch check: verify product is active in this branch
+      // Regional branch check: verify product stock in this branch
+      let isBranchActive = true;
+      let branchStockQuantity = null;
       if (branch_id && Number(branch_id) > 1) {
         const branchCheck = await query(
           'SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1',
           [branch_id, row.product_id]
         );
         if (branchCheck.length === 0 || Number(branchCheck[0].is_active) !== 1) {
-          return sendError(res, 'This product is not active or available for this branch.', 404);
+          isBranchActive = false;
+          branchStockQuantity = 0;
+        } else {
+          branchStockQuantity = parseInt(branchCheck[0].stock, 10) || 0;
         }
       }
 
@@ -158,7 +163,7 @@ async function lookupBarcode(req, res, next) {
 
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
-      const branchStockVal = await getBranchStock(row.product_id);
+      const branchStockVal = branchStockQuantity !== null ? branchStockQuantity : await getBranchStock(row.product_id);
       const baseStock = row.variant_id ? row.stock_quantity : row.product_stock;
       const effectiveStock = branchStockVal !== null
         ? branchStockVal
@@ -182,6 +187,8 @@ async function lookupBarcode(req, res, next) {
         sale_price: row.sale_price > 0 ? parseFloat(row.sale_price) : null,
         hsn_code: row.hsn_code || '4202',
         image: displayImage,
+        branch_is_active: isBranchActive,
+        branch_stock: branchStockQuantity,
         variant: row.variant_id ? {
           id: row.variant_id,
           sku: row.sku,
@@ -208,14 +215,19 @@ async function lookupBarcode(req, res, next) {
     if (skuRows.length > 0) {
       const row = skuRows[0];
 
-      // Regional branch check: verify product is active in this branch
+      // Regional branch check: verify product stock in this branch
+      let isBranchActive = true;
+      let branchStockQuantity = null;
       if (branch_id && Number(branch_id) > 1) {
         const branchCheck = await query(
           'SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1',
           [branch_id, row.product_id]
         );
         if (branchCheck.length === 0 || Number(branchCheck[0].is_active) !== 1) {
-          return sendError(res, 'This product is not active or available for this branch.', 404);
+          isBranchActive = false;
+          branchStockQuantity = 0;
+        } else {
+          branchStockQuantity = parseInt(branchCheck[0].stock, 10) || 0;
         }
       }
 
@@ -226,7 +238,7 @@ async function lookupBarcode(req, res, next) {
       const displayImage = row.image_url || imgs[0]?.image_url || DEFAULT_PRODUCT_IMAGE;
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
-      const branchStockVal = await getBranchStock(row.product_id);
+      const branchStockVal = branchStockQuantity !== null ? branchStockQuantity : await getBranchStock(row.product_id);
       const effectiveStock = branchStockVal !== null ? branchStockVal : (row.stock_quantity !== undefined && row.stock_quantity !== null ? row.stock_quantity : 0);
 
       return sendSuccess(res, {
@@ -246,6 +258,8 @@ async function lookupBarcode(req, res, next) {
         regular_price: parseFloat(row.price),
         hsn_code: row.hsn_code || '4202',
         image: displayImage,
+        branch_is_active: isBranchActive,
+        branch_stock: branchStockQuantity,
         variant: {
           id: row.id,
           sku: row.sku,

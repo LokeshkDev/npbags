@@ -96,9 +96,9 @@ function extractScanCode(raw) {
     return { code: prefixMatch[1].trim(), source: 'qr', payload: normalized };
   }
 
-  // 4. Pattern match for standard NP- or SKU- barcode inside longer string
+  // 4. Pattern match for standard NP- or SKU- barcode inside longer string (e.g. scanner noise)
   const npMatch = normalized.match(/\b((?:NP|SKU)-[A-Za-z0-9_-]+)\b/i);
-  if (npMatch && npMatch[1]) {
+  if (npMatch && npMatch[1] && npMatch[1].toUpperCase() !== normalized.toUpperCase()) {
     return { code: npMatch[1].trim(), source: 'qr', payload: normalized };
   }
 

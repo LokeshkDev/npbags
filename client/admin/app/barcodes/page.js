@@ -5,6 +5,8 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { lookupBarcode, getAdminProducts, getProductBarcodes, generateProductBarcodes, getAdminAllBarcodes } from '../../lib/api';
 import { printBarcodeLabels, getLabelDetails } from '../../lib/barcodeLabel';
+import useScannerInput from '../../hooks/useScannerInput';
+import { extractScanCode } from '../../lib/scanCodeUtils';
 
 export default function AdminBarcodesPage() {
   const [searchInput, setSearchInput] = useState('');
@@ -71,9 +73,10 @@ export default function AdminBarcodesPage() {
     loadAllBarcodes(barcodesFilter);
   }, [barcodesFilter]);
 
-  // Barcode Lookup handler
+  // Barcode / QR Lookup handler
   const handleLookup = async (codeToSearch) => {
-    const code = (codeToSearch || searchInput).trim();
+    const raw = codeToSearch || searchInput;
+    const code = extractScanCode(raw).trim();
     if (!code) return;
 
     setLoadingLookup(true);
@@ -93,6 +96,15 @@ export default function AdminBarcodesPage() {
       setLoadingLookup(false);
     }
   };
+
+  // Hardware Scanner detection for both 1D Barcodes and 2D QR Codes on Barcodes page
+  useScannerInput((scannedCode) => {
+    const code = extractScanCode(scannedCode).trim();
+    if (code) {
+      setSearchInput(code);
+      handleLookup(code);
+    }
+  }, { maxLength: 1024 });
 
   // When a product is selected in the dropdown
   useEffect(() => {
@@ -983,31 +995,34 @@ export default function AdminBarcodesPage() {
                 LIVE PREVIEW ({customPrintFormat === 'jewellery_80x12' ? 'Unfolded 80×12mm Dumbbell' : '35×25mm Sticker'})
               </div>
               {customPrintFormat === 'jewellery_80x12' ? (
-                /* Unfolded Jewellery dumbbell tag */
-                <div style={{ width: '100%', height: '52px', border: '1px solid #000', borderRadius: '4px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 6px', boxSizing: 'border-box' }}>
-                  {/* Left flap */}
-                  <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '0.5px dashed #cbd5e1', paddingRight: '4px' }}>
-                    <div style={{ fontSize: '7.5px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
-                    <div style={{ height: '20px', width: '100%', display: 'flex', alignItems: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
-                    <div style={{ fontSize: '7px', fontFamily: 'monospace', fontWeight: 700 }}>{customPrintItem.barcode}</div>
-                  </div>
-                  {/* Tail bridge */}
-                  <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ width: '100%', height: '10px', borderTop: '1px dashed #64748b', borderBottom: '1px dashed #64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span style={{ fontSize: '6px', color: '#94a3b8' }}>tail 3mm</span>
+                /* Unfolded Jewellery dumbbell tag (80x12mm: Flap 1 QR + Arrival, Flap 2 MRP + Barcode, Tail 3mm) */
+                <div style={{ width: '100%', height: '52px', border: '1px solid #000', borderRadius: '4px', background: '#fff', display: 'flex', alignItems: 'stretch', padding: '0', boxSizing: 'border-box', overflow: 'hidden' }}>
+                  {/* Flap 1: Arrival Code (if present) + Centered QR Code */}
+                  <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRight: '1px dashed #cbd5e1', padding: '2px 4px' }}>
+                    {(customPrintItem.purchase_rate_alias || customPrintItem.rate_alias || customPrintItem.alias) && (
+                      <div style={{ fontSize: '7.5px', fontWeight: 900, textTransform: 'uppercase', color: '#000' }}>
+                        {customPrintItem.purchase_rate_alias || customPrintItem.rate_alias || customPrintItem.alias}
+                      </div>
+                    )}
+                    <div style={{ width: '36px', height: '36px', minWidth: '36px', border: '1px solid #cbd5e1', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
+                      <span style={{ fontSize: '7px', color: '#000', fontWeight: 900 }}>QR CODE</span>
                     </div>
                   </div>
-                  {/* Right flap */}
-                  <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', textAlign: 'right', borderLeft: '0.5px dashed #cbd5e1', paddingLeft: '4px' }}>
-                    <div style={{ fontSize: '7.5px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                      {customPrintItem.product_name || 'ITEM'}
+
+                  {/* Flap 2: Centered ◄ MRP + Barcode Number */}
+                  <div style={{ width: '38%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px dashed #e2e8f0', padding: '2px 4px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <span style={{ fontSize: '7px', fontWeight: 900 }}>◄</span>
+                      <span style={{ fontSize: '10px', fontWeight: 900 }}>MRP:{Number(customPrintItem.mrp || customPrintItem.price || 0).toLocaleString('en-IN')}</span>
                     </div>
-                    <div style={{ fontSize: '7.5px', fontWeight: 800, color: '#000' }}>
-                      {customPrintItem.purchase_rate_alias || (customPrintItem.purchased_rate ? `₹${customPrintItem.purchased_rate}` : '')}
+                    <div style={{ fontSize: '7.5px', fontFamily: 'monospace', fontWeight: 800, color: '#000', marginTop: '2px' }}>
+                      {customPrintItem.barcode}
                     </div>
-                    <div style={{ fontSize: '9.5px', fontWeight: 900 }}>
-                      MRP ₹{customPrintItem.mrp || customPrintItem.price || '—'}
-                    </div>
+                  </div>
+
+                  {/* Tail stem (30mm) */}
+                  <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
+                    <span style={{ fontSize: '6px', color: '#94a3b8', fontWeight: 700 }}>tail stem</span>
                   </div>
                 </div>
               ) : (

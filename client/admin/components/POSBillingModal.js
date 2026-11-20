@@ -1076,7 +1076,7 @@ export function POSBillingModal() {
       }
     } catch (err) {
       setRowInput(code);
-      showToast(`Barcode / QR Code not found: ${code}`, 'error');
+      showToast(err.message || `Barcode / QR Code not found: ${code}`, 'error');
     } finally {
       setSearching(false);
       // Keep the scan field ready for the next barcode (overrides the staff autofocus).

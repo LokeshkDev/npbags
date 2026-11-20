@@ -225,36 +225,36 @@ export function renderNormalSticker(item, options = {}) {
 
 export function renderJewellerySticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  const storeName = options.storeName || 'NP GRAND';
   const barcodeText = item.barcode || 'NO BARCODE';
 
   // Build QR Code SVG inline
   const qrSvg = item._qrSvg || '';
 
-  // Arrival code line (e.g. CW2) — strictly only if entered
+  // Arrival code line (e.g. CW2) — strictly only if entered in field entry
   const arrivalHtml = label.hasArrivalCode
     ? `<div class="jewel-arrival">${label.arrivalCode}</div>`
+    : '';
+
+  // Footwear size badge (strictly only for footwear category)
+  const sizeBadge = (label.isFootwear && label.size)
+    ? ` • SZ: ${label.size}`
     : '';
 
   return `
     <div class="jewel-sticker-wrapper">
       <div class="jewel-sticker">
-        <!-- FLAP 1: Front Face (~25mm x 12mm) — Store + Arrival Code + QR Code -->
+        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered QR Code -->
         <div class="jewel-flap jewel-flap-1">
-          <div class="jewel-brand-block">
-            <div class="jewel-store">${storeName}</div>
-            ${arrivalHtml}
-          </div>
+          ${arrivalHtml}
           <div class="jewel-qr-box">${qrSvg}</div>
         </div>
 
-        <!-- FLAP 2: Back Face (~25mm x 12mm) — Fold Arrow + MRP + Barcode Number -->
+        <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
         <div class="jewel-flap jewel-flap-2">
           <div class="jewel-mrp-row">
-            <span class="jewel-arrow">&#9668;</span>
             <span class="jewel-mrp-val">MRP:${label.mrp}</span>
           </div>
-          <div class="jewel-barcode-num">${barcodeText}</div>
+          <div class="jewel-barcode-num">${barcodeText}${sizeBadge}</div>
         </div>
 
         <!-- TAIL: 3mm Blank Stem (~30mm) -->
@@ -349,69 +349,58 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     break-after: page;
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     overflow: hidden;
     box-sizing: border-box;
     background: #ffffff;
     color: #000000 !important;
+    margin: 0 auto;
   }
   .jewel-sticker {
     width: 80mm;
     height: 12mm;
+    min-height: 12mm;
+    max-height: 12mm;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
     box-sizing: border-box;
     overflow: hidden;
+    margin: 0 auto;
   }
-  /* FLAP 1: Front Face (~25mm x 12mm) — Store + Arrival Code + QR Code */
+  /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered QR Code */
   .jewel-flap-1 {
     width: 25mm;
     height: 12mm;
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: space-between;
-    box-sizing: border-box;
-    padding: 0.4mm 0.8mm;
-    overflow: hidden;
-  }
-  .jewel-brand-block {
-    display: flex;
-    flex-direction: column;
     justify-content: center;
-    gap: 0.4mm;
-    max-width: 13.5mm;
+    box-sizing: border-box;
+    padding: 0 1mm;
+    gap: 1.2mm;
     overflow: hidden;
-  }
-  .jewel-store {
-    font-size: 5.5pt;
-    font-weight: 800;
-    line-height: 1.05;
-    letter-spacing: 0.2px;
-    text-transform: uppercase;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: clip;
+    text-align: center;
   }
   .jewel-arrival {
-    font-size: 6pt;
+    font-size: 6.5pt;
     font-weight: 900;
-    line-height: 1.05;
+    line-height: 1.1;
     letter-spacing: 0.3px;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: clip;
+    text-align: center;
   }
   .jewel-qr-box {
-    width: 9.5mm;
-    height: 9.5mm;
-    min-width: 9.5mm;
-    min-height: 9.5mm;
-    max-width: 9.5mm;
-    max-height: 9.5mm;
+    width: 9.8mm;
+    height: 9.8mm;
+    min-width: 9.8mm;
+    min-height: 9.8mm;
+    max-width: 9.8mm;
+    max-height: 9.8mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -430,46 +419,49 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     shape-rendering: crispEdges !important;
   }
 
-  /* FLAP 2: Back Face (~25mm x 12mm) — ◄ MRP:650.00 + Barcode Number */
+  /* FLAP 2: Back Face (~25mm x 12mm) — Centered ◄ MRP:XXX + Barcode Number */
   .jewel-flap-2 {
     width: 25mm;
     height: 12mm;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    align-items: flex-start;
+    align-items: center;
     box-sizing: border-box;
-    padding: 0.4mm 0.8mm 0.4mm 1.5mm;
+    padding: 0 1mm;
+    gap: 0.8mm;
     overflow: hidden;
+    text-align: center;
   }
   .jewel-mrp-row {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.8mm;
     white-space: nowrap;
     line-height: 1;
   }
   .jewel-arrow {
-    font-size: 5.5pt;
+    font-size: 6pt;
     font-weight: 900;
     line-height: 1;
   }
   .jewel-mrp-val {
-    font-size: 8pt;
+    font-size: 12pt;
     font-weight: 900;
     line-height: 1;
     letter-spacing: -0.2px;
   }
   .jewel-barcode-num {
     font-size: 6pt;
-    font-weight: 700;
-    font-family: monospace;
+    font-weight: 800;
+    font-family: Arial, sans-serif;
     letter-spacing: 0.2px;
     line-height: 1;
-    margin-top: 1mm;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: clip;
+    text-align: center;
   }
 
   /* Rat-Tail Stem: ~30mm x 3mm (Blank) */

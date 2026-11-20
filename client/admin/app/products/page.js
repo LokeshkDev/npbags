@@ -1335,8 +1335,16 @@ export default function AdminProductsPage() {
     }
   };
 
-  useScannerInput(handleBarcodeScanned, {
-    enabled: modalOpen && !saving,
+  useScannerInput((scannedCode) => {
+    const code = extractScanCode(scannedCode).trim();
+    if (!code) return;
+    if (modalOpen) {
+      handleBarcodeScanned(code);
+    } else {
+      setSearchQuery(code);
+    }
+  }, {
+    enabled: !saving,
     maxLength: 1024
   });
 
@@ -3945,22 +3953,19 @@ export default function AdminProductsPage() {
                         {barcodeStickerFormat === 'jewellery_80x12' ? (
                           /* Jewellery 80x12mm Exact Physical Tag Preview */
                           <div style={{ width: '280px', height: '46px', border: '1px solid #000', borderRadius: '3px', background: '#fff', display: 'flex', alignItems: 'stretch', boxSizing: 'border-box', flexShrink: 0, overflow: 'hidden' }}>
-                            {/* Flap 1 (~35%): Store Name + Arrival Code + QR Code */}
-                            <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden' }}>
-                                <div style={{ fontSize: '6px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
-                                {arrivalCode && (
-                                  <div style={{ fontSize: '7px', fontWeight: 900, color: '#000', marginTop: '1px' }}>{arrivalCode}</div>
-                                )}
-                              </div>
+                            {/* Flap 1 (~38%): Centered QR Code + Arrival Code (if present) */}
+                            <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
+                              {arrivalCode && (
+                                <div style={{ fontSize: '7.5px', fontWeight: 900, color: '#000', textTransform: 'uppercase' }}>{arrivalCode}</div>
+                              )}
                               <div style={{ width: '34px', height: '34px', minWidth: '34px', border: '1px solid #cbd5e1', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
-                                <span style={{ fontSize: '6px', color: '#000', fontWeight: 900 }}>QR</span>
+                                <span style={{ fontSize: '7px', color: '#000', fontWeight: 900 }}>QR CODE</span>
                               </div>
                             </div>
 
-                            {/* Flap 2 (~35%): ◄ MRP:650.00 + Barcode Number */}
-                            <div style={{ width: '38%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '2px 5px', borderRight: '1px dashed #e2e8f0' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                            {/* Flap 2 (~38%): Centered ◄ MRP:XXX + Barcode Number */}
+                            <div style={{ width: '38%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 4px', borderRight: '1px dashed #e2e8f0', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                                 <span style={{ fontSize: '6px', fontWeight: 900 }}>◄</span>
                                 <span style={{ fontSize: '9px', fontWeight: 900 }}>MRP:{Number(mrpVal).toLocaleString('en-IN')}</span>
                               </div>
@@ -3971,7 +3976,7 @@ export default function AdminProductsPage() {
 
                             {/* Tail (~24%): 3mm Blank Stem */}
                             <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
-                              <span style={{ fontSize: '5px', color: '#94a3b8', fontWeight: 600 }}>tail</span>
+                              <span style={{ fontSize: '6px', color: '#94a3b8', fontWeight: 600 }}>tail stem</span>
                             </div>
                           </div>
                         ) : (
