@@ -37,6 +37,7 @@ import {
 import { useAdminAuth } from '../../lib/auth';
 import useScannerInput from '../../hooks/useScannerInput';
 import { printBarcodeLabels, getCleanBarcodeSVG } from '../../lib/barcodeLabel';
+import { extractScanCode } from '../../lib/scanCodeUtils';
 
 const toDateInput = (value) => {
   if (!value) return '';
@@ -913,11 +914,14 @@ export default function AdminProductsPage() {
     const prodName = barcodeItem.product_name || parentProd.name || barcodeItem.name || '';
     const rateVal = barcodeItem.purchased_rate || barcodeItem.purchase_price || parentProd.purchased_rate || parentProd.purchase_price || '';
     const aliasVal = barcodeItem.purchase_rate_alias || barcodeItem.rate_alias || parentProd.purchase_rate_alias || parentProd.rate_alias || '';
+    const catName = categories.find(c => String(c.id) === String(parentProd.category_id))?.name || parentProd.category_name || '';
 
     const itemToPrint = {
       ...barcodeItem,
       barcode: barcodeItem.barcode || barcodeItem.code,
       product_name: prodName,
+      category_name: barcodeItem.category_name || catName,
+      size_name: barcodeItem.size_name || barcodeItem.size || '',
       mrp: priceVal,
       purchased_rate: rateVal,
       purchase_rate_alias: aliasVal
@@ -1290,7 +1294,7 @@ export default function AdminProductsPage() {
   };
 
   const handleBarcodeScanned = async (rawCode) => {
-    const code = String(rawCode || '').trim();
+    const code = extractScanCode(rawCode);
     if (!code) return;
     setScanCode(code);
     setScanLoading(true);
@@ -1316,15 +1320,15 @@ export default function AdminProductsPage() {
         setFormData(prev => ({ ...prev, barcode: code }));
         setScanStatus({
           type: 'info',
-          message: `External / New barcode "${code}" captured and linked to this product.`
+          message: `Barcode / QR Code "${code}" captured and linked to this product.`
         });
       }
     } catch (err) {
       if (/not found|No item|No matching/i.test(err.message || '')) {
         setFormData(prev => ({ ...prev, barcode: code }));
-        setScanStatus({ type: 'info', message: `External / New barcode "${code}" captured and linked to this product.` });
+        setScanStatus({ type: 'info', message: `Barcode / QR Code "${code}" captured and linked to this product.` });
       } else {
-        setScanStatus({ type: 'error', message: err.message || 'Could not detect the barcode.' });
+        setScanStatus({ type: 'error', message: err.message || 'Could not detect the barcode / QR code.' });
       }
     } finally {
       setScanLoading(false);
@@ -1333,7 +1337,7 @@ export default function AdminProductsPage() {
 
   useScannerInput(handleBarcodeScanned, {
     enabled: modalOpen && !saving,
-    maxLength: 512
+    maxLength: 1024
   });
 
   // Form Submit
@@ -3467,7 +3471,7 @@ export default function AdminProductsPage() {
                 </span>
               </div>
               <div style={{ fontSize: '11.5px', color: '#475569', marginBottom: '8px' }}>
-                Scan with a USB/Bluetooth scanner or type internal / external barcode.
+                Scan with a 1D/2D USB/Bluetooth barcode or QR scanner, or enter code manually.
               </div>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
@@ -3915,7 +3919,10 @@ export default function AdminProductsPage() {
               <div style={{ display: 'grid', gap: '14px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
                 {popupBarcodes.map((b, idx) => {
                   const mrpVal = b.mrp || barcodePopupProduct.mrp || barcodePopupProduct.price || 0;
-                  const rightLabel = b.purchase_rate_alias || barcodePopupProduct.name || b.product_name || '';
+                  const arrivalCode = b.purchase_rate_alias || b.rate_alias || '';
+                  const catName = categories.find(c => String(c.id) === String(barcodePopupProduct?.category_id))?.name || barcodePopupProduct?.category_name || '';
+                  const isFootwearProd = /footwear|shoe|chappal|sandal|slipper|boot|croc|heel|flat|loafer|sneaker/i.test(catName);
+                  const bSize = b.size_name || b.size || '';
 
                   return (
                     <div
@@ -3936,25 +3943,35 @@ export default function AdminProductsPage() {
                       {/* Left: Authentic Sticker Visual Preview */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
                         {barcodeStickerFormat === 'jewellery_80x12' ? (
-                          /* Jewellery 80x12mm Unfolded Tag Preview */
-                          <div style={{ width: '220px', height: '54px', border: '1px solid #000', borderRadius: '4px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 6px', boxSizing: 'border-box', flexShrink: 0 }}>
-                            <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '0.5px dashed #cbd5e1', paddingRight: '4px' }}>
-                              <div style={{ fontSize: '7px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
-                              <div style={{ height: '22px', width: '100%', display: 'flex', alignItems: 'center' }} dangerouslySetInnerHTML={{ __html: getCleanBarcodeSVG(b, { height: 22, quietZone: 6 }) || b.svg || '' }} />
-                              <div style={{ fontSize: '6.5px', fontFamily: 'monospace', fontWeight: 700 }}>{b.barcode}</div>
-                            </div>
-                            <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <div style={{ width: '100%', height: '8px', borderTop: '1px dashed #64748b', borderBottom: '1px dashed #64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <span style={{ fontSize: '5.5px', color: '#94a3b8' }}>bridge</span>
+                          /* Jewellery 80x12mm Exact Physical Tag Preview */
+                          <div style={{ width: '280px', height: '46px', border: '1px solid #000', borderRadius: '3px', background: '#fff', display: 'flex', alignItems: 'stretch', boxSizing: 'border-box', flexShrink: 0, overflow: 'hidden' }}>
+                            {/* Flap 1 (~35%): Store Name + Arrival Code + QR Code */}
+                            <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden' }}>
+                                <div style={{ fontSize: '6px', fontWeight: 900, textTransform: 'uppercase' }}>NP GRAND</div>
+                                {arrivalCode && (
+                                  <div style={{ fontSize: '7px', fontWeight: 900, color: '#000', marginTop: '1px' }}>{arrivalCode}</div>
+                                )}
+                              </div>
+                              <div style={{ width: '34px', height: '34px', minWidth: '34px', border: '1px solid #cbd5e1', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
+                                <span style={{ fontSize: '6px', color: '#000', fontWeight: 900 }}>QR</span>
                               </div>
                             </div>
-                            <div style={{ width: '38%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', textAlign: 'right', borderLeft: '0.5px dashed #cbd5e1', paddingLeft: '4px' }}>
-                              <div style={{ fontSize: '7px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                                {rightLabel}
+
+                            {/* Flap 2 (~35%): ◄ MRP:650.00 + Barcode Number */}
+                            <div style={{ width: '38%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '2px 5px', borderRight: '1px dashed #e2e8f0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                <span style={{ fontSize: '6px', fontWeight: 900 }}>◄</span>
+                                <span style={{ fontSize: '9px', fontWeight: 900 }}>MRP:{Number(mrpVal).toLocaleString('en-IN')}</span>
                               </div>
-                              <div style={{ fontSize: '9px', fontWeight: 900 }}>
-                                MRP ₹{Number(mrpVal).toLocaleString('en-IN')}
+                              <div style={{ fontSize: '7px', fontFamily: 'monospace', fontWeight: 700, color: '#000', marginTop: '2px' }}>
+                                {b.barcode}
                               </div>
+                            </div>
+
+                            {/* Tail (~24%): 3mm Blank Stem */}
+                            <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
+                              <span style={{ fontSize: '5px', color: '#94a3b8', fontWeight: 600 }}>tail</span>
                             </div>
                           </div>
                         ) : (
@@ -3997,17 +4014,22 @@ export default function AdminProductsPage() {
                               dangerouslySetInnerHTML={{ __html: getCleanBarcodeSVG(b, { height: 28, quietZone: 8 }) || b.svg || '' }}
                             />
 
-                            {/* Info Line: Barcode & Product Name / Arrival Code */}
+                            {/* Info Line: Barcode & Arrival Code (only if entered) */}
                             <div style={{ width: '100%', marginTop: '3px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '7.5px', fontWeight: 800, padding: '0 1px', lineHeight: 1 }}>
                               <span style={{ fontFamily: 'monospace', color: '#0f172a' }}>{b.barcode}</span>
-                              <span style={{ maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right', color: '#0f172a' }}>
-                                {rightLabel}
-                              </span>
+                              {arrivalCode && (
+                                <span style={{ maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right', color: '#0f172a' }}>
+                                  {arrivalCode}
+                                </span>
+                              )}
                             </div>
 
-                            {/* MRP */}
-                            <div style={{ fontSize: '11px', fontWeight: 900, lineHeight: 1, marginTop: '4px', color: '#000000' }}>
-                              <span style={{ fontSize: '7px', fontWeight: 900 }}>MRP </span>₹{Number(mrpVal).toLocaleString('en-IN')}
+                            {/* MRP & Footwear Size Badge */}
+                            <div style={{ fontSize: '11px', fontWeight: 900, lineHeight: 1, marginTop: '4px', color: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                              <span><span style={{ fontSize: '7px', fontWeight: 900 }}>MRP </span>₹{Number(mrpVal).toLocaleString('en-IN')}</span>
+                              {isFootwearProd && bSize && !/^(standard|one\s*size|free\s*size|default|none|n\/?a)$/i.test(String(bSize).trim()) && (
+                                <span style={{ fontSize: '9px', fontWeight: 900, border: '1px solid #000', padding: '0 3px', borderRadius: '2px' }}>SZ: {String(bSize).trim()}</span>
+                              )}
                             </div>
                           </div>
                         )}

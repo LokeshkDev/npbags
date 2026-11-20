@@ -22,6 +22,7 @@ import {
   cancelHeldBill,
   adjustAdminVariantStock
 } from '../lib/api';
+import { extractScanCode, looksLikeBarcodeOrQR } from '../lib/scanCodeUtils';
 
 const RECEIPT_STORE_NAME = 'NP Grand Shopping';
 const POS_DRAFT_KEY = 'npgrand_pos_active_bill_draft';
@@ -52,12 +53,7 @@ function saveSalespersonId(id) {
 }
 
 function looksLikeBarcode(value) {
-  const text = String(value || '').trim();
-  if (!text) return false;
-  if (/^(NP|SKU)-/i.test(text)) return true;
-  if (/\s/.test(text)) return false;
-  if (/^\d{4,}$/.test(text)) return true;
-  return /^[0-9A-Za-z][0-9A-Za-z\-_./#:?=&%{}",@+~]{3,}$/.test(text) && (text.match(/\d/g) || []).length >= 4;
+  return looksLikeBarcodeOrQR(value);
 }
 
 function mergeProductLists(...lists) {
@@ -1028,9 +1024,9 @@ export function POSBillingModal() {
     }
   };
 
-  // Barcode / Scanner Hook Handler
+  // Barcode / Scanner Hook Handler (supports 1D Barcodes and 2D QR Codes)
   const handleBarcodeScanned = async (scannedCode) => {
-    const code = String(scannedCode || '').trim();
+    const code = extractScanCode(scannedCode);
     if (!code) return;
 
     const now = Date.now();
@@ -1076,11 +1072,11 @@ export function POSBillingModal() {
         setRowInput('');
       } else {
         setRowInput(code);
-        showToast(`Barcode not found: ${code}`, 'error');
+        showToast(`Barcode / QR Code not found: ${code}`, 'error');
       }
     } catch (err) {
       setRowInput(code);
-      showToast(`Barcode not found: ${code}`, 'error');
+      showToast(`Barcode / QR Code not found: ${code}`, 'error');
     } finally {
       setSearching(false);
       // Keep the scan field ready for the next barcode (overrides the staff autofocus).
@@ -1092,13 +1088,21 @@ export function POSBillingModal() {
   };
 
   // Attach hardware scanner hook when POS popup is open
-  useScannerInput(handleBarcodeScanned, { enabled: isPOSOpen && !completedOrder && !stockPrompt });
+  useScannerInput(handleBarcodeScanned, {
+    enabled: isPOSOpen && !completedOrder && !stockPrompt,
+    maxLength: 1024
+  });
 
   // Manual search submit
   const handleSearchSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const q = searchInput.trim();
     if (!q) return;
+
+    if (looksLikeBarcodeOrQR(q)) {
+      await handleBarcodeScanned(q);
+      return;
+    }
 
     const localPool = mergeProductLists(allProducts, remoteSearchProducts);
     const exactMatch = findExactProductMatch(localPool, q);
@@ -3225,7 +3229,7 @@ export function POSBillingModal() {
                   {cart.length === 0 && (
                     <tr>
                       <td colSpan={9} style={{ padding: '28px 16px', textAlign: 'center', color: '#64748b', fontSize: '12.5px' }}>
-                        No items yet — type a product name or scan a barcode in the row below, then press <strong>Enter</strong> to add it.
+                        No items yet — type a product name or scan a Barcode / QR Code in the row below, then press <strong>Enter</strong> to add it.
                       </td>
                     </tr>
                   )}
@@ -3733,7 +3737,7 @@ export function POSBillingModal() {
                                   setShowRowSuggestions(false);
                                 }
                               }}
-                              placeholder="Type product name or scan barcode, press Enter to add next row..."
+                              placeholder="Type product name or scan Barcode / QR Code, press Enter to add..."
                               style={{
                                 width: '100%',
                                 padding: '9px 12px',
@@ -4537,7 +4541,7 @@ export function POSBillingModal() {
                     closeSearchModal();
                   }
                 }}
-                placeholder="Type product name, SKU or scan barcode..."
+                placeholder="Type product name, SKU or scan Barcode / QR Code..."
                 style={{
                   width: '100%',
                   padding: '10px 12px',

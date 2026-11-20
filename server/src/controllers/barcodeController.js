@@ -10,6 +10,7 @@ const {
   generateProductBarcodes
 } = require('../utils/barcode');
 const { DEFAULT_PRODUCT_IMAGE } = require('../utils/productDefaults');
+const { extractScanCode } = require('../utils/purchaseScan');
 
 // Admin: Get all barcodes assigned to a product (primary + variants)
 async function getProductBarcodes(req, res, next) {
@@ -21,9 +22,11 @@ async function getProductBarcodes(req, res, next) {
               COALESCE(pv.price, p.price) AS price,
               COALESCE(pv.sale_price, p.sale_price) AS sale_price,
               COALESCE(pv.mrp, p.mrp, p.price) AS mrp,
-              p.name AS product_name, p.purchase_price, p.purchased_rate
+              p.name AS product_name, p.purchase_price, p.purchased_rate,
+              c.name AS category_name, c.slug AS category_slug
        FROM product_barcodes pb
        JOIN products p ON pb.product_id = p.id
+       LEFT JOIN categories c ON p.category_id = c.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
        WHERE pb.product_id = ?
        ORDER BY pb.is_primary DESC, pb.id ASC`,
@@ -63,9 +66,11 @@ async function generateBarcodesForProduct(req, res, next) {
               COALESCE(pv.price, p.price) AS price,
               COALESCE(pv.sale_price, p.sale_price) AS sale_price,
               COALESCE(pv.mrp, p.mrp, p.price) AS mrp,
-              p.name AS product_name, p.purchase_price, p.purchased_rate
+              p.name AS product_name, p.purchase_price, p.purchased_rate,
+              c.name AS category_name, c.slug AS category_slug
        FROM product_barcodes pb
        JOIN products p ON pb.product_id = p.id
+       LEFT JOIN categories c ON p.category_id = c.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
        WHERE pb.product_id = ? AND pb.status = 'active'
        ORDER BY pb.is_primary DESC, pb.id ASC`,
@@ -83,15 +88,18 @@ async function generateBarcodesForProduct(req, res, next) {
   }
 }
 
-// Scanner & POS: Fast Lookup by Barcode String (e.g. 'NP-1048' or variant SKU)
+// Scanner & POS: Fast Lookup by Barcode / QR Code String (e.g. 'NP-1048', QR URL, or variant SKU)
 async function lookupBarcode(req, res, next) {
   try {
     const rawCode = req.query.code || req.params.code;
-    if (!rawCode || !rawCode.trim()) {
+    if (!rawCode || !String(rawCode).trim()) {
       return sendError(res, 'Barcode is required', 400);
     }
 
-    const code = rawCode.trim();
+    const { code } = extractScanCode(rawCode);
+    if (!code) {
+      return sendError(res, 'Valid barcode / QR code is required', 400);
+    }
     const branch_id = req.query.branch_id || (req.user && req.user.role !== 'admin' ? req.user.branch_id : null);
 
     const getBranchStock = async (productId) => {
@@ -418,9 +426,11 @@ async function getAllBarcodesAdmin(req, res, next) {
     let sql = `
       SELECT pb.*, p.name AS product_name, p.price, p.sale_price, p.hsn_code,
              p.barcode_short_name, p.mrp, p.purchase_price, p.purchased_rate,
+             c.name AS category_name, c.slug AS category_slug,
              pv.sku, pv.color_name, pv.size_name, pv.stock_quantity
       FROM product_barcodes pb
       JOIN products p ON pb.product_id = p.id
+      LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN product_variants pv ON pb.variant_id = pv.id
       WHERE pb.status = 'active'
     `;

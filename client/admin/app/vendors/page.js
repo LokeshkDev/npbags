@@ -9,6 +9,7 @@ import { Icon } from '../../components/Icons';
 import { useAdminAuth } from '../../lib/auth';
 import useScannerInput from '../../hooks/useScannerInput';
 import { printBarcodeLabels } from '../../lib/barcodeLabel';
+import { extractScanCode } from '../../lib/scanCodeUtils';
 import {
   getAdminVendors,
   createAdminVendor,
@@ -985,7 +986,7 @@ export default function AdminVendorsPage() {
   };
 
   const performScan = async (rawCode) => {
-    const code = String(rawCode || '').trim();
+    const code = extractScanCode(rawCode);
     if (!code) {
       setScanError('Enter or scan a barcode / QR code first.');
       return;
@@ -1213,7 +1214,7 @@ export default function AdminVendorsPage() {
     performScan(code);
   }, [isBillModalOpen, pendingNewProduct, performScan]);
 
-  useScannerInput(handleHardwareScan, { enabled: isBillModalOpen, maxLength: 512 });
+  useScannerInput(handleHardwareScan, { enabled: isBillModalOpen, maxLength: 1024 });
 
   useEffect(() => {
     return () => {
@@ -3466,7 +3467,7 @@ export default function AdminVendorsPage() {
                       fontSize: '11px',
                       fontWeight: 800
                     }}>
-                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm (1-Up Dumbbell)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
+                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm (1-Up QR Tag W/O Folding)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
                     </span>
                   </div>
 
@@ -3505,7 +3506,7 @@ export default function AdminVendorsPage() {
                     >
                       <div style={{ fontWeight: 800, fontSize: '12px' }}>💍 Jewellery Tag (80×12mm · 1-Up)</div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                        Continuous 1-up dumbbell roll with 3mm tail. Barcode front, Alias & MRP back.
+                        NT W/O Folding tag with 3mm tail. 10×10mm QR Code, Store Name, MRP & Arrival Code.
                       </div>
                     </button>
                   </div>

@@ -542,12 +542,14 @@ async function getPurchaseBillBarcodes(req, res, next) {
               pbi.variant_info, pbi.quantity, pbi.purchase_rate, pbi.rate_value, pbi.purchase_rate_alias, pbi.mrp,
               pbi.price AS item_price, pbi.sale_price AS item_sale_price,
               p.name AS catalog_name, p.price, p.sale_price, p.mrp AS catalog_mrp,
-              p.purchase_price, p.purchased_rate,
+              p.purchase_price, p.purchased_rate, p.category_id,
+              c.name AS category_name, c.slug AS category_slug,
               pv.color_name, pv.size_name, pv.sku,
               pv.purchase_price AS variant_purchase_price,
               pv.mrp AS variant_mrp, pv.price AS variant_price, pv.sale_price AS variant_sale_price
        FROM purchase_bill_items pbi
        LEFT JOIN products p ON pbi.product_id = p.id
+       LEFT JOIN categories c ON p.category_id = c.id
        LEFT JOIN product_variants pv ON pbi.variant_id = pv.id
        WHERE pbi.purchase_bill_id = ?
        ORDER BY pbi.id ASC`,
@@ -605,6 +607,9 @@ async function getPurchaseBillBarcodes(req, res, next) {
         is_primary: chosen ? chosen.is_primary : 0,
         svg: chosen ? generateBarcodeSVG(chosen.barcode, { height: 50, moduleWidth: 1, quietZone: 12 }) : '',
         quantity: parseInt(item.quantity, 10) || 1,
+        category_name: item.category_name || null,
+        category_slug: item.category_slug || null,
+        size_name: item.size_name || chosen?.size_name || null,
         mrp: effectiveMrp,
         price: effectivePrice,
         sale_price: effectiveSalePrice,

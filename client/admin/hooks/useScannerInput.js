@@ -10,10 +10,10 @@ import { useEffect, useRef, useCallback } from 'react';
  */
 export default function useScannerInput(onScan, options = {}) {
   const {
-    debounceMs = 500,
+    debounceMs = 400,
     minLength = 3,
-    maxLength = 50,
-    charIntervalThreshold = 60, // ms between characters from hardware scanner
+    maxLength = 1024, // Support long 2D QR codes (URLs, JSON, unicode payloads)
+    charIntervalThreshold = 65, // ms between characters from hardware scanner
     enabled = true
   } = options;
 
@@ -41,11 +41,20 @@ export default function useScannerInput(onScan, options = {}) {
       const timestamps = timestampsRef.current;
       const isFast = isFastBurst(timestamps, charIntervalThreshold);
 
-      // Trigger if fast burst OR has barcode prefix NP- OR scan input is active
+      // Recognize Barcodes & 2D QR Codes (URLs, JSON payloads, NP-/SKU- codes, or fast burst)
+      const isRecognizedBarcodeOrQR =
+        code.toUpperCase().includes('NP-') ||
+        code.toUpperCase().includes('SKU-') ||
+        code.startsWith('{') ||
+        code.startsWith('[') ||
+        /^https?:\/\//i.test(code) ||
+        /^(?:barcode|code|qr|sku)\s*[:=-]/i.test(code);
+
+      // Trigger if fast burst OR recognized code OR scan input is active
       if (
         code.length >= minLength &&
         code.length <= maxLength &&
-        (isFast || isScanCaptureEl || code.toUpperCase().startsWith('NP-') || code.toUpperCase().startsWith('SKU-'))
+        (isFast || isScanCaptureEl || isRecognizedBarcodeOrQR)
       ) {
         e.preventDefault();
         e.stopPropagation();
@@ -64,8 +73,8 @@ export default function useScannerInput(onScan, options = {}) {
       return;
     }
 
-    // Capture alphanumeric & barcode / QR punctuation
-    if (e.key && e.key.length === 1 && /[0-9a-zA-Z\-_./#:?=&%{}",@+~]/.test(e.key)) {
+    // Capture printable characters (alphanumeric, punctuation, spaces, JSON, URLs, QR unicode)
+    if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
       bufferRef.current += e.key;
       timestampsRef.current.push(now);
 

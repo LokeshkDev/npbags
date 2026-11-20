@@ -135,42 +135,89 @@ export function getLabelDetails(item, options = {}) {
     ''
   );
 
+  // Arrival code: strictly only if entered in the field
+  const rawAlias = firstNonEmpty(
+    item?.purchase_rate_alias,
+    item?.rate_alias,
+    item?.alias,
+    options?.arrivalCode
+  );
+  const arrivalCode = rawAlias ? String(rawAlias).trim() : '';
+  const hasArrivalCode = Boolean(arrivalCode);
+
+  const categoryStr = [
+    item?.category_name,
+    item?.category_slug,
+    item?.category,
+    options?.category_name,
+    options?.category_slug,
+    options?.category
+  ].filter(Boolean).join(' ');
+
+  const isFootwear = /footwear|shoe|chappal|sandal|slipper|boot|croc|heel|flat|loafer|sneaker/i.test(categoryStr);
+
+  const rawSize = firstNonEmpty(
+    item?.size_name,
+    item?.size,
+    item?.variant_size,
+    item?.chosen_size
+  );
+
+  let size = '';
+  if (rawSize) {
+    const sStr = String(rawSize).trim();
+    if (!/^(standard|one\s*size|free\s*size|default|none|n\/?a)$/i.test(sStr)) {
+      size = sStr;
+    }
+  }
+
+  // Fallback: extract size from variant_info if footwear
+  if (!size && item?.variant_info && isFootwear) {
+    const parts = String(item.variant_info).split(/[\/,|]/);
+    for (const p of parts) {
+      const trimmed = p.trim();
+      const m = trimmed.match(/(?:size[:\s]*|sz[:\s]*|^)([0-9]{1,2}(?:\.[0-9])?|[0-9]{1,2}\s*(?:uk|us|ind|eu)?|(?:uk|us|ind|eu)\s*[0-9]{1,2})/i);
+      if (m && m[1]) {
+        size = m[1].toUpperCase();
+        break;
+      }
+    }
+  }
+
   return {
     mrp: formatLabelMoney(mrpValue, '—'),
     sellingPrice: '',
     rate: showPurchaseRate ? rate : '',
     sequence,
-    productName: productName ? String(productName).trim() : ''
+    productName: productName ? String(productName).trim() : '',
+    arrivalCode,
+    hasArrivalCode,
+    isFootwear,
+    size
   };
 }
 
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  const secondaryText = firstNonEmpty(
-    options.secondaryText,
-    item?.purchase_rate_alias,
-    item?.rate_alias,
-    item?.alias,
-    label.productName,
-    ''
-  );
-  const rawName = secondaryText ? String(secondaryText).trim() : '';
-  const cleanName = rawName.length > 24 ? rawName.slice(0, 24) : rawName;
-  const productHtml = cleanName
-    ? `<span class="pname-text" title="${rawName}">${cleanName}</span>`
+  // Only show arrival code if entered — never fall back to product name
+  const arrivalHtml = label.hasArrivalCode
+    ? `<span class="pname-text" title="${label.arrivalCode}">${label.arrivalCode.length > 24 ? label.arrivalCode.slice(0, 24) : label.arrivalCode}</span>`
     : '<span class="pname-text"></span>';
   const logoSpaceMm = options.topLogoOffsetMm !== undefined ? options.topLogoOffsetMm : 4.8;
   const logoSpaceHtml = logoSpaceMm > 0 ? `<div class="logo-space" style="height:${logoSpaceMm}mm;"></div>` : '';
   const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
   const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
 
-  const priceDisplayHtml = `<span class="mrp-label">MRP </span>₹${label.mrp}`;
+  const sizeBadgeHtml = (label.isFootwear && label.size)
+    ? `<span class="size-badge">SZ: ${label.size}</span>`
+    : '';
+  const priceDisplayHtml = `<span class="mrp-label">MRP </span>₹${label.mrp}${sizeBadgeHtml}`;
 
   return `
     <div class="barcode-sticker">
       ${storeNameHtml || logoSpaceHtml}
       <div class="barcode-svg-container">${svgHtml}</div>
-      <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}</span>${productHtml}</div>
+      <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}</span>${arrivalHtml}</div>
       <div class="mrp-text">${priceDisplayHtml}</div>
     </div>
   `;
@@ -178,42 +225,75 @@ export function renderNormalSticker(item, options = {}) {
 
 export function renderJewellerySticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  const storeName = options.storeName || 'NP Grand';
-  const rawName = label.productName || item.barcode || 'JEWELLERY';
-  const cleanName = rawName.length > 22 ? rawName.slice(0, 22) : rawName;
-  const svgHtml = getCleanBarcodeSVG(item, { height: 20, quietZone: 10 });
+  const storeName = options.storeName || 'NP GRAND';
+  const barcodeText = item.barcode || 'NO BARCODE';
 
-  const jewelPriceHtml = `<span class="jewel-mrp-lbl">MRP </span>₹${label.mrp}`;
+  // Build QR Code SVG inline
+  const qrSvg = item._qrSvg || '';
+
+  // Arrival code line (e.g. CW2) — strictly only if entered
+  const arrivalHtml = label.hasArrivalCode
+    ? `<div class="jewel-arrival">${label.arrivalCode}</div>`
+    : '';
 
   return `
     <div class="jewel-sticker-wrapper">
       <div class="jewel-sticker">
-        <!-- LEFT FLAP (30mm x 12mm) - Front Face of Tag (Barcode) -->
-        <div class="jewel-flap jewel-flap-left">
-          <div class="jewel-store">${storeName}</div>
-          <div class="jewel-barcode-svg">${svgHtml}</div>
-          <div class="jewel-code">${item.barcode || 'NO BARCODE'}</div>
+        <!-- FLAP 1: Front Face (~25mm x 12mm) — Store + Arrival Code + QR Code -->
+        <div class="jewel-flap jewel-flap-1">
+          <div class="jewel-brand-block">
+            <div class="jewel-store">${storeName}</div>
+            ${arrivalHtml}
+          </div>
+          <div class="jewel-qr-box">${qrSvg}</div>
         </div>
 
-        <!-- CENTER TAIL (20mm x 3mm) - Narrow Bridge Loops through Jewellery -->
-        <div class="jewel-tail-zone">
-          <div class="jewel-tail-bridge"></div>
+        <!-- FLAP 2: Back Face (~25mm x 12mm) — Fold Arrow + MRP + Barcode Number -->
+        <div class="jewel-flap jewel-flap-2">
+          <div class="jewel-mrp-row">
+            <span class="jewel-arrow">&#9668;</span>
+            <span class="jewel-mrp-val">MRP:${label.mrp}</span>
+          </div>
+          <div class="jewel-barcode-num">${barcodeText}</div>
         </div>
 
-        <!-- RIGHT FLAP (30mm x 12mm) - Reverse Face of Tag (Details & Price) -->
-        <div class="jewel-flap jewel-flap-right">
-          <div class="jewel-pname" title="${label.productName || ''}">${cleanName}</div>
-          <div class="jewel-mrp">${jewelPriceHtml}</div>
-        </div>
+        <!-- TAIL: 3mm Blank Stem (~30mm) -->
+        <div class="jewel-tail-zone"></div>
       </div>
     </div>
   `;
 }
 
-export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
+export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
+
+  // For jewellery tags, generate QR Code SVGs and attach to items
+  if (isJewellery) {
+    let QRCode = null;
+    try {
+      QRCode = (await import('qrcode')).default || (await import('qrcode'));
+    } catch (e) {
+      console.warn('QRCode library not available, falling back to Code128 barcode for jewellery tags');
+    }
+    if (QRCode) {
+      for (const item of list) {
+        const code = item.barcode || item.code || 'NP-0000';
+        try {
+          item._qrSvg = await QRCode.toString(code, {
+            type: 'svg',
+            margin: 0,
+            width: 100,
+            errorCorrectionLevel: 'L',
+            color: { dark: '#000000', light: '#ffffff' }
+          });
+        } catch (e) {
+          item._qrSvg = '';
+        }
+      }
+    }
+  }
 
   const stickers = list.map(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
@@ -228,7 +308,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
 <html>
 <head>
 <meta charset="utf-8">
-<title>${options.title || 'Jewellery Barcode Tags (80x12mm)'}</title>
+<title>${options.title || 'Jewellery QR Tags (80x12mm)'}</title>
 <style>
   @page {
     size: 80mm 12mm;
@@ -269,7 +349,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     break-after: page;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     overflow: hidden;
     box-sizing: border-box;
     background: #ffffff;
@@ -281,106 +361,123 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     box-sizing: border-box;
     overflow: hidden;
   }
-  .jewel-flap {
-    width: 30mm;
-    height: 11.5mm;
-    max-height: 11.5mm;
+  /* FLAP 1: Front Face (~25mm x 12mm) — Store + Arrival Code + QR Code */
+  .jewel-flap-1 {
+    width: 25mm;
+    height: 12mm;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    box-sizing: border-box;
+    padding: 0.4mm 0.8mm;
+    overflow: hidden;
+  }
+  .jewel-brand-block {
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    box-sizing: border-box;
+    justify-content: center;
+    gap: 0.4mm;
+    max-width: 13.5mm;
     overflow: hidden;
-    padding: 0.6mm 0.8mm;
-    color: #000000 !important;
-  }
-  .jewel-flap-left {
-    text-align: center;
-    align-items: center;
-    border: 0.35px solid #000000;
-    border-radius: 0.8mm;
-  }
-  .jewel-flap-right {
-    text-align: right;
-    align-items: flex-end;
-    border: 0.35px solid #000000;
-    border-radius: 0.8mm;
   }
   .jewel-store {
-    font-size: 6pt;
-    font-weight: 900;
-    line-height: 1;
+    font-size: 5.5pt;
+    font-weight: 800;
+    line-height: 1.05;
     letter-spacing: 0.2px;
     text-transform: uppercase;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
   }
-  .jewel-barcode-svg {
-    width: 27mm;
-    height: 3mm;
+  .jewel-arrival {
+    font-size: 6pt;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+  .jewel-qr-box {
+    width: 9.5mm;
+    height: 9.5mm;
+    min-width: 9.5mm;
+    min-height: 9.5mm;
+    max-width: 9.5mm;
+    max-height: 9.5mm;
     display: flex;
     align-items: center;
     justify-content: center;
     background: #ffffff !important;
     overflow: hidden;
+    flex-shrink: 0;
   }
-  .jewel-barcode-svg svg {
+  .jewel-qr-box svg {
     width: 100% !important;
     height: 100% !important;
     display: block;
     background: #ffffff !important;
+    shape-rendering: crispEdges;
   }
-  .jewel-barcode-svg svg rect {
-    stroke: none !important;
-    stroke-width: 0 !important;
+  .jewel-qr-box svg path {
     shape-rendering: crispEdges !important;
   }
-  .jewel-code {
-    font-size: 5pt;
-    font-weight: 700;
-    font-family: monospace;
-    line-height: 1;
-    letter-spacing: 0.1px;
-    white-space: nowrap;
-  }
-  .jewel-tail-zone {
-    width: 20mm;
+
+  /* FLAP 2: Back Face (~25mm x 12mm) — ◄ MRP:650.00 + Barcode Number */
+  .jewel-flap-2 {
+    width: 25mm;
     height: 12mm;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     justify-content: center;
+    align-items: flex-start;
     box-sizing: border-box;
-  }
-  .jewel-tail-bridge {
-    width: 20mm;
-    height: 3mm;
-    border-top: 0.5px dashed #444444;
-    border-bottom: 0.5px dashed #444444;
-    background: transparent;
-    box-sizing: border-box;
-  }
-  .jewel-pname {
-    font-size: 5.5pt;
-    font-weight: 800;
-    line-height: 1.1;
-    text-transform: uppercase;
-    max-width: 28mm;
+    padding: 0.4mm 0.8mm 0.4mm 1.5mm;
     overflow: hidden;
-    text-overflow: clip;
-    white-space: nowrap;
   }
-  .jewel-mrp {
-    font-size: 8.5pt;
+  .jewel-mrp-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8mm;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .jewel-arrow {
+    font-size: 5.5pt;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .jewel-mrp-val {
+    font-size: 8pt;
     font-weight: 900;
     line-height: 1;
     letter-spacing: -0.2px;
-    white-space: nowrap;
   }
-  .jewel-mrp .jewel-mrp-lbl {
-    font-size: 5.5pt;
-    font-weight: 800;
+  .jewel-barcode-num {
+    font-size: 6pt;
+    font-weight: 700;
+    font-family: monospace;
+    letter-spacing: 0.2px;
+    line-height: 1;
+    margin-top: 1mm;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+
+  /* Rat-Tail Stem: ~30mm x 3mm (Blank) */
+  .jewel-tail-zone {
+    width: 30mm;
+    height: 3mm;
+    background: transparent;
+    box-sizing: border-box;
   }
 </style>
 </head>
@@ -512,6 +609,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     color: #000000 !important;
   }
   .mrp-text {
+    width: 100%;
     font-size: 10pt;
     font-weight: 900;
     line-height: 1;
@@ -519,11 +617,25 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
     margin-top: 0.8mm;
     white-space: nowrap;
     color: #000000 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2mm;
   }
   .mrp-text .mrp-label {
     font-size: 6.5pt;
     font-weight: 900;
     letter-spacing: 0;
+  }
+  .size-badge {
+    font-size: 8pt;
+    font-weight: 900;
+    border: 0.8px solid #000000;
+    padding: 0.2mm 1.2mm;
+    border-radius: 0.5mm;
+    letter-spacing: 0.2px;
+    line-height: 1;
+    display: inline-block;
   }
 </style>
 </head>
@@ -534,7 +646,7 @@ export function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   `;
 }
 
-export function printBarcodeLabels(items, copiesPerItem = 1, options = {}) {
+export async function printBarcodeLabels(items, copiesPerItem = 1, options = {}) {
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   if (list.length === 0) {
     if (typeof window !== 'undefined') window.alert('No barcodes to print.');
@@ -552,7 +664,7 @@ export function printBarcodeLabels(items, copiesPerItem = 1, options = {}) {
     return false;
   }
 
-  const html = buildStickerPrintHtml(list, copiesPerItem, options);
+  const html = await buildStickerPrintHtml(list, copiesPerItem, options);
   printWin.document.open();
   printWin.document.write(html);
   printWin.document.close();

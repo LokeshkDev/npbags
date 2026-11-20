@@ -72,7 +72,7 @@ function extractScanCode(raw) {
   if (/^https?:\/\//i.test(normalized)) {
     try {
       const url = new URL(normalized);
-      for (const key of ['barcode', 'code', 'sku', 'id']) {
+      for (const key of ['barcode', 'code', 'sku', 'id', 'p', 'product_id', 'pid']) {
         const candidate = url.searchParams.get(key);
         if (candidate && candidate.trim()) {
           return { code: candidate.trim(), source: 'qr', payload: normalized };
@@ -80,11 +80,26 @@ function extractScanCode(raw) {
       }
       const segments = url.pathname.split('/').filter(Boolean);
       if (segments.length > 0) {
-        return { code: decodeURIComponent(segments[segments.length - 1]), source: 'qr', payload: normalized };
+        const last = decodeURIComponent(segments[segments.length - 1]).trim();
+        if (last && last.length >= 2) {
+          return { code: last, source: 'qr', payload: normalized };
+        }
       }
     } catch (_) {
       // Malformed URL, fall back to plain handling
     }
+  }
+
+  // 3. Prefixed QR Code (e.g. "BARCODE: NP-1048", "CODE: NP-1048", "QR: NP-1048")
+  const prefixMatch = normalized.match(/^(?:barcode|code|qr|sku)\s*[:=-]\s*([^\s]+)/i);
+  if (prefixMatch && prefixMatch[1]) {
+    return { code: prefixMatch[1].trim(), source: 'qr', payload: normalized };
+  }
+
+  // 4. Pattern match for standard NP- or SKU- barcode inside longer string
+  const npMatch = normalized.match(/\b((?:NP|SKU)-[A-Za-z0-9_-]+)\b/i);
+  if (npMatch && npMatch[1]) {
+    return { code: npMatch[1].trim(), source: 'qr', payload: normalized };
   }
 
   return { code: normalized, source: 'plain', payload: null };

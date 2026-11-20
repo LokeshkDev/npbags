@@ -105,7 +105,9 @@ const corsOptions = {
     'Accept',
     'Origin',
     'Cache-Control',
+    'cache-control',
     'Pragma',
+    'pragma',
     'Expires',
     'X-File-Name'
   ],
