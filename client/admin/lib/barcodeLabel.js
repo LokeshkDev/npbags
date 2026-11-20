@@ -252,7 +252,7 @@ export function renderJewellerySticker(item, options = {}) {
         <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
         <div class="jewel-flap jewel-flap-2">
           <div class="jewel-mrp-row">
-            <span class="jewel-mrp-val">MRP:${label.mrp}</span>
+            <span class="jewel-mrp-val">MRP:₹${label.mrp}</span>
           </div>
           <div class="jewel-barcode-num">${barcodeText}${sizeBadge}</div>
         </div>
@@ -345,26 +345,28 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     box-sizing: border-box;
     overflow: hidden;
     margin: 0;
+    padding-left: 3.5mm;
   }
   /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */
   .jewel-flap-1 {
-    width: 25mm;
+    width: 23mm;
     height: 12mm;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    padding: 0.4mm 1mm;
+    padding: 0.2mm 0.5mm;
     overflow: hidden;
     text-align: center;
+    flex-shrink: 0;
   }
   .jewel-arrival {
-    font-size: 5.5pt;
+    font-size: 5pt;
     font-weight: 900;
     line-height: 1;
-    margin-bottom: 0.4mm;
-    letter-spacing: 0.3px;
+    margin-bottom: 0.3mm;
+    letter-spacing: 0.2px;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
@@ -372,8 +374,8 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     text-align: center;
   }
   .jewel-barcode-box {
-    width: 23mm;
-    height: 7mm;
+    width: 18mm;
+    height: 6.8mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -395,39 +397,40 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 
   /* FLAP 2: Back Face (~25mm x 12mm) — Centered ◄ MRP:XXX + Barcode Number */
   .jewel-flap-2 {
-    width: 25mm;
+    width: 24mm;
     height: 12mm;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     box-sizing: border-box;
-    padding: 0 1mm;
-    gap: 0.6mm;
+    padding: 0 0.5mm;
+    gap: 0.5mm;
     overflow: hidden;
     text-align: center;
+    flex-shrink: 0;
   }
   .jewel-mrp-row {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.8mm;
+    gap: 0.6mm;
     white-space: nowrap;
     line-height: 1;
   }
   .jewel-arrow {
-    font-size: 6pt;
+    font-size: 6.5pt;
     font-weight: 900;
     line-height: 1;
   }
   .jewel-mrp-val {
-    font-size: 8.5pt;
+    font-size: 8pt;
     font-weight: 900;
     line-height: 1;
     letter-spacing: -0.2px;
   }
   .jewel-barcode-num {
-    font-size: 6.5pt;
+    font-size: 6pt;
     font-weight: 800;
     font-family: Arial, sans-serif;
     letter-spacing: 0.2px;
@@ -440,10 +443,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 
   /* Rat-Tail Stem: ~30mm x 3mm (Blank) */
   .jewel-tail-zone {
-    width: 30mm;
+    width: 28mm;
     height: 3mm;
     background: transparent;
     box-sizing: border-box;
+    flex-shrink: 0;
   }
 </style>
 </head>
