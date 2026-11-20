@@ -41,10 +41,11 @@ export default function useScannerInput(onScan, options = {}) {
       const timestamps = timestampsRef.current;
       const isFast = isFastBurst(timestamps, charIntervalThreshold);
 
-      // Recognize Barcodes & 2D QR Codes (URLs, JSON payloads, NP-/SKU- codes, or fast burst)
+      // Recognize Barcodes & 2D QR Codes (URLs, JSON payloads, NP-/SKU- codes, pure numeric codes, or fast burst)
       const isRecognizedBarcodeOrQR =
         code.toUpperCase().includes('NP-') ||
         code.toUpperCase().includes('SKU-') ||
+        /^\d{4,}$/.test(code) ||
         code.startsWith('{') ||
         code.startsWith('[') ||
         /^https?:\/\//i.test(code) ||

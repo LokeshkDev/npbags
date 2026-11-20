@@ -250,9 +250,9 @@ export default function AdminVendorsPage() {
   const [jewelOffsetY, setJewelOffsetY] = useState(() => {
     try {
       const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
-      return saved !== null ? Number(saved) : -5;
+      return saved !== null ? Number(saved) : 0.5;
     } catch {
-      return -5;
+      return 0.5;
     }
   });
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
@@ -3554,7 +3554,7 @@ export default function AdminVendorsPage() {
                         <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>Active: {jewelOffsetY}mm</span>
                       </div>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
-                        {[-7, -6, -5, -4, -3, 0, 3].map(shift => (
+                        {[-5, -3, 0, 0.5, 1, 2, 3].map(shift => (
                           <button
                             key={shift}
                             type="button"
@@ -3573,7 +3573,7 @@ export default function AdminVendorsPage() {
                               cursor: 'pointer'
                             }}
                           >
-                            {shift === 0 ? '0mm (None)' : `${shift > 0 ? '+' : ''}${shift}mm`}
+                            {shift === 0.5 ? '+0.5mm (Default)' : (shift === 0 ? '0mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
                           </button>
                         ))}
                         <span style={{ fontSize: '11px', color: '#78350f', marginLeft: '6px' }}>

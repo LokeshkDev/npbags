@@ -497,7 +497,7 @@ export function POSBillingModal() {
     }
   };
 
-  // Keyboard Autofocus: User instructed to FIRST focus keyboard on customer phone number
+  // Keyboard Autofocus: Immediately focus the product & barcode scan row input so scanning works on 1st scan
   useEffect(() => {
     if (isPOSOpen) {
       loadSalesStaff();
@@ -505,7 +505,10 @@ export function POSBillingModal() {
       loadHeldBillsData();
       recoverDraftBill();
       setTimeout(() => {
-        if (customerPhoneInputRef.current) {
+        if (rowInputRef.current) {
+          rowInputRef.current.focus();
+          rowInputRef.current.select();
+        } else if (customerPhoneInputRef.current) {
           customerPhoneInputRef.current.focus();
           customerPhoneInputRef.current.select();
         }
@@ -1054,15 +1057,31 @@ export function POSBillingModal() {
 
       const res = await lookupBarcode(code, adminUser?.branch_id || null);
       if (res && (res.product_id || res.product_name)) {
-        const effectiveStock = res.stock_quantity !== undefined && res.stock_quantity !== null
-          ? res.stock_quantity
-          : (res.stock !== undefined && res.stock !== null
-            ? res.stock
-            : (res.variant?.stock !== undefined && res.variant?.stock !== null ? res.variant.stock : 0));
         const product = mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts)
           .find(p => String(p.id) === String(res.product_id)) || null;
+        const pVariants = Array.isArray(product?.variants) ? product.variants : [];
+        const isSingleVariant = pVariants.length === 1;
+
+        const effectivePrice = isSingleVariant && product && (product.sale_price || product.price)
+          ? (Number(product.sale_price) > 0 ? Number(product.sale_price) : Number(product.price))
+          : (res.sale_price > 0 ? Number(res.sale_price) : Number(res.price || 0));
+
+        const effectiveMrp = isSingleVariant && product && product.mrp
+          ? Number(product.mrp)
+          : Number(res.mrp || res.price || 0);
+
+        const effectiveStock = isSingleVariant && product && (product.stock_quantity !== undefined || product.stock !== undefined)
+          ? (productStock(product) ?? 0)
+          : (res.stock_quantity !== undefined && res.stock_quantity !== null
+            ? res.stock_quantity
+            : (res.stock !== undefined && res.stock !== null
+              ? res.stock
+              : (res.variant?.stock !== undefined && res.variant?.stock !== null ? res.variant.stock : 0)));
+
         addItemWithStockCheck({
           ...res,
+          price: effectivePrice,
+          mrp: effectiveMrp,
           product_name: res.product_name || res.barcode_short_name || res.name || res.barcode,
           variant: normalizeVariant(res.variant),
           stock_quantity: effectiveStock
@@ -1136,12 +1155,31 @@ export function POSBillingModal() {
   // Pick an autocomplete suggestion
   const handlePickSuggestion = (prod, variant = null) => {
     if (!prod) return;
-    const normalizedVariant = normalizeVariant(variant);
-    const price = itemSellingPriceFor(variant, prod);
-    const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
-    const stock = normalizedVariant
-      ? normalizedVariant.stock_quantity
-      : (productStock(prod) ?? 0);
+    const prodVariants = Array.isArray(prod.variants) ? prod.variants : [];
+    const isSingleVariant = prodVariants.length === 1;
+    // For single variant, attach variant for backend stock deduction, but prioritize default product price and stock
+    const effectiveVariant = variant || (isSingleVariant ? prodVariants[0] : null);
+    const normalizedVariant = normalizeVariant(effectiveVariant);
+
+    const price = (isSingleVariant || !effectiveVariant) && (prod.sale_price || prod.price)
+      ? (Number(prod.sale_price) > 0 ? Number(prod.sale_price) : Number(prod.price))
+      : itemSellingPriceFor(effectiveVariant, prod);
+
+    const regularPrice = (isSingleVariant || !effectiveVariant) && prod.price
+      ? Number(prod.price)
+      : itemRegularPriceFor(effectiveVariant, prod);
+
+    const mrp = (isSingleVariant || !effectiveVariant) && prod.mrp
+      ? Number(prod.mrp)
+      : itemMrpFor(effectiveVariant, prod);
+
+    const barcode = (isSingleVariant || !effectiveVariant)
+      ? (prod.barcode || effectiveVariant?.barcode || `NP-${prod.id}`)
+      : (effectiveVariant?.barcode || prod.barcode || `NP-${prod.id}`);
+
+    const stock = (isSingleVariant || !effectiveVariant)
+      ? (productStock(prod) ?? (normalizedVariant ? normalizedVariant.stock_quantity : 0))
+      : (normalizedVariant ? normalizedVariant.stock_quantity : (productStock(prod) ?? 0));
 
     addItemWithStockCheck({
       product_id: prod.id,
@@ -1149,11 +1187,11 @@ export function POSBillingModal() {
       barcode: barcode,
       barcode_short_name: prod.barcode_short_name || prod.name,
       price: Number(price) || 0,
-      regular_price: itemRegularPriceFor(variant, prod),
-      mrp: itemMrpFor(variant, prod),
+      regular_price: Number(regularPrice) || Number(price) || 0,
+      mrp: Number(mrp) || Number(regularPrice) || Number(price) || 0,
       gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
-      image: variant?.image_url || prod.image,
+      image: effectiveVariant?.image_url || prod.image,
       variant: normalizedVariant,
       quantity: 1,
       stock_quantity: stock
@@ -1247,13 +1285,30 @@ export function POSBillingModal() {
   const handlePickSearchModalItem = (match) => {
     if (!match || !match.product) return;
     const prod = match.product;
-    const variant = match.matchedVariant;
-    const normalizedVariant = normalizeVariant(variant);
-    const price = itemSellingPriceFor(variant, prod);
-    const barcode = variant?.barcode || prod.barcode || `NP-${prod.id}`;
-    const stock = normalizedVariant
-      ? normalizedVariant.stock_quantity
-      : (productStock(prod) ?? 0);
+    const prodVariants = Array.isArray(prod.variants) ? prod.variants : [];
+    const isSingleVariant = prodVariants.length === 1;
+    const effectiveVariant = match.matchedVariant || (isSingleVariant ? prodVariants[0] : null);
+    const normalizedVariant = normalizeVariant(effectiveVariant);
+
+    const price = (isSingleVariant || !effectiveVariant) && (prod.sale_price || prod.price)
+      ? (Number(prod.sale_price) > 0 ? Number(prod.sale_price) : Number(prod.price))
+      : itemSellingPriceFor(effectiveVariant, prod);
+
+    const regularPrice = (isSingleVariant || !effectiveVariant) && prod.price
+      ? Number(prod.price)
+      : itemRegularPriceFor(effectiveVariant, prod);
+
+    const mrp = (isSingleVariant || !effectiveVariant) && prod.mrp
+      ? Number(prod.mrp)
+      : itemMrpFor(effectiveVariant, prod);
+
+    const barcode = (isSingleVariant || !effectiveVariant)
+      ? (prod.barcode || effectiveVariant?.barcode || `NP-${prod.id}`)
+      : (effectiveVariant?.barcode || prod.barcode || `NP-${prod.id}`);
+
+    const stock = (isSingleVariant || !effectiveVariant)
+      ? (productStock(prod) ?? (normalizedVariant ? normalizedVariant.stock_quantity : 0))
+      : (normalizedVariant ? normalizedVariant.stock_quantity : (productStock(prod) ?? 0));
 
     addItemWithStockCheck({
       product_id: prod.id,
@@ -1261,11 +1316,11 @@ export function POSBillingModal() {
       barcode: barcode,
       barcode_short_name: prod.barcode_short_name || prod.name,
       price: Number(price) || 0,
-      regular_price: itemRegularPriceFor(variant, prod),
-      mrp: itemMrpFor(variant, prod),
+      regular_price: Number(regularPrice) || Number(price) || 0,
+      mrp: Number(mrp) || Number(regularPrice) || Number(price) || 0,
       gst_rate: Number(prod.gst_rate) || 18,
       hsn_code: prod.hsn_code || '4202',
-      image: variant?.image_url || prod.image,
+      image: effectiveVariant?.image_url || prod.image,
       variant: normalizedVariant,
       quantity: 1,
       stock_quantity: stock
@@ -1736,12 +1791,12 @@ export function POSBillingModal() {
       return;
     }
 
-    // Products with variants must have an exact variant chosen so the correct
-    // variant's stock is deducted.
+    // Products with multiple (2+) variants must have an exact variant chosen so the correct
+    // variant's stock is deducted. Single-variant products use default product properties.
     const missingVariantIndex = cart.findIndex(it => {
       if (it.is_custom || String(it.product_id || '').startsWith('custom-')) return false;
       const p = findProductForItem(it);
-      if (!Array.isArray(p?.variants) || p.variants.length === 0) return false;
+      if (!Array.isArray(p?.variants) || p.variants.length <= 1) return false;
       const v = it.variant || {};
       return !v.id && !v.sku && !v.size && !v.color;
     });
@@ -2874,10 +2929,25 @@ export function POSBillingModal() {
                   ref={customerPhoneInputRef}
                   type="tel"
                   value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    // Intercept if a barcode or QR was accidentally scanned while phone input was focused
+                    if (looksLikeBarcodeOrQR(val) && val.trim().length >= 4) {
+                      setCustomerPhone('');
+                      handleBarcodeScanned(val.trim());
+                      rowInputRef.current?.focus();
+                      return;
+                    }
+                    setCustomerPhone(val);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
+                      const val = customerPhone.trim();
+                      if (looksLikeBarcodeOrQR(val) && val.length >= 3) {
+                        setCustomerPhone('');
+                        handleBarcodeScanned(val);
+                      }
                       rowInputRef.current?.focus();
                       rowInputRef.current?.select();
                     }
@@ -3250,8 +3320,8 @@ export function POSBillingModal() {
                           <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
                           <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span style={{ fontWeight: 700, color: '#065935' }}>{item.barcode}</span>
-                            {item.variant?.color && <span>Color: {item.variant.color}</span>}
-                            {item.variant?.size && <span>Size: {item.variant.size}</span>}
+                            {catalogVariants.length > 1 && item.variant?.color && <span>Color: {item.variant.color}</span>}
+                            {catalogVariants.length > 1 && item.variant?.size && <span>Size: {item.variant.size}</span>}
                             {item.stock_quantity !== undefined && item.stock_quantity !== null && (
                               <span
                                 style={{
@@ -3270,7 +3340,7 @@ export function POSBillingModal() {
                               </span>
                             )}
                           </div>
-                          {catalogVariants.length > 0 && (
+                          {catalogVariants.length > 1 && (
                             <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                               <select
                                 id={`pos-item-variant-${idx}`}
@@ -3712,6 +3782,8 @@ export function POSBillingModal() {
                           <div ref={rowContainerRef} style={{ position: 'relative', flex: 1 }}>
                             <input
                               ref={rowInputRef}
+                              id="pos-barcode-scanner-input"
+                              data-scan-capture="true"
                               type="text"
                               value={rowInput}
                               onChange={(e) => {
@@ -3764,8 +3836,17 @@ export function POSBillingModal() {
                                 {rowMatches.map((match, sIdx) => {
                                   const p = match.product;
                                   const v = match.matchedVariant;
-                                  const displayPrice = itemSellingPriceFor(v, p);
-                                  const bc = v?.barcode || p.barcode || `NP-${p.id}`;
+                                  const pVariants = Array.isArray(p.variants) ? p.variants : [];
+                                  const isSingleVariant = pVariants.length <= 1;
+                                  const displayPrice = isSingleVariant && (p.sale_price || p.price)
+                                    ? (Number(p.sale_price) > 0 ? p.sale_price : p.price)
+                                    : itemSellingPriceFor(v, p);
+                                  const displayStock = isSingleVariant
+                                    ? (productStock(p) ?? (v ? variantStock(v) : (pVariants[0] ? variantStock(pVariants[0]) : 0)))
+                                    : (v ? variantStock(v) : (productStock(p) ?? 0));
+                                  const bc = isSingleVariant
+                                    ? (p.barcode || v?.barcode || `NP-${p.id}`)
+                                    : (v?.barcode || p.barcode || `NP-${p.id}`);
                                   return (
                                     <div
                                       key={`row-${p.id}-${v?.id || 'main'}-${sIdx}`}
@@ -3789,10 +3870,10 @@ export function POSBillingModal() {
                                     >
                                       <div>
                                         <div style={{ fontWeight: 800, fontSize: '12.5px', color: '#0f172a' }}>
-                                          {p.name} {v ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                                          {p.name} {(!isSingleVariant && v) ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
                                         </div>
                                         <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
-                                          <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {v?.stock_quantity ?? v?.stock ?? p.stock_quantity ?? p.stock ?? 0}
+                                          <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {displayStock}
                                         </div>
                                       </div>
                                       <div style={{ fontWeight: 900, fontSize: '13px', color: '#0f172a' }}>
@@ -4559,8 +4640,17 @@ export function POSBillingModal() {
                 searchModalMatches.map((match, sIdx) => {
                   const p = match.product;
                   const v = match.matchedVariant;
-                  const displayPrice = itemSellingPriceFor(v, p);
-                  const bc = v?.barcode || p.barcode || `NP-${p.id}`;
+                  const pVariants = Array.isArray(p.variants) ? p.variants : [];
+                  const isSingleVariant = pVariants.length <= 1;
+                  const displayPrice = isSingleVariant && (p.sale_price || p.price)
+                    ? (Number(p.sale_price) > 0 ? p.sale_price : p.price)
+                    : itemSellingPriceFor(v, p);
+                  const displayStock = isSingleVariant
+                    ? (productStock(p) ?? (v ? variantStock(v) : (pVariants[0] ? variantStock(pVariants[0]) : 0)))
+                    : (v ? variantStock(v) : (productStock(p) ?? 0));
+                  const bc = isSingleVariant
+                    ? (p.barcode || v?.barcode || `NP-${p.id}`)
+                    : (v?.barcode || p.barcode || `NP-${p.id}`);
                   return (
                     <div
                       key={`f2-${p.id}-${v?.id || 'main'}-${sIdx}`}
@@ -4579,11 +4669,11 @@ export function POSBillingModal() {
                     >
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
-                          {p.name} {v ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                          {p.name} {(!isSingleVariant && v) ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
                         </div>
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                           <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span>
-                          {' · '}Stock {v?.stock_quantity ?? p.stock_quantity ?? 0}
+                          {' · '}Stock {displayStock}
                           {p.category_name ? ` · ${p.category_name}` : ''}
                         </div>
                       </div>

@@ -30,27 +30,55 @@ const CODE128_PATTERNS = CODE128_WIDTHS.map((w) => {
 });
 
 /**
- * Encodes string to Code 128B binary pattern
+ * Encodes string to Code 128 Auto binary pattern (Set C for digits, Set B for text)
  */
 function encodeCode128(text) {
   if (!text) return '';
   const clean = String(text).trim();
-  const START_B = 104;
-  const STOP = 106;
+  const tokens = [];
 
-  let checkDigit = START_B;
-  let encoding = CODE128_PATTERNS[START_B];
+  const startsWith4Digits = /^\d{4,}/.test(clean);
+  let mode = startsWith4Digits ? 'C' : 'B';
+  tokens.push(mode === 'C' ? 105 : 104);
 
-  for (let i = 0; i < clean.length; i++) {
-    const charCode = clean.charCodeAt(i);
-    const value = charCode - 32;
-    if (value < 0 || value > 95) continue;
-    encoding += CODE128_PATTERNS[value];
-    checkDigit = (checkDigit + (i + 1) * value) % 103;
+  let i = 0;
+  while (i < clean.length) {
+    if (mode === 'B') {
+      const remainingDigitsMatch = clean.slice(i).match(/^\d{4,}/);
+      if (remainingDigitsMatch) {
+        mode = 'C';
+        tokens.push(99); // Switch to Code C
+        continue;
+      }
+      const charCode = clean.charCodeAt(i);
+      const val = charCode - 32;
+      if (val >= 0 && val <= 95) {
+        tokens.push(val);
+      }
+      i++;
+    } else {
+      if (i + 1 < clean.length && /^\d{2}$/.test(clean.slice(i, i + 2))) {
+        const val = parseInt(clean.slice(i, i + 2), 10);
+        tokens.push(val);
+        i += 2;
+      } else {
+        mode = 'B';
+        tokens.push(100); // Switch to Code B
+      }
+    }
   }
 
-  encoding += CODE128_PATTERNS[checkDigit];
-  encoding += CODE128_PATTERNS[STOP];
+  let check = tokens[0];
+  for (let idx = 1; idx < tokens.length; idx++) {
+    check = (check + idx * tokens[idx]) % 103;
+  }
+  tokens.push(check);
+  tokens.push(106); // STOP
+
+  let encoding = '';
+  for (const token of tokens) {
+    encoding += CODE128_PATTERNS[token];
+  }
   return encoding;
 }
 

@@ -24,34 +24,66 @@ const CODE128_PATTERNS = CODE128_WIDTHS.map((w) => {
 });
 
 /**
- * Generates an ISO/IEC 15417 compliant Code 128B SVG barcode.
- * Includes a pure white background and crispEdges styling for instant hardware scanner recognition.
+ * Generates an ISO/IEC 15417 compliant Code 128 Auto SVG barcode.
+ * Uses Code Set C for digits to compress bar density by up to 40% for laser/CCD scanners.
+ * Includes a pure white quiet-zone background and crispEdges styling for instant hardware scanner recognition.
  */
 export function generateCode128SVG(text, options = {}) {
   if (!text) return '';
   const clean = String(text).trim();
-  const START_B = 104;
-  const STOP = 106;
+  const tokens = [];
 
-  let checkDigit = START_B;
-  let encoding = CODE128_PATTERNS[START_B];
+  // Code 128 Auto: Start with Code C (105) if beginning with 4+ digits, else Code B (104)
+  const startsWith4Digits = /^\d{4,}/.test(clean);
+  let mode = startsWith4Digits ? 'C' : 'B';
+  tokens.push(mode === 'C' ? 105 : 104);
 
-  for (let i = 0; i < clean.length; i++) {
-    const charCode = clean.charCodeAt(i);
-    const value = charCode - 32;
-    if (value < 0 || value > 95) continue;
-    encoding += CODE128_PATTERNS[value];
-    checkDigit = (checkDigit + (i + 1) * value) % 103;
+  let i = 0;
+  while (i < clean.length) {
+    if (mode === 'B') {
+      const remainingDigitsMatch = clean.slice(i).match(/^\d{4,}/);
+      if (remainingDigitsMatch) {
+        mode = 'C';
+        tokens.push(99); // Switch to Code C
+        continue;
+      }
+      const charCode = clean.charCodeAt(i);
+      const val = charCode - 32;
+      if (val >= 0 && val <= 95) {
+        tokens.push(val);
+      }
+      i++;
+    } else {
+      // Mode C: encode pairs of digits
+      if (i + 1 < clean.length && /^\d{2}$/.test(clean.slice(i, i + 2))) {
+        const val = parseInt(clean.slice(i, i + 2), 10);
+        tokens.push(val);
+        i += 2;
+      } else {
+        mode = 'B';
+        tokens.push(100); // Switch to Code B
+      }
+    }
   }
 
-  encoding += CODE128_PATTERNS[checkDigit];
-  encoding += CODE128_PATTERNS[STOP];
+  // Check digit calculation
+  let check = tokens[0];
+  for (let idx = 1; idx < tokens.length; idx++) {
+    check = (check + idx * tokens[idx]) % 103;
+  }
+  tokens.push(check);
+  tokens.push(106); // STOP
+
+  let encoding = '';
+  for (const token of tokens) {
+    encoding += CODE128_PATTERNS[token];
+  }
 
   const height = options.height || 50;
   const quietZone = options.quietZone !== undefined ? options.quietZone : 12;
   const totalModules = encoding.length + (quietZone * 2);
 
-  let rects = `<rect width="100%" height="100%" fill="#ffffff" />`;
+  let rects = `<rect width="${totalModules}" height="${height}" fill="#ffffff" />`;
   let currentX = quietZone;
   let inBar = false;
   let barStart = 0;
@@ -228,7 +260,7 @@ export function renderJewellerySticker(item, options = {}) {
   const barcodeText = item.barcode || 'NO BARCODE';
 
   // 1D Code-128 Barcode SVG
-  const svgHtml = getCleanBarcodeSVG(item, { height: 26, quietZone: 8 });
+  const svgHtml = getCleanBarcodeSVG(item, { height: 28, quietZone: 10 });
 
   // Arrival code line (e.g. CW2) — strictly only if entered in field entry
   const arrivalHtml = label.hasArrivalCode
@@ -268,7 +300,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
-  const offsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : -5;
+  const offsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : 0.5;
   const offsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : 0;
 
   const stickers = list.map(item => {
@@ -362,18 +394,18 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     box-sizing: border-box;
     overflow: visible !important;
     margin: 0;
-    padding-left: ${3.5 + offsetX}mm;
+    padding-left: ${1.8 + offsetX}mm;
   }
   /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */
   .jewel-flap-1 {
-    width: 23mm;
+    width: 24mm;
     height: 12mm;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    padding: 0.2mm 0.5mm;
+    padding: 0.2mm 0.3mm;
     overflow: hidden;
     text-align: center;
     flex-shrink: 0;
@@ -391,8 +423,8 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     text-align: center;
   }
   .jewel-barcode-box {
-    width: 18mm;
-    height: 6.8mm;
+    width: 22.5mm;
+    height: 7.2mm;
     display: flex;
     align-items: center;
     justify-content: center;
