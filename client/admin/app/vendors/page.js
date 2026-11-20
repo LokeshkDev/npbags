@@ -250,9 +250,9 @@ export default function AdminVendorsPage() {
   const [jewelOffsetY, setJewelOffsetY] = useState(() => {
     try {
       const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
-      return saved !== null ? Number(saved) : 0.5;
+      return saved !== null ? Number(saved) : 0;
     } catch {
-      return 0.5;
+      return 0;
     }
   });
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
@@ -3503,7 +3503,7 @@ export default function AdminVendorsPage() {
                       fontSize: '11px',
                       fontWeight: 800
                     }}>
-                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm (1-Up QR Tag W/O Folding)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
+                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm (1-Up Barcode Tag W/O Folding)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
                     </span>
                   </div>
 
@@ -3573,7 +3573,7 @@ export default function AdminVendorsPage() {
                               cursor: 'pointer'
                             }}
                           >
-                            {shift === 0.5 ? '+0.5mm (Default)' : (shift === 0 ? '0mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
+                            {shift === 0 ? '0mm (Default)' : (shift === 0.5 ? '+0.5mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
                           </button>
                         ))}
                         <span style={{ fontSize: '11px', color: '#78350f', marginLeft: '6px' }}>

@@ -182,6 +182,46 @@ function productStock(product) {
   return value === null || value === undefined ? null : Number(value);
 }
 
+function getEffectiveProductStock(prod, variant = null) {
+  if (!prod) return 0;
+  const pVariants = Array.isArray(prod.variants) ? prod.variants : [];
+
+  // 1. If branch stock is explicitly set on prod
+  if (prod.branch_stock !== undefined && prod.branch_stock !== null) {
+    return Number(prod.branch_stock);
+  }
+
+  // 2. Specific variant passed
+  if (variant) {
+    const vStock = variantStock(variant);
+    if (vStock !== null && vStock !== undefined && vStock > 0) return vStock;
+  }
+
+  // 3. Single-variant product (1 variant in catalog)
+  if (pVariants.length === 1) {
+    const vStock = variantStock(pVariants[0]);
+    const pStock = productStock(prod);
+    // If variant has positive stock, prioritize it
+    if (vStock !== null && vStock !== undefined && vStock > 0) return vStock;
+    // If product has positive stock, use product stock
+    if (pStock !== null && pStock !== undefined && pStock > 0) return pStock;
+    // Whichever is defined
+    return (vStock !== null && vStock !== undefined) ? vStock : ((pStock !== null && pStock !== undefined) ? pStock : 0);
+  }
+
+  // 4. Multiple variants (> 1)
+  if (pVariants.length > 1) {
+    if (variant) {
+      const vStock = variantStock(variant);
+      return vStock !== null && vStock !== undefined ? vStock : 0;
+    }
+    return pVariants.reduce((sum, v) => sum + (variantStock(v) || 0), 0);
+  }
+
+  // 5. Zero variants (standard product)
+  return productStock(prod) ?? 0;
+}
+
 function normalizeVariant(variant) {
   if (!variant) return null;
   const stock = variantStock(variant);
@@ -229,6 +269,9 @@ function itemRegularPriceFor(variant, product) {
 }
 
 function effectiveItemStock(item) {
+  if (item?.stock_quantity !== undefined && item?.stock_quantity !== null) {
+    return Number(item.stock_quantity);
+  }
   const direct = variantStock(item);
   if (direct !== null) return direct;
   const fromVariant = variantStock(item?.variant);
@@ -505,12 +548,12 @@ export function POSBillingModal() {
       loadHeldBillsData();
       recoverDraftBill();
       setTimeout(() => {
-        if (rowInputRef.current) {
-          rowInputRef.current.focus();
-          rowInputRef.current.select();
-        } else if (customerPhoneInputRef.current) {
+        if (customerPhoneInputRef.current) {
           customerPhoneInputRef.current.focus();
           customerPhoneInputRef.current.select();
+        } else if (rowInputRef.current) {
+          rowInputRef.current.focus();
+          rowInputRef.current.select();
         }
       }, 120);
     }
@@ -739,6 +782,8 @@ export function POSBillingModal() {
   const handleAddItemToCart = (item) => {
     const resolvedName = resolveItemName(item);
     let targetIdx = 0;
+    let stockBlocked = false;
+    let blockedStock = null;
     setCart(prev => {
       const existingIdx = prev.findIndex(ci =>
         ci.product_id === item.product_id &&
@@ -748,7 +793,18 @@ export function POSBillingModal() {
       if (existingIdx > -1) {
         targetIdx = existingIdx;
         const copy = [...prev];
-        copy[existingIdx].quantity += 1;
+        const existingItem = copy[existingIdx];
+        const availableStock = existingItem.stock_quantity !== undefined && existingItem.stock_quantity !== null
+          ? Number(existingItem.stock_quantity)
+          : null;
+        const newQty = existingItem.quantity + 1;
+        // Block qty increment if it would exceed known stock
+        if (availableStock !== null && newQty > availableStock) {
+          stockBlocked = true;
+          blockedStock = availableStock;
+          return prev; // No change — toast shown after setCart
+        }
+        copy[existingIdx] = { ...existingItem, quantity: newQty };
         return copy;
       } else {
         targetIdx = prev.length;
@@ -781,6 +837,12 @@ export function POSBillingModal() {
         ];
       }
     });
+
+    // Show blocked-by-stock toast if the qty increment was rejected inside setCart
+    if (stockBlocked) {
+      showToast(`⚠ Max stock (${blockedStock}) already in cart for "${resolvedName}".`, 'error', 3000);
+      return;
+    }
 
     const stockCount = item.stock_quantity !== undefined && item.stock_quantity !== null
       ? item.stock_quantity
@@ -861,14 +923,40 @@ export function POSBillingModal() {
       return;
     }
     const stock = effectiveItemStock(item);
-    if (item.variant?.id && stock <= 0) {
-      openStockPrompt({
-        product: productOverride || findProductForItem(item),
-        variant: item.variant,
-        item
-      });
+    // Block if stock is 0 or below — applies to both single-variant (variant.id present)
+    // and plain products (no variant) when stock_quantity is explicitly known and zero.
+    const stockKnown = item.stock_quantity !== undefined && item.stock_quantity !== null;
+    const isOutOfStock = stockKnown ? stock <= 0 : (item.variant?.id ? stock <= 0 : false);
+
+    if (isOutOfStock) {
+      if (item.variant?.id) {
+        openStockPrompt({
+          product: productOverride || findProductForItem(item),
+          variant: item.variant,
+          item
+        });
+      } else {
+        // No variant id — show warning toast but still allow (can't top-up without variant)
+        showToast(`⚠ "${item.product_name || 'Item'}" appears out of stock (Stock: ${stock}). Proceeding anyway.`, 'error', 3500);
+        handleAddItemToCart(item);
+      }
       return;
     }
+
+    // Check if adding one more would exceed available stock for this item already in cart
+    const existingCartQty = cart.reduce((sum, ci) => {
+      const sameProduct = String(ci.product_id) === String(item.product_id);
+      const sameVariant = item.variant?.id
+        ? String(ci.variant?.id) === String(item.variant.id)
+        : ci.barcode === item.barcode;
+      return sameProduct && sameVariant ? sum + (ci.quantity || 1) : sum;
+    }, 0);
+
+    if (stockKnown && existingCartQty >= stock) {
+      showToast(`⚠ Max available stock (${stock}) already in cart for "${item.product_name || 'item'}".`, 'error', 3000);
+      return;
+    }
+
     handleAddItemToCart(item);
   };
 
@@ -1070,20 +1158,25 @@ export function POSBillingModal() {
           ? Number(product.mrp)
           : Number(res.mrp || res.price || 0);
 
-        const effectiveStock = isSingleVariant && product && (product.stock_quantity !== undefined || product.stock !== undefined)
-          ? (productStock(product) ?? 0)
-          : (res.stock_quantity !== undefined && res.stock_quantity !== null
-            ? res.stock_quantity
-            : (res.stock !== undefined && res.stock !== null
-              ? res.stock
-              : (res.variant?.stock !== undefined && res.variant?.stock !== null ? res.variant.stock : 0)));
+        const resStock = res.stock_quantity !== undefined && res.stock_quantity !== null
+          ? Number(res.stock_quantity)
+          : (res.stock !== undefined && res.stock !== null
+            ? Number(res.stock)
+            : (res.variant?.stock !== undefined && res.variant?.stock !== null ? Number(res.variant.stock) : null));
+
+        const singleVar = isSingleVariant ? pVariants[0] : null;
+        const prodStock = product ? getEffectiveProductStock(product, res.variant || singleVar) : null;
+
+        const effectiveStock = (resStock !== null && resStock > 0)
+          ? resStock
+          : ((prodStock !== null && prodStock > 0) ? prodStock : (resStock ?? prodStock ?? 0));
 
         addItemWithStockCheck({
           ...res,
           price: effectivePrice,
           mrp: effectiveMrp,
           product_name: res.product_name || res.barcode_short_name || res.name || res.barcode,
-          variant: normalizeVariant(res.variant),
+          variant: normalizeVariant(res.variant || singleVar),
           stock_quantity: effectiveStock
         }, product);
         setSearchInput('');
@@ -1177,9 +1270,7 @@ export function POSBillingModal() {
       ? (prod.barcode || effectiveVariant?.barcode || `NP-${prod.id}`)
       : (effectiveVariant?.barcode || prod.barcode || `NP-${prod.id}`);
 
-    const stock = (isSingleVariant || !effectiveVariant)
-      ? (productStock(prod) ?? (normalizedVariant ? normalizedVariant.stock_quantity : 0))
-      : (normalizedVariant ? normalizedVariant.stock_quantity : (productStock(prod) ?? 0));
+    const stock = getEffectiveProductStock(prod, effectiveVariant);
 
     addItemWithStockCheck({
       product_id: prod.id,
@@ -1306,9 +1397,7 @@ export function POSBillingModal() {
       ? (prod.barcode || effectiveVariant?.barcode || `NP-${prod.id}`)
       : (effectiveVariant?.barcode || prod.barcode || `NP-${prod.id}`);
 
-    const stock = (isSingleVariant || !effectiveVariant)
-      ? (productStock(prod) ?? (normalizedVariant ? normalizedVariant.stock_quantity : 0))
-      : (normalizedVariant ? normalizedVariant.stock_quantity : (productStock(prod) ?? 0));
+    const stock = getEffectiveProductStock(prod, effectiveVariant);
 
     addItemWithStockCheck({
       product_id: prod.id,
@@ -1349,7 +1438,7 @@ export function POSBillingModal() {
             price: itemSellingPriceFor(null, product),
             mrp: itemMrpFor(null, product),
             regular_price: itemRegularPriceFor(null, product),
-            stock_quantity: productStock(product) ?? 0
+            stock_quantity: getEffectiveProductStock(product)
           };
         }
         return copy;
@@ -2928,26 +3017,14 @@ export function POSBillingModal() {
                 <input
                   ref={customerPhoneInputRef}
                   type="tel"
+                  data-no-scan="true"
                   value={customerPhone}
                   onChange={(e) => {
-                    const val = e.target.value;
-                    // Intercept if a barcode or QR was accidentally scanned while phone input was focused
-                    if (looksLikeBarcodeOrQR(val) && val.trim().length >= 4) {
-                      setCustomerPhone('');
-                      handleBarcodeScanned(val.trim());
-                      rowInputRef.current?.focus();
-                      return;
-                    }
-                    setCustomerPhone(val);
+                    setCustomerPhone(e.target.value);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      const val = customerPhone.trim();
-                      if (looksLikeBarcodeOrQR(val) && val.length >= 3) {
-                        setCustomerPhone('');
-                        handleBarcodeScanned(val);
-                      }
                       rowInputRef.current?.focus();
                       rowInputRef.current?.select();
                     }
@@ -3306,6 +3383,11 @@ export function POSBillingModal() {
                     const lineTax = Math.round((lineTotal - lineTaxable) * 100) / 100;
                     const catalogProduct = resolveCatalogItem(item);
                     const catalogVariants = Array.isArray(catalogProduct?.variants) ? catalogProduct.variants : [];
+                    const lineStock = (catalogVariants.length <= 1 && catalogProduct)
+                      ? getEffectiveProductStock(catalogProduct, item.variant)
+                      : (item.stock_quantity !== undefined && item.stock_quantity !== null
+                          ? Number(item.stock_quantity)
+                          : (catalogProduct ? getEffectiveProductStock(catalogProduct, item.variant) : 0));
 
                     return (
                       <tr
@@ -3322,12 +3404,12 @@ export function POSBillingModal() {
                             <span style={{ fontWeight: 700, color: '#065935' }}>{item.barcode}</span>
                             {catalogVariants.length > 1 && item.variant?.color && <span>Color: {item.variant.color}</span>}
                             {catalogVariants.length > 1 && item.variant?.size && <span>Size: {item.variant.size}</span>}
-                            {item.stock_quantity !== undefined && item.stock_quantity !== null && (
+                            {lineStock !== undefined && lineStock !== null && (
                               <span
                                 style={{
-                                  background: Number(item.stock_quantity) > 0 ? '#ecfdf5' : '#fef2f2',
-                                  color: Number(item.stock_quantity) > 0 ? '#15803d' : '#b91c1c',
-                                  border: Number(item.stock_quantity) > 0 ? '1px solid #bbf7d0' : '1px solid #fecaca',
+                                  background: Number(lineStock) > 0 ? '#ecfdf5' : '#fef2f2',
+                                  color: Number(lineStock) > 0 ? '#15803d' : '#b91c1c',
+                                  border: Number(lineStock) > 0 ? '1px solid #bbf7d0' : '1px solid #fecaca',
                                   padding: '1px 6px',
                                   borderRadius: '4px',
                                   fontSize: '10.5px',
@@ -3336,7 +3418,7 @@ export function POSBillingModal() {
                                   alignItems: 'center'
                                 }}
                               >
-                                Stock: {item.stock_quantity}
+                                Stock: {lineStock}
                               </span>
                             )}
                           </div>
@@ -3842,7 +3924,7 @@ export function POSBillingModal() {
                                     ? (Number(p.sale_price) > 0 ? p.sale_price : p.price)
                                     : itemSellingPriceFor(v, p);
                                   const displayStock = isSingleVariant
-                                    ? (productStock(p) ?? (v ? variantStock(v) : (pVariants[0] ? variantStock(pVariants[0]) : 0)))
+                                    ? getEffectiveProductStock(p, pVariants[0] || v)
                                     : (v ? variantStock(v) : (productStock(p) ?? 0));
                                   const bc = isSingleVariant
                                     ? (p.barcode || v?.barcode || `NP-${p.id}`)
@@ -4646,7 +4728,7 @@ export function POSBillingModal() {
                     ? (Number(p.sale_price) > 0 ? p.sale_price : p.price)
                     : itemSellingPriceFor(v, p);
                   const displayStock = isSingleVariant
-                    ? (productStock(p) ?? (v ? variantStock(v) : (pVariants[0] ? variantStock(pVariants[0]) : 0)))
+                    ? getEffectiveProductStock(p, pVariants[0] || v)
                     : (v ? variantStock(v) : (productStock(p) ?? 0));
                   const bc = isSingleVariant
                     ? (p.barcode || v?.barcode || `NP-${p.id}`)

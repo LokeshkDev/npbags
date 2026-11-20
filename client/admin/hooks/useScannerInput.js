@@ -32,6 +32,8 @@ export default function useScannerInput(onScan, options = {}) {
       activeEl?.getAttribute('data-scan-capture') === 'true' ||
       activeEl?.id === 'pos-barcode-scanner-input' ||
       activeEl?.id === 'pos-main-search-input';
+    const isNoScanEl = activeEl?.getAttribute('data-no-scan') === 'true';
+    const isInputField = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
 
     const now = Date.now();
 
@@ -41,11 +43,18 @@ export default function useScannerInput(onScan, options = {}) {
       const timestamps = timestampsRef.current;
       const isFast = isFastBurst(timestamps, charIntervalThreshold);
 
-      // Recognize Barcodes & 2D QR Codes (URLs, JSON payloads, NP-/SKU- codes, pure numeric codes, or fast burst)
+      // If typing in a no-scan input (e.g. customer mobile number) or regular input and NOT a fast hardware burst:
+      if ((isNoScanEl || (isInputField && !isScanCaptureEl)) && !isFast) {
+        bufferRef.current = '';
+        timestampsRef.current = [];
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        return;
+      }
+
+      // Recognize Barcodes & 2D QR Codes (URLs, JSON payloads, NP-/SKU- codes, or fast burst)
       const isRecognizedBarcodeOrQR =
         code.toUpperCase().includes('NP-') ||
         code.toUpperCase().includes('SKU-') ||
-        /^\d{4,}$/.test(code) ||
         code.startsWith('{') ||
         code.startsWith('[') ||
         /^https?:\/\//i.test(code) ||

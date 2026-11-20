@@ -114,9 +114,9 @@ export default function AdminProductsPage() {
   const [jewelOffsetY, setJewelOffsetY] = useState(() => {
     try {
       const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
-      return saved !== null ? Number(saved) : 0.5;
+      return saved !== null ? Number(saved) : 0;
     } catch {
-      return 0.5;
+      return 0;
     }
   });
 
@@ -3910,7 +3910,7 @@ export default function AdminProductsPage() {
                         cursor: 'pointer'
                       }}
                     >
-                      {shift === 0.5 ? '+0.5mm (Default)' : (shift === 0 ? '0mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
+                      {shift === 0 ? '0mm (Default)' : (shift === 0.5 ? '+0.5mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
                     </button>
                   ))}
                   <span style={{ fontSize: '10.5px', color: '#78350f', marginLeft: '6px' }}>

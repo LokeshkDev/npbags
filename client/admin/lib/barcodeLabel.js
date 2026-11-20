@@ -300,7 +300,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
-  const offsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : 0.5;
+  const offsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : 0;
   const offsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : 0;
 
   const stickers = list.map(item => {
@@ -320,18 +320,18 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <style>
   @page {
     size: 80mm 12mm;
-    margin: 0 !important;
+    margin: 0mm;
   }
   @media print {
     @page {
       size: 80mm 12mm;
-      margin: 0 !important;
+      margin: 0mm;
     }
     html, body {
       margin: 0 !important;
       padding: 0 !important;
       width: 80mm !important;
-      height: 12mm !important;
+      /* NO height constraint — let labels flow across pages naturally */
     }
   }
   * {
@@ -354,46 +354,39 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     background: #ffffff;
   }
   .jewel-sticker-list {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    display: block;
     padding: 0;
     margin: 0;
+    width: 80mm;
   }
   .jewel-sticker-wrapper {
+    display: block;
     width: 80mm;
     height: 12mm;
-    min-height: 12mm;
-    max-height: 12mm;
     page-break-inside: avoid;
     break-inside: avoid;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    overflow: visible !important;
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
     box-sizing: border-box;
     background: #ffffff;
     color: #000000 !important;
     margin: 0;
-  }
-  .jewel-sticker-wrapper:not(:last-child) {
-    page-break-after: always;
-    break-after: page;
+    padding: 0;
   }
   .jewel-sticker {
-    position: relative;
-    top: ${offsetY}mm;
     width: 80mm;
-    height: 12mm;
-    min-height: 12mm;
-    max-height: 12mm;
+    height: ${12 - Math.abs(offsetY)}mm;
+    margin-top: ${offsetY >= 0 ? offsetY : 0}mm;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
     box-sizing: border-box;
-    overflow: visible !important;
-    margin: 0;
+    overflow: hidden;
+    margin-left: 0;
+    margin-right: 0;
+    margin-bottom: 0;
     padding-left: ${1.8 + offsetX}mm;
   }
   /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */

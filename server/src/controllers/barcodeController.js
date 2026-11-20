@@ -164,7 +164,43 @@ async function lookupBarcode(req, res, next) {
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
       const branchStockVal = branchStockQuantity !== null ? branchStockQuantity : await getBranchStock(row.product_id);
-      const baseStock = row.variant_id ? row.stock_quantity : row.product_stock;
+      let baseStock = row.variant_id ? row.stock_quantity : row.product_stock;
+
+      let resolvedVariant = row.variant_id ? {
+        id: row.variant_id,
+        sku: row.sku,
+        color: row.color_name,
+        color_hex: row.color_hex,
+        size: row.size_name,
+        stock: branchStockVal !== null ? branchStockVal : (row.stock_quantity !== null && row.stock_quantity !== undefined ? row.stock_quantity : baseStock)
+      } : null;
+
+      // Single-variant or variant stock fallback if primary barcode has null variant_id
+      if (!row.variant_id) {
+        try {
+          const vRows = await query(
+            'SELECT id, sku, color_name, color_hex, size_name, stock_quantity FROM product_variants WHERE product_id = ?',
+            [row.product_id]
+          );
+          if (vRows.length > 0) {
+            const vTotal = vRows.reduce((sum, v) => sum + (parseInt(v.stock_quantity, 10) || 0), 0);
+            if ((!baseStock || Number(baseStock) <= 0) && vTotal > 0) {
+              baseStock = vTotal;
+            }
+            if (vRows.length === 1) {
+              resolvedVariant = {
+                id: vRows[0].id,
+                sku: vRows[0].sku,
+                color: vRows[0].color_name,
+                color_hex: vRows[0].color_hex,
+                size: vRows[0].size_name,
+                stock: branchStockVal !== null ? branchStockVal : (vRows[0].stock_quantity !== null && vRows[0].stock_quantity !== undefined ? vRows[0].stock_quantity : baseStock)
+              };
+            }
+          }
+        } catch (_) {}
+      }
+
       const effectiveStock = branchStockVal !== null
         ? branchStockVal
         : (baseStock !== undefined && baseStock !== null ? baseStock : 0);
@@ -189,14 +225,7 @@ async function lookupBarcode(req, res, next) {
         image: displayImage,
         branch_is_active: isBranchActive,
         branch_stock: branchStockQuantity,
-        variant: row.variant_id ? {
-          id: row.variant_id,
-          sku: row.sku,
-          color: row.color_name,
-          color_hex: row.color_hex,
-          size: row.size_name,
-          stock: branchStockVal !== null ? branchStockVal : row.stock_quantity
-        } : null,
+        variant: resolvedVariant,
         stock_quantity: effectiveStock
       });
     }
@@ -304,7 +333,28 @@ async function lookupBarcode(req, res, next) {
       const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
       const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
       const branchStockVal = await getBranchStock(p.id);
-      const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock !== null && p.stock !== undefined ? p.stock : 0);
+      let baseStock = p.stock !== null && p.stock !== undefined ? p.stock : 0;
+      let singleVariant = null;
+      try {
+        const vRows = await query('SELECT id, sku, color_name, color_hex, size_name, stock_quantity FROM product_variants WHERE product_id = ?', [p.id]);
+        if (vRows.length > 0) {
+          const vTotal = vRows.reduce((sum, v) => sum + (parseInt(v.stock_quantity, 10) || 0), 0);
+          if ((!baseStock || Number(baseStock) <= 0) && vTotal > 0) {
+            baseStock = vTotal;
+          }
+          if (vRows.length === 1) {
+            singleVariant = {
+              id: vRows[0].id,
+              sku: vRows[0].sku,
+              color: vRows[0].color_name,
+              color_hex: vRows[0].color_hex,
+              size: vRows[0].size_name,
+              stock: branchStockVal !== null ? branchStockVal : (vRows[0].stock_quantity !== null && vRows[0].stock_quantity !== undefined ? vRows[0].stock_quantity : baseStock)
+            };
+          }
+        }
+      } catch (_) {}
+      const effectiveStock = branchStockVal !== null ? branchStockVal : (baseStock !== null && baseStock !== undefined ? baseStock : 0);
 
       return sendSuccess(res, {
         found_by: 'product',
@@ -323,7 +373,7 @@ async function lookupBarcode(req, res, next) {
         regular_price: parseFloat(p.price),
         hsn_code: p.hsn_code || '4202',
         image: displayImage,
-        variant: null,
+        variant: singleVariant,
         stock_quantity: effectiveStock
       });
     }
@@ -362,7 +412,28 @@ async function lookupBarcode(req, res, next) {
         const effectivePrice = p.sale_price > 0 ? parseFloat(p.sale_price) : parseFloat(p.price);
         const effectiveBarcode = p.primary_barcode || `NP-${p.id}`;
         const branchStockVal = await getBranchStock(p.id);
-        const effectiveStock = branchStockVal !== null ? branchStockVal : (p.stock !== null && p.stock !== undefined ? p.stock : 0);
+        let baseStock = p.stock !== null && p.stock !== undefined ? p.stock : 0;
+        let singleVariant = null;
+        try {
+          const vRows = await query('SELECT id, sku, color_name, color_hex, size_name, stock_quantity FROM product_variants WHERE product_id = ?', [p.id]);
+          if (vRows.length > 0) {
+            const vTotal = vRows.reduce((sum, v) => sum + (parseInt(v.stock_quantity, 10) || 0), 0);
+            if ((!baseStock || Number(baseStock) <= 0) && vTotal > 0) {
+              baseStock = vTotal;
+            }
+            if (vRows.length === 1) {
+              singleVariant = {
+                id: vRows[0].id,
+                sku: vRows[0].sku,
+                color: vRows[0].color_name,
+                color_hex: vRows[0].color_hex,
+                size: vRows[0].size_name,
+                stock: branchStockVal !== null ? branchStockVal : (vRows[0].stock_quantity !== null && vRows[0].stock_quantity !== undefined ? vRows[0].stock_quantity : baseStock)
+              };
+            }
+          }
+        } catch (_) {}
+        const effectiveStock = branchStockVal !== null ? branchStockVal : (baseStock !== null && baseStock !== undefined ? baseStock : 0);
 
         return sendSuccess(res, {
           found_by: 'name_match',
@@ -381,7 +452,7 @@ async function lookupBarcode(req, res, next) {
           regular_price: parseFloat(p.price),
           hsn_code: p.hsn_code || '4202',
           image: displayImage,
-          variant: null,
+          variant: singleVariant,
           stock_quantity: effectiveStock
         });
       }
