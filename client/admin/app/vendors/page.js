@@ -1468,9 +1468,28 @@ export default function AdminVendorsPage() {
   };
 
   const barcodeCopiesForItem = (item) => {
+    if (item.custom_copies !== undefined && item.custom_copies !== '') {
+      return Math.max(0, parseInt(item.custom_copies, 10) || 0);
+    }
     if (barcodePrintMode === 'quantity') return Math.max(1, parseInt(item.quantity, 10) || 1);
     if (barcodePrintMode === 'custom') return Math.max(1, parseInt(barcodePrintCopies, 10) || 1);
     return 1;
+  };
+
+  const updateBarcodePrintItemCopies = (index, val) => {
+    setBarcodePrintItems(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      const parsed = parseInt(val, 10);
+      return { ...item, custom_copies: Number.isNaN(parsed) ? '' : Math.max(0, parsed) };
+    }));
+  };
+
+  const handleBarcodePrintModeChange = (mode) => {
+    setBarcodePrintMode(mode);
+    setBarcodePrintItems(prev => prev.map(item => {
+      const { custom_copies, ...rest } = item;
+      return rest;
+    }));
   };
 
   const barcodePrintTotal = barcodePrintItems
@@ -1486,10 +1505,18 @@ export default function AdminVendorsPage() {
     if (printable.length !== barcodePrintItems.length) {
       showToast('Skipped items without a barcode.', 'error');
     }
-    const items = printable.map(item => ({
-      ...item,
-      copies: barcodeCopiesForItem(item)
-    }));
+    const items = printable
+      .map(item => ({
+        ...item,
+        copies: barcodeCopiesForItem(item)
+      }))
+      .filter(item => item.copies > 0);
+
+    if (items.length === 0) {
+      showToast('All label quantities are set to 0.', 'error');
+      return;
+    }
+
     printBarcodeLabels(items, 1, {
       title: `Purchase Bill ${barcodePrintBill?.bill_number || ''} Barcodes`,
       stickerType: barcodeStickerFormat
@@ -3506,7 +3533,7 @@ export default function AdminVendorsPage() {
                     >
                       <div style={{ fontWeight: 800, fontSize: '12px' }}>💍 Jewellery Tag (80×12mm · 1-Up)</div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                        NT W/O Folding tag with 3mm tail. 10×10mm QR Code, Store Name, MRP & Arrival Code.
+                        NT W/O Folding tag with 3mm tail. 1D Barcode, MRP, Barcode & Arrival Code.
                       </div>
                     </button>
                   </div>
@@ -3521,7 +3548,7 @@ export default function AdminVendorsPage() {
                     <button
                       key={option.key}
                       type="button"
-                      onClick={() => setBarcodePrintMode(option.key)}
+                      onClick={() => handleBarcodePrintModeChange(option.key)}
                       style={{
                         padding: '7px 12px',
                         borderRadius: '6px',
@@ -3543,7 +3570,14 @@ export default function AdminVendorsPage() {
                         type="number"
                         min="1"
                         value={barcodePrintCopies}
-                        onChange={(e) => setBarcodePrintCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                          setBarcodePrintCopies(val);
+                          setBarcodePrintItems(prev => prev.map(item => {
+                            const { custom_copies, ...rest } = item;
+                            return rest;
+                          }));
+                        }}
                         style={{ width: '80px', padding: '7px 9px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
                       />
                     </div>
@@ -3579,7 +3613,28 @@ export default function AdminVendorsPage() {
                           <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 800 }}>
                             {item.mrp ? `₹${money(item.mrp)}` : '—'}
                           </td>
-                          <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 800 }}>{item.barcode ? barcodeCopiesForItem(item) : 0}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                            {item.barcode ? (
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.custom_copies !== undefined ? item.custom_copies : barcodeCopiesForItem(item)}
+                                onChange={(e) => updateBarcodePrintItemCopies(index, e.target.value)}
+                                style={{
+                                  width: '56px',
+                                  padding: '3px 6px',
+                                  textAlign: 'center',
+                                  fontWeight: 800,
+                                  fontSize: '12px',
+                                  borderRadius: '5px',
+                                  border: '1px solid #cbd5e1'
+                                }}
+                                title="Adjust label quantity for this line item"
+                              />
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>0</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

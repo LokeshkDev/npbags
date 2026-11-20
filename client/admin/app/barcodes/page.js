@@ -995,18 +995,16 @@ export default function AdminBarcodesPage() {
                 LIVE PREVIEW ({customPrintFormat === 'jewellery_80x12' ? 'Unfolded 80×12mm Dumbbell' : '35×25mm Sticker'})
               </div>
               {customPrintFormat === 'jewellery_80x12' ? (
-                /* Unfolded Jewellery dumbbell tag (80x12mm: Flap 1 QR + Arrival, Flap 2 MRP + Barcode, Tail 3mm) */
+                /* Unfolded Jewellery dumbbell tag (80x12mm: Flap 1 1D Barcode + Arrival, Flap 2 MRP + Barcode, Tail 3mm) */
                 <div style={{ width: '100%', height: '52px', border: '1px solid #000', borderRadius: '4px', background: '#fff', display: 'flex', alignItems: 'stretch', padding: '0', boxSizing: 'border-box', overflow: 'hidden' }}>
-                  {/* Flap 1: Arrival Code (if present) + Centered QR Code */}
-                  <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRight: '1px dashed #cbd5e1', padding: '2px 4px' }}>
+                  {/* Flap 1: Arrival Code (if present) + Centered 1D Barcode */}
+                  <div style={{ width: '38%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px dashed #cbd5e1', padding: '2px 4px' }}>
                     {(customPrintItem.purchase_rate_alias || customPrintItem.rate_alias || customPrintItem.alias) && (
-                      <div style={{ fontSize: '7.5px', fontWeight: 900, textTransform: 'uppercase', color: '#000' }}>
+                      <div style={{ fontSize: '7.5px', fontWeight: 900, textTransform: 'uppercase', color: '#000', marginBottom: '1px' }}>
                         {customPrintItem.purchase_rate_alias || customPrintItem.rate_alias || customPrintItem.alias}
                       </div>
                     )}
-                    <div style={{ width: '36px', height: '36px', minWidth: '36px', border: '1px solid #cbd5e1', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
-                      <span style={{ fontSize: '7px', color: '#000', fontWeight: 900 }}>QR CODE</span>
-                    </div>
+                    <div style={{ width: '92%', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: customPrintItem.svg || '' }} />
                   </div>
 
                   {/* Flap 2: Centered ◄ MRP + Barcode Number */}

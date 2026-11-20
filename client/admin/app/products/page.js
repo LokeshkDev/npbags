@@ -3953,14 +3953,12 @@ export default function AdminProductsPage() {
                         {barcodeStickerFormat === 'jewellery_80x12' ? (
                           /* Jewellery 80x12mm Exact Physical Tag Preview */
                           <div style={{ width: '280px', height: '46px', border: '1px solid #000', borderRadius: '3px', background: '#fff', display: 'flex', alignItems: 'stretch', boxSizing: 'border-box', flexShrink: 0, overflow: 'hidden' }}>
-                            {/* Flap 1 (~38%): Centered QR Code + Arrival Code (if present) */}
-                            <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
+                            {/* Flap 1 (~38%): Centered 1D Barcode + Arrival Code (if present) */}
+                            <div style={{ width: '38%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
                               {arrivalCode && (
-                                <div style={{ fontSize: '7.5px', fontWeight: 900, color: '#000', textTransform: 'uppercase' }}>{arrivalCode}</div>
+                                <div style={{ fontSize: '7.5px', fontWeight: 900, color: '#000', textTransform: 'uppercase', marginBottom: '1px' }}>{arrivalCode}</div>
                               )}
-                              <div style={{ width: '34px', height: '34px', minWidth: '34px', border: '1px solid #cbd5e1', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
-                                <span style={{ fontSize: '7px', color: '#000', fontWeight: 900 }}>QR CODE</span>
-                              </div>
+                              <div style={{ width: '92%', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: b.svg || '' }} />
                             </div>
 
                             {/* Flap 2 (~38%): Centered ◄ MRP:XXX + Barcode Number */}
