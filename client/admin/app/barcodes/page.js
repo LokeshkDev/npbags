@@ -24,6 +24,15 @@ export default function AdminBarcodesPage() {
       return 0;
     }
   });
+  const [jewelPitchMm, setJewelPitchMm] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('npgrand_jewel_pitch_mm');
+      const n = saved !== null ? Number(saved) : 12;
+      return Number.isFinite(n) && n >= 12 && n <= 30 ? n : 12;
+    } catch {
+      return 12;
+    }
+  });
 
   // Product selector for bulk barcode management
   const [products, setProducts] = useState([]);
@@ -315,6 +324,26 @@ export default function AdminBarcodesPage() {
                   ))}
                   <span style={{ fontSize: '10.5px', color: '#78350f', marginLeft: '6px' }}>
                     *In print dialog: <strong>Margins: None</strong> and <strong>Scale: 100%</strong> (turn off “Fit to page / Fit to printable area”)
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: '11.5px', fontWeight: 800, color: '#92400e' }}>Label pitch / feed (mm):</label>
+                  <input
+                    type="number"
+                    min="12"
+                    max="30"
+                    step="0.1"
+                    value={jewelPitchMm}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      const next = Number.isFinite(v) ? Math.max(12, Math.min(30, v)) : 12;
+                      setJewelPitchMm(next);
+                      try { window.localStorage.setItem('npgrand_jewel_pitch_mm', String(next)); } catch {}
+                    }}
+                    style={{ width: '74px', padding: '3px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '12px' }}
+                  />
+                  <span style={{ fontSize: '10.5px', color: '#78350f' }}>
+                    80×12mm tag = <strong>12</strong>. If the roll has a 3mm tail/gap, set <strong>15</strong> (12+3).
                   </span>
                 </div>
               </div>

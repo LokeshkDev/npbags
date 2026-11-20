@@ -306,6 +306,20 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const offsetY = Number.isFinite(rawOffsetY) ? Math.max(-6, Math.min(6, rawOffsetY)) : 0;
   const offsetX = Number.isFinite(rawOffsetX) ? Math.max(-6, Math.min(6, rawOffsetX)) : 0;
 
+  // Physical label height is 12mm. Some rolls (e.g. 80x12mm with a 3mm
+  // tail/gap) have a larger feed pitch than the label itself. The TSC driver
+  // normally advances by label+gap, but if the browser page length is what
+  // drives the feed, we must match the real pitch or every tag after the
+  // first drifts. 12 = label only (driver adds gap), 15 = 12mm label + 3mm.
+  let rawPitch = options.jewelPitchMm;
+  if (rawPitch === undefined && typeof window !== 'undefined') {
+    try { rawPitch = window.localStorage.getItem('npgrand_jewel_pitch_mm'); } catch {}
+  }
+  const parsedPitch = Number(rawPitch);
+  const jewelleryPageHeightMm = Number.isFinite(parsedPitch) && parsedPitch >= 12 && parsedPitch <= 30
+    ? parsedPitch
+    : 12;
+
   const stickers = list.map(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
     const copies = Math.max(1, Number.isFinite(requested) ? requested : 1);
@@ -322,12 +336,12 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <title>${options.title || 'Jewellery Barcode Tags (80x12mm)'}</title>
 <style>
   @page {
-    size: 80mm 12mm;
+    size: 80mm ${jewelleryPageHeightMm}mm;
     margin: 0mm;
   }
   @media print {
     @page {
-      size: 80mm 12mm;
+      size: 80mm ${jewelleryPageHeightMm}mm;
       margin: 0mm;
     }
     html, body {
@@ -365,7 +379,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   .jewel-sticker-wrapper {
     display: block;
     width: 80mm;
-    height: 12mm;
+    height: ${jewelleryPageHeightMm}mm;
     page-break-inside: avoid;
     break-inside: avoid;
     page-break-after: always;

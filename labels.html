@@ -1,0 +1,250 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Jewellery Barcode Tags (80x12mm)</title>
+<style>
+  @page {
+    size: 80mm 12mm;
+    margin: 0mm;
+  }
+  @media print {
+    @page {
+      size: 80mm 12mm;
+      margin: 0mm;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 80mm !important;
+      /* NO height constraint — let labels flow across pages naturally */
+    }
+  }
+  * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 80mm;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-weight: 700;
+    background: #ffffff;
+  }
+  .jewel-sticker-list {
+    display: block;
+    padding: 0;
+    margin: 0;
+    width: 80mm;
+  }
+  .jewel-sticker-wrapper {
+    display: block;
+    width: 80mm;
+    height: 12mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
+    box-sizing: border-box;
+    background: #ffffff;
+    color: #000000 !important;
+    margin: 0;
+    padding: 0;
+  }
+  .jewel-sticker {
+    width: 80mm;
+    height: 12mm;
+    margin-top: 0mm;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    overflow: hidden;
+    margin-left: 0;
+    margin-right: 0;
+    margin-bottom: 0;
+    padding-left: 1.8mm;
+  }
+  /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */
+  .jewel-flap-1 {
+    width: 24mm;
+    height: 12mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 0.2mm 0.3mm;
+    overflow: hidden;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .jewel-arrival {
+    font-size: 5pt;
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: 0.3mm;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    text-align: center;
+  }
+  .jewel-barcode-box {
+    width: 22.5mm;
+    height: 7.2mm;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff !important;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .jewel-barcode-box svg {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+    background: #ffffff !important;
+    shape-rendering: crispEdges !important;
+  }
+  .jewel-barcode-box svg rect {
+    shape-rendering: crispEdges !important;
+    stroke: none !important;
+  }
+
+  /* FLAP 2: Back Face (~25mm x 12mm) — Centered ◄ MRP:XXX + Barcode Number */
+  .jewel-flap-2 {
+    width: 24mm;
+    height: 12mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+    padding: 0 0.5mm;
+    gap: 0.5mm;
+    overflow: hidden;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .jewel-mrp-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6mm;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .jewel-arrow {
+    font-size: 6.5pt;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .jewel-mrp-val {
+    font-size: 8pt;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.2px;
+  }
+  .jewel-barcode-num {
+    font-size: 6pt;
+    font-weight: 800;
+    font-family: Arial, sans-serif;
+    letter-spacing: 0.2px;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    text-align: center;
+  }
+
+  /* Rat-Tail Stem: ~30mm x 3mm (Blank) */
+  .jewel-tail-zone {
+    width: 28mm;
+    height: 3mm;
+    background: transparent;
+    box-sizing: border-box;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+  <div class="jewel-sticker-list">
+    <div class="jewel-sticker-wrapper">
+      <div class="jewel-sticker">
+        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode -->
+        <div class="jewel-flap jewel-flap-1">
+          
+          <div class="jewel-barcode-box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 121 28" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges"><rect width="121" height="28" fill="#ffffff" /><rect x="10" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="13" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="16" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="21" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="23" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="29" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="32" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="36" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="40" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="43" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="46" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="49" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="54" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="56" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="60" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="65" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="70" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="73" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="76" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="81" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="84" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="87" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="91" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="93" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="98" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="103" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="107" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="109" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /></svg></div>
+        </div>
+
+        <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
+        <div class="jewel-flap jewel-flap-2">
+          <div class="jewel-mrp-row">
+            <span class="jewel-mrp-val">MRP: ₹50</span>
+          </div>
+          <div class="jewel-barcode-num">NP-2886</div>
+        </div>
+
+        <!-- TAIL: 3mm Blank Stem (~30mm) -->
+        <div class="jewel-tail-zone"></div>
+      </div>
+    </div>
+  
+    <div class="jewel-sticker-wrapper">
+      <div class="jewel-sticker">
+        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode -->
+        <div class="jewel-flap jewel-flap-1">
+          
+          <div class="jewel-barcode-box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 121 28" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges"><rect width="121" height="28" fill="#ffffff" /><rect x="10" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="13" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="16" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="21" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="23" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="29" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="32" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="36" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="40" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="43" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="46" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="49" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="54" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="56" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="60" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="65" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="70" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="73" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="76" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="82" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="84" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="87" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="90" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="94" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="98" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="103" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="107" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="109" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /></svg></div>
+        </div>
+
+        <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
+        <div class="jewel-flap jewel-flap-2">
+          <div class="jewel-mrp-row">
+            <span class="jewel-mrp-val">MRP: ₹50</span>
+          </div>
+          <div class="jewel-barcode-num">NP-2887</div>
+        </div>
+
+        <!-- TAIL: 3mm Blank Stem (~30mm) -->
+        <div class="jewel-tail-zone"></div>
+      </div>
+    </div>
+  
+    <div class="jewel-sticker-wrapper">
+      <div class="jewel-sticker">
+        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode -->
+        <div class="jewel-flap jewel-flap-1">
+          
+          <div class="jewel-barcode-box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 121 28" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges"><rect width="121" height="28" fill="#ffffff" /><rect x="10" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="13" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="16" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="21" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="23" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="29" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="32" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="36" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="40" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="43" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="46" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="49" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="54" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="56" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="60" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="65" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="70" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="73" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="76" y="0" width="4" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="82" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="85" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="87" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="91" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="95" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="98" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="103" y="0" width="3" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="107" y="0" width="1" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /><rect x="109" y="0" width="2" height="28" fill="#000000" stroke="none" shape-rendering="crispEdges" /></svg></div>
+        </div>
+
+        <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
+        <div class="jewel-flap jewel-flap-2">
+          <div class="jewel-mrp-row">
+            <span class="jewel-mrp-val">MRP: ₹50</span>
+          </div>
+          <div class="jewel-barcode-num">NP-2888</div>
+        </div>
+
+        <!-- TAIL: 3mm Blank Stem (~30mm) -->
+        <div class="jewel-tail-zone"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    
