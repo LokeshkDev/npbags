@@ -300,8 +300,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
-  const offsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : 0;
-  const offsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : 0;
+  const rawOffsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : 0;
+  const rawOffsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : 0;
+  // Clamp so a stale/out-of-range saved offset can never blow up the label box.
+  const offsetY = Number.isFinite(rawOffsetY) ? Math.max(-6, Math.min(6, rawOffsetY)) : 0;
+  const offsetX = Number.isFinite(rawOffsetX) ? Math.max(-6, Math.min(6, rawOffsetX)) : 0;
 
   const stickers = list.map(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
@@ -374,20 +377,28 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     margin: 0;
     padding: 0;
   }
+  /* Never emit a trailing blank label after the final tag */
+  .jewel-sticker-wrapper:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
   .jewel-sticker {
+    /* Always keep the full 12mm label height. The old code did
+       height: 12 - abs(offset), which shrank/clipped the tag whenever a
+       saved offset was active. The nudge is applied with transform so it
+       can never change layout height or push content into the next tag. */
     width: 80mm;
-    height: ${12 - Math.abs(offsetY)}mm;
-    margin-top: ${offsetY >= 0 ? offsetY : 0}mm;
+    height: 12mm;
+    transform: translate(${offsetX}mm, ${offsetY}mm);
+    transform-origin: top left;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
     box-sizing: border-box;
-    overflow: hidden;
-    margin-left: 0;
-    margin-right: 0;
-    margin-bottom: 0;
-    padding-left: ${1.8 + offsetX}mm;
+    overflow: visible;
+    margin: 0;
+    padding-left: 1.8mm;
   }
   /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */
   .jewel-flap-1 {

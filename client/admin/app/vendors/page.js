@@ -3550,7 +3550,7 @@ export default function AdminVendorsPage() {
                   {barcodeStickerFormat === 'jewellery_80x12' && (
                     <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '7px', padding: '10px 12px', fontSize: '12px', color: '#92400e', marginTop: '10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                        <span><strong>Vertical Offset (Gap Alignment):</strong> Shift up/down if print lands across the gap</span>
+                        <span><strong>Content Nudge:</strong> Fine-tune a single tag only. If the 2nd/3rd tag drifts, calibrate the printer&apos;s label length / gap sensor — a static offset cannot cancel multi-tag drift.</span>
                         <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>Active: {jewelOffsetY}mm</span>
                       </div>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
@@ -3577,7 +3577,7 @@ export default function AdminVendorsPage() {
                           </button>
                         ))}
                         <span style={{ fontSize: '11px', color: '#78350f', marginLeft: '6px' }}>
-                          *Print dialog: set <strong>Margins: None</strong>
+                          *Print dialog: <strong>Margins: None</strong> and <strong>Scale: 100%</strong> (turn off “Fit to page / Fit to printable area”)
                         </span>
                       </div>
                     </div>
