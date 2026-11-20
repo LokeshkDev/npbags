@@ -1043,7 +1043,6 @@ export function POSBillingModal() {
     setShowSuggestions(false);
     setShowRowSuggestions(false);
     try {
-      // Resolve against the already-loaded catalog first (fast path).
       const localPool = mergeProductLists(allProducts, remoteSearchProducts, remoteRowProducts, remoteModalProducts);
       const localMatch = findExactProductMatch(localPool, code);
       if (localMatch?.product) {
@@ -1071,19 +1070,15 @@ export function POSBillingModal() {
         setSearchInput('');
         setRowInput('');
       } else {
-        setRowInput(code);
         showToast(`Barcode / QR Code not found: ${code}`, 'error');
       }
     } catch (err) {
-      setRowInput(code);
       showToast(err.message || `Barcode / QR Code not found: ${code}`, 'error');
     } finally {
       setSearching(false);
-      // Keep the scan field ready for the next barcode (overrides the staff autofocus).
-      setTimeout(() => {
-        rowInputRef.current?.focus();
-        rowInputRef.current?.select();
-      }, 120);
+      setRowInput('');
+      rowInputRef.current?.focus();
+      rowInputRef.current?.select();
     }
   };
 

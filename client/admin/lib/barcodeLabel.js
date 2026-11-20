@@ -227,8 +227,8 @@ export function renderJewellerySticker(item, options = {}) {
   const label = getLabelDetails(item, options);
   const barcodeText = item.barcode || 'NO BARCODE';
 
-  // Build QR Code SVG inline
-  const qrSvg = item._qrSvg || '';
+  // Use Code 128 Barcode SVG (replaces QR code)
+  const barcodeSvg = item._barcodeSvg || '';
 
   // Arrival code line (e.g. CW2) — strictly only if entered in field entry
   const arrivalHtml = label.hasArrivalCode
@@ -243,10 +243,10 @@ export function renderJewellerySticker(item, options = {}) {
   return `
     <div class="jewel-sticker-wrapper">
       <div class="jewel-sticker">
-        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered QR Code -->
+        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered Barcode -->
         <div class="jewel-flap jewel-flap-1">
           ${arrivalHtml}
-          <div class="jewel-qr-box">${qrSvg}</div>
+          <div class="jewel-qr-box">${barcodeSvg}</div>
         </div>
 
         <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
@@ -269,28 +269,17 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
 
-  // For jewellery tags, generate QR Code SVGs and attach to items
+  // For jewellery tags, generate Code 128 Barcode SVGs and attach to items
   if (isJewellery) {
-    let QRCode = null;
-    try {
-      QRCode = (await import('qrcode')).default || (await import('qrcode'));
-    } catch (e) {
-      console.warn('QRCode library not available, falling back to Code128 barcode for jewellery tags');
-    }
-    if (QRCode) {
-      for (const item of list) {
-        const code = item.barcode || item.code || 'NP-0000';
-        try {
-          item._qrSvg = await QRCode.toString(code, {
-            type: 'svg',
-            margin: 0,
-            width: 100,
-            errorCorrectionLevel: 'L',
-            color: { dark: '#000000', light: '#ffffff' }
-          });
-        } catch (e) {
-          item._qrSvg = '';
-        }
+    for (const item of list) {
+      const code = item.barcode || item.code || 'NP-0000';
+      try {
+        item._barcodeSvg = generateCode128SVG(code, {
+          height: 8.8,
+          quietZone: 1.5
+        });
+      } catch (e) {
+        item._barcodeSvg = '';
       }
     }
   }
@@ -308,11 +297,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <html>
 <head>
 <meta charset="utf-8">
-<title>${options.title || 'Jewellery QR Tags (80x12mm)'}</title>
+<title>${options.title || 'Jewellery Barcode Tags (80x12mm)'}</title>
 <style>
   @page {
     size: 80mm 12mm;
-    margin: 0;
+    margin: 0 !important;
   }
   * {
     color: #000000 !important;
@@ -321,9 +310,12 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     margin: 0;
     padding: 0;
   }
-  body {
-    margin: 0;
-    padding: 0;
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 80mm !important;
+    height: 12mm !important;
+    overflow: hidden !important;
     font-family: Arial, Helvetica, sans-serif;
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
@@ -344,9 +336,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     min-height: 12mm;
     max-height: 12mm;
     page-break-inside: avoid;
-    page-break-after: always;
     break-inside: avoid;
-    break-after: page;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -354,7 +344,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     box-sizing: border-box;
     background: #ffffff;
     color: #000000 !important;
-    margin: 0 auto;
+    margin: 0;
+  }
+  .jewel-sticker-wrapper:not(:last-child) {
+    page-break-after: always;
+    break-after: page;
   }
   .jewel-sticker {
     width: 80mm;
@@ -367,7 +361,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     justify-content: flex-start;
     box-sizing: border-box;
     overflow: hidden;
-    margin: 0 auto;
+    margin: 0;
   }
   /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered QR Code */
   .jewel-flap-1 {
@@ -395,12 +389,12 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     text-align: center;
   }
   .jewel-qr-box {
-    width: 9.8mm;
-    height: 9.8mm;
-    min-width: 9.8mm;
-    min-height: 9.8mm;
-    max-width: 9.8mm;
-    max-height: 9.8mm;
+    width: 8.8mm;
+    height: 8.8mm;
+    min-width: 8.8mm;
+    min-height: 8.8mm;
+    max-width: 8.8mm;
+    max-height: 8.8mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -429,7 +423,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     align-items: center;
     box-sizing: border-box;
     padding: 0 1mm;
-    gap: 0.8mm;
+    gap: 0.6mm;
     overflow: hidden;
     text-align: center;
   }
@@ -447,7 +441,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     line-height: 1;
   }
   .jewel-mrp-val {
-    font-size: 12pt;
+    font-size: 8pt;
     font-weight: 900;
     line-height: 1;
     letter-spacing: -0.2px;
