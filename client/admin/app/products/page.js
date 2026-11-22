@@ -7,6 +7,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
 import { ImageUploader } from '../../components/ImageUploader';
+import { CameraButton } from '../../components/CameraButton';
 import { Icon } from '../../components/Icons';
 import {
   getAdminProducts,
@@ -37,6 +38,7 @@ import {
 import { useAdminAuth } from '../../lib/auth';
 import useScannerInput from '../../hooks/useScannerInput';
 import { printBarcodeLabels, getCleanBarcodeSVG } from '../../lib/barcodeLabel';
+import { JewelleryLabelControls } from '../../components/JewelleryLabelControls';
 import { extractScanCode } from '../../lib/scanCodeUtils';
 
 const toDateInput = (value) => {
@@ -111,14 +113,6 @@ export default function AdminProductsPage() {
   const [popupBarcodes, setPopupBarcodes] = useState([]);
   const [loadingPopupBarcodes, setLoadingPopupBarcodes] = useState(false);
   const [barcodeStickerFormat, setBarcodeStickerFormat] = useState('normal_35x25');
-  const [jewelOffsetY, setJewelOffsetY] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
-      return saved !== null ? Number(saved) : 0;
-    } catch {
-      return 0;
-    }
-  });
 
   const galleryFileInputRef = useRef(null);
   const replaceFileInputRef = useRef(null);
@@ -935,16 +929,9 @@ export default function AdminProductsPage() {
       purchase_rate_alias: aliasVal
     };
 
-    let savedOffsetY = jewelOffsetY;
-    try {
-      const s = window.localStorage.getItem('npgrand_jewel_offset_y');
-      if (s !== null) savedOffsetY = Number(s);
-    } catch {}
-
     printBarcodeLabels(itemToPrint, copies, {
       stickerType: format,
-      topLogoOffsetMm: 4.8,
-      jewelOffsetY: format === 'jewellery_80x12' ? savedOffsetY : 0
+      topLogoOffsetMm: 4.8
     });
   };
 
@@ -1127,16 +1114,15 @@ export default function AdminProductsPage() {
     }
   };
 
-  const handleReplaceImageFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !replacingImageId || !editingProduct) return;
+  const replaceImageFile = async (file, imageId = replacingImageId) => {
+    if (!file || !imageId || !editingProduct) return;
     try {
       const data = new FormData();
       data.append('image', file);
-      const res = await replaceProductImage(editingProduct.id, replacingImageId, data);
+      const res = await replaceProductImage(editingProduct.id, imageId, data);
       if (res && res.image_url) {
         setProductImages(productImages.map(img =>
-          img.id === replacingImageId ? { ...img, image_url: res.image_url } : img
+          img.id === imageId ? { ...img, image_url: res.image_url } : img
         ));
         loadData();
       }
@@ -1145,6 +1131,13 @@ export default function AdminProductsPage() {
     } finally {
       setReplacingImageId(null);
     }
+  };
+
+  const handleReplaceImageFileChange = (e) => {
+    const file = e.target.files[0];
+    const imageId = replacingImageId;
+    e.target.value = '';
+    replaceImageFile(file, imageId);
   };
 
   const handleSetPrimaryImage = async (imageId) => {
@@ -1188,8 +1181,7 @@ export default function AdminProductsPage() {
     }
   };
 
-  const handleUploadGalleryImage = async (e) => {
-    const file = e.target.files[0];
+  const uploadGalleryFile = async (file) => {
     if (!file || !editingProduct) return;
     setIsUploadingGallery(true);
     try {
@@ -1206,6 +1198,12 @@ export default function AdminProductsPage() {
       setIsUploadingGallery(false);
       if (galleryFileInputRef.current) galleryFileInputRef.current.value = '';
     }
+  };
+
+  const handleUploadGalleryImage = (e) => {
+    const file = e.target.files[0];
+    uploadGalleryFile(file);
+    e.target.value = '';
   };
 
   // Product Duplication
@@ -3295,6 +3293,13 @@ export default function AdminProductsPage() {
                             onChange={(e) => handleUploadVariantImage(idx, e.target.files[0])}
                           />
                         </label>
+                        <CameraButton
+                          onFileSelect={(file) => handleUploadVariantImage(idx, file)}
+                          disabled={isUploadingVariantIndex === idx}
+                          label="Photo"
+                          maxDim={1600}
+                          style={{ height: '34px', padding: '0 9px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                        />
                         {v.image_url && (
                           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                             <img
@@ -3370,6 +3375,13 @@ export default function AdminProductsPage() {
                     <Icon name="plus" size={14} />
                     <span>{isUploadingGallery ? 'Uploading...' : 'Add Image'}</span>
                   </button>
+                  <CameraButton
+                    onFileSelect={uploadGalleryFile}
+                    disabled={isUploadingGallery}
+                    label="Take Photo"
+                    maxDim={1600}
+                    style={{ padding: '4px 10px', fontSize: '12px', marginLeft: '6px' }}
+                  />
                 </div>
               </div>
 
@@ -3452,6 +3464,21 @@ export default function AdminProductsPage() {
                       >
                         Replace
                       </button>
+                      <CameraButton
+                        onFileSelect={(file) => replaceImageFile(file, img.id)}
+                        title="Replace with a photo"
+                        iconOnly
+                        maxDim={1600}
+                        style={{
+                          padding: '6px 8px',
+                          fontSize: '11px',
+                          border: 'none',
+                          background: '#f8fafc',
+                          color: '#2563eb',
+                          cursor: 'pointer',
+                          borderRight: '1px solid #e2e8f0'
+                        }}
+                      />
                       <button
                         type="button"
                         onClick={() => handleDeleteImage(img.id)}
@@ -3885,39 +3912,7 @@ export default function AdminProductsPage() {
             </div>
 
             {barcodeStickerFormat === 'jewellery_80x12' && (
-              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '7px', padding: '9px 12px', fontSize: '11.5px', color: '#92400e', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                  <span><strong>Content Nudge:</strong> Fine-tune a single tag only. If the 2nd/3rd tag drifts, calibrate the printer&apos;s label length / gap sensor — a static offset cannot cancel multi-tag drift.</span>
-                  <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>Active: {jewelOffsetY}mm</span>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap' }}>
-                  {[-5, -3, 0, 0.5, 1, 2, 3].map(shift => (
-                    <button
-                      key={shift}
-                      type="button"
-                      onClick={() => {
-                        setJewelOffsetY(shift);
-                        try { window.localStorage.setItem('npgrand_jewel_offset_y', String(shift)); } catch {}
-                      }}
-                      style={{
-                        padding: '3px 9px',
-                        borderRadius: '5px',
-                        border: jewelOffsetY === shift ? '1.5px solid #b45309' : '1px solid #cbd5e1',
-                        background: jewelOffsetY === shift ? '#b45309' : '#fff',
-                        color: jewelOffsetY === shift ? '#fff' : '#334155',
-                        fontWeight: 800,
-                        fontSize: '11px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {shift === 0 ? '0mm (Default)' : (shift === 0.5 ? '+0.5mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
-                    </button>
-                  ))}
-                  <span style={{ fontSize: '10.5px', color: '#78350f', marginLeft: '6px' }}>
-                    *In print dialog: <strong>Margins: None</strong> and <strong>Scale: 100%</strong> (turn off “Fit to page / Fit to printable area”)
-                  </span>
-                </div>
-              </div>
+              <JewelleryLabelControls style={{ marginBottom: '14px' }} />
             )}
 
             {/* Barcode Cards List */}

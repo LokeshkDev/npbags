@@ -6,6 +6,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { Modal } from '../../components/Modal';
 import { Icon } from '../../components/Icons';
+import { CameraButton } from '../../components/CameraButton';
 import {
   getAdminBanners,
   createAdminBanner,
@@ -33,8 +34,7 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
     setLinkInput(category.banner_link || '');
   }, [category.banner_image, category.banner_link]);
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files && e.target.files[0];
+  const uploadBannerFile = async (file) => {
     if (!file) return;
 
     setUploading(true);
@@ -59,6 +59,12 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    uploadBannerFile(file);
+    e.target.value = '';
   };
 
   const handleSaveUrl = async () => {
@@ -242,6 +248,22 @@ function CategoryBannerUploader({ category, onBannerUpdated }) {
               <span>📷 {uploading ? 'Uploading...' : 'Upload Banner'}</span>
             </button>
 
+            <CameraButton
+              onFileSelect={uploadBannerFile}
+              disabled={uploading}
+              label="Take Photo"
+              maxDim={1800}
+              style={{
+                background: '#ffffff',
+                color: '#065935',
+                border: '1px solid #86efac',
+                borderRadius: '6px',
+                padding: '7px 14px',
+                fontSize: '12.5px',
+                fontWeight: 700
+              }}
+            />
+
             <button
               type="button"
               onClick={() => setShowUrlField(!showUrlField)}
@@ -390,8 +412,7 @@ function PageBannerItem({ pageKey, title, route, currentData, currentUrl, onSave
     setLink(typeof d === 'object' ? d?.link || '' : '');
   }, [currentData, currentUrl]);
 
-  const handleUpload = async (e) => {
-    const file = e.target.files && e.target.files[0];
+  const uploadPageBannerFile = async (file) => {
     if (!file) return;
 
     setUploading(true);
@@ -415,6 +436,12 @@ function PageBannerItem({ pageKey, title, route, currentData, currentUrl, onSave
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    uploadPageBannerFile(file);
+    e.target.value = '';
   };
 
   const handleSaveLink = async () => {
@@ -478,23 +505,40 @@ function PageBannerItem({ pageKey, title, route, currentData, currentUrl, onSave
             style={{ display: 'none' }}
             onChange={handleUpload}
           />
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              background: '#065935',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '8px 16px',
-              fontSize: '12.5px',
-              fontWeight: 700,
-              cursor: uploading ? 'not-allowed' : 'pointer'
-            }}
-          >
-            📷 {uploading ? 'Uploading...' : 'Upload Page Banner'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                background: '#065935',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '8px 16px',
+                fontSize: '12.5px',
+                fontWeight: 700,
+                cursor: uploading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              📷 {uploading ? 'Uploading...' : 'Upload Page Banner'}
+            </button>
+            <CameraButton
+              onFileSelect={uploadPageBannerFile}
+              disabled={uploading}
+              label="Take Photo"
+              maxDim={1800}
+              style={{
+                background: '#ffffff',
+                color: '#065935',
+                border: '1px solid #86efac',
+                borderRadius: '6px',
+                padding: '8px 14px',
+                fontSize: '12.5px',
+                fontWeight: 700
+              }}
+            />
+          </div>
           <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
             Recommended: 1800 × 450 px
           </span>
@@ -1059,7 +1103,13 @@ export default function AdminBannersPage() {
                         accept="image/*"
                         onChange={(e) => setNewCatData({ ...newCatData, imageFile: e.target.files[0] })}
                       />
-                      <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>Square or Portrait (e.g. 600x800)</span>
+                      <CameraButton
+                        onFileSelect={(file) => setNewCatData((prev) => ({ ...prev, imageFile: file }))}
+                        label="Take Photo"
+                        maxDim={1800}
+                        style={{ marginTop: '6px', padding: '5px 10px', fontSize: '11.5px' }}
+                      />
+                      <span style={{ fontSize: '10.5px', color: '#94a3b8', display: 'block', marginTop: '3px' }}>Square or Portrait (e.g. 600x800)</span>
                     </div>
 
                     <div className="form-group" style={{ margin: 0 }}>
@@ -1069,7 +1119,13 @@ export default function AdminBannersPage() {
                         accept="image/*"
                         onChange={(e) => setNewCatData({ ...newCatData, bannerFile: e.target.files[0] })}
                       />
-                      <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>Panoramic (e.g. 1600x400)</span>
+                      <CameraButton
+                        onFileSelect={(file) => setNewCatData((prev) => ({ ...prev, bannerFile: file }))}
+                        label="Take Photo"
+                        maxDim={1800}
+                        style={{ marginTop: '6px', padding: '5px 10px', fontSize: '11.5px' }}
+                      />
+                      <span style={{ fontSize: '10.5px', color: '#94a3b8', display: 'block', marginTop: '3px' }}>Panoramic (e.g. 1600x400)</span>
                     </div>
                   </div>
 
@@ -1284,6 +1340,12 @@ export default function AdminBannersPage() {
                       accept="image/*"
                       onChange={(e) => setHeroFormData({ ...heroFormData, image: e.target.files[0] })}
                       required={!editingHeroSlide}
+                    />
+                    <CameraButton
+                      onFileSelect={(file) => setHeroFormData((prev) => ({ ...prev, image: file }))}
+                      label="Take Photo"
+                      maxDim={1800}
+                      style={{ marginTop: '6px', padding: '5px 10px', fontSize: '11.5px' }}
                     />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>

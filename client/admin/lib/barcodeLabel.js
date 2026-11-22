@@ -1,4 +1,6 @@
 // Canonical ISO/IEC 15417 Code 128 Symbol Widths (Indices 0 to 106)
+import { getLabelSettings } from './labelSettings';
+
 const CODE128_WIDTHS = [
   '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
   '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132',
@@ -272,8 +274,14 @@ export function renderJewellerySticker(item, options = {}) {
     ? ` • SZ: ${label.size}`
     : '';
 
+  const continuous = Boolean(options.continuous);
+  const index = Number.isFinite(Number(options.index)) ? Number(options.index) : 0;
+  const pitch = Number.isFinite(Number(options.pitchMm)) ? Number(options.pitchMm) : 12;
+  const wrapperClass = continuous ? 'jewel-sticker-wrapper jewel-continuous' : 'jewel-sticker-wrapper';
+  const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
+
   return `
-    <div class="jewel-sticker-wrapper">
+    <div class="${wrapperClass}"${wrapperStyle}>
       <div class="jewel-sticker">
         <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode -->
         <div class="jewel-flap jewel-flap-1">
@@ -300,8 +308,9 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
-  const rawOffsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : 0;
-  const rawOffsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : 0;
+  const settings = getLabelSettings();
+  const rawOffsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : settings.offsetY;
+  const rawOffsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : settings.offsetX;
   // Clamp so a stale/out-of-range saved offset can never blow up the label box.
   const offsetY = Number.isFinite(rawOffsetY) ? Math.max(-6, Math.min(6, rawOffsetY)) : 0;
   const offsetX = Number.isFinite(rawOffsetX) ? Math.max(-6, Math.min(6, rawOffsetX)) : 0;
@@ -311,21 +320,38 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   // normally advances by label+gap, but if the browser page length is what
   // drives the feed, we must match the real pitch or every tag after the
   // first drifts. 12 = label only (driver adds gap), 15 = 12mm label + 3mm.
-  let rawPitch = options.jewelPitchMm;
-  if (rawPitch === undefined && typeof window !== 'undefined') {
-    try { rawPitch = window.localStorage.getItem('npgrand_jewel_pitch_mm'); } catch {}
-  }
+  const rawPitch = options.jewelPitchMm !== undefined ? options.jewelPitchMm : settings.pitchMm;
   const parsedPitch = Number(rawPitch);
   const jewelleryPageHeightMm = Number.isFinite(parsedPitch) && parsedPitch >= 12 && parsedPitch <= 30
     ? parsedPitch
     : 12;
+  const continuous = options.jewelContinuous !== undefined
+    ? Boolean(options.jewelContinuous)
+    : Boolean(settings.continuous);
 
+  let stickerIndex = 0;
+  let totalStickers = 0;
   const stickers = list.map(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
     const copies = Math.max(1, Number.isFinite(requested) ? requested : 1);
+    totalStickers += copies;
     const renderFn = isJewellery ? renderJewellerySticker : renderNormalSticker;
-    return Array.from({ length: copies }).map(() => renderFn(item, options)).join('');
+    return Array.from({ length: copies }).map(() => {
+      const html = renderFn(item, {
+        ...options,
+        continuous,
+        index: stickerIndex,
+        pitchMm: jewelleryPageHeightMm
+      });
+      stickerIndex += 1;
+      return html;
+    }).join('');
   }).join('');
+
+  const continuousHeightMm = Math.max(1, totalStickers) * jewelleryPageHeightMm;
+  const jewelleryPageSize = continuous
+    ? `80mm ${continuousHeightMm}mm`
+    : `80mm ${jewelleryPageHeightMm}mm`;
 
   if (isJewellery) {
     return `
@@ -336,12 +362,12 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <title>${options.title || 'Jewellery Barcode Tags (80x12mm)'}</title>
 <style>
   @page {
-    size: 80mm ${jewelleryPageHeightMm}mm;
+    size: ${jewelleryPageSize};
     margin: 0mm;
   }
   @media print {
     @page {
-      size: 80mm ${jewelleryPageHeightMm}mm;
+      size: ${jewelleryPageSize};
       margin: 0mm;
     }
     html, body {
@@ -376,14 +402,19 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     margin: 0;
     width: 80mm;
   }
+  /* Continuous-strip mode: one tall page, absolutely positioned tags at the
+     exact physical pitch. This guarantees tag N starts at N × pitch and is
+     not affected by sub-pixel flow rounding in the browser print engine. */
+  .jewel-sticker-list.jewel-continuous-list {
+    position: relative;
+    height: ${continuousHeightMm}mm;
+  }
   .jewel-sticker-wrapper {
     display: block;
     width: 80mm;
     height: ${jewelleryPageHeightMm}mm;
     page-break-inside: avoid;
     break-inside: avoid;
-    page-break-after: always;
-    break-after: page;
     overflow: hidden;
     box-sizing: border-box;
     background: #ffffff;
@@ -391,10 +422,12 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     margin: 0;
     padding: 0;
   }
-  /* Never emit a trailing blank label after the final tag */
-  .jewel-sticker-wrapper:last-child {
-    page-break-after: auto;
-    break-after: auto;
+  .jewel-sticker-wrapper.jewel-continuous {
+    position: absolute;
+    left: 0;
+    right: 0;
+    page-break-inside: auto;
+    break-inside: auto;
   }
   .jewel-sticker {
     /* Always keep the full 12mm label height. The old code did
@@ -519,7 +552,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 </style>
 </head>
 <body>
-  <div class="jewel-sticker-list">${stickers}</div>
+  <div class="jewel-sticker-list${continuous ? ' jewel-continuous-list' : ''}">${stickers}</div>
 </body>
 </html>
     `;
@@ -683,25 +716,163 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   `;
 }
 
-export async function printBarcodeLabels(items, copiesPerItem = 1, options = {}) {
-  const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
-  if (list.length === 0) {
-    if (typeof window !== 'undefined') window.alert('No barcodes to print.');
-    return false;
+function renderCalibrationSticker(index, options = {}) {
+  const continuous = Boolean(options.continuous);
+  const pitch = Number.isFinite(Number(options.pitchMm)) ? Number(options.pitchMm) : 12;
+  const wrapperClass = continuous ? 'jewel-sticker-wrapper jewel-continuous' : 'jewel-sticker-wrapper';
+  const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
+  const num = index + 1;
+  const ticks = [0, 3, 6, 9, 12]
+    .map((mm) => `<div class="calib-tick" style="top:${mm}mm;"><span>${mm}</span></div>`)
+    .join('');
+
+  return `
+    <div class="${wrapperClass}"${wrapperStyle}>
+      <div class="jewel-sticker calib-sticker">
+        <div class="calib-ruler">${ticks}</div>
+        <div class="calib-center">
+          <div class="calib-num">${num}</div>
+          <div class="calib-sub">CALIBRATION • pitch ${pitch}mm</div>
+        </div>
+        <div class="calib-midline"></div>
+      </div>
+    </div>
+  `;
+}
+
+export function buildJewelleryCalibrationHtml(options = {}) {
+  const settings = getLabelSettings();
+  const count = Math.max(1, Math.min(30, parseInt(options.count ?? 10, 10) || 10));
+  const rawPitch = options.pitchMm !== undefined ? options.pitchMm : settings.pitchMm;
+  const parsedPitch = Number(rawPitch);
+  const pitch = Number.isFinite(parsedPitch) && parsedPitch >= 12 && parsedPitch <= 30 ? parsedPitch : 12;
+  const rawOffsetX = options.offsetX !== undefined ? options.offsetX : settings.offsetX;
+  const rawOffsetY = options.offsetY !== undefined ? options.offsetY : settings.offsetY;
+  const offsetX = Number.isFinite(Number(rawOffsetX)) ? Math.max(-6, Math.min(6, Number(rawOffsetX))) : 0;
+  const offsetY = Number.isFinite(Number(rawOffsetY)) ? Math.max(-6, Math.min(6, Number(rawOffsetY))) : 0;
+  const continuous = options.continuous !== undefined ? Boolean(options.continuous) : Boolean(settings.continuous);
+
+  const stickers = Array.from({ length: count })
+    .map((_, index) => renderCalibrationSticker(index, { continuous, pitchMm: pitch }))
+    .join('');
+
+  const pageSize = continuous ? `80mm ${count * pitch}mm` : `80mm ${pitch}mm`;
+  const listClass = `jewel-sticker-list${continuous ? ' jewel-continuous-list' : ''}`;
+  const listHeight = continuous ? `height:${count * pitch}mm;` : '';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Jewellery Tag Calibration (80x12mm)</title>
+<style>
+  @page { size: ${pageSize}; margin: 0mm; }
+  @media print { @page { size: ${pageSize}; margin: 0mm; } }
+  * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 80mm;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+  }
+  .jewel-sticker-list { display: block; width: 80mm; padding: 0; margin: 0; ${listHeight} }
+  .jewel-sticker-list.jewel-continuous-list { position: relative; }
+  .jewel-sticker-wrapper {
+    display: block;
+    width: 80mm;
+    height: ${pitch}mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: hidden;
+    background: #ffffff;
+  }
+  .jewel-sticker-wrapper.jewel-continuous {
+    position: absolute;
+    left: 0;
+    right: 0;
+    page-break-inside: auto;
+    break-inside: auto;
+  }
+  .calib-sticker {
+    position: relative;
+    width: 80mm;
+    height: 12mm;
+    transform: translate(${offsetX}mm, ${offsetY}mm);
+    transform-origin: top left;
+    overflow: visible;
+  }
+  .calib-ruler {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 14mm;
+    height: 12mm;
+    border-right: 0.35mm solid #000000;
+  }
+  .calib-tick {
+    position: absolute;
+    left: 0;
+    width: 14mm;
+    height: 0;
+    border-top: 0.25mm solid #000000;
+  }
+  .calib-tick span {
+    position: absolute;
+    left: 0.8mm;
+    top: -1.7mm;
+    font-size: 4.5pt;
+    font-weight: 700;
+    background: #ffffff;
+    padding: 0 0.4mm;
+    line-height: 1;
+  }
+  .calib-center {
+    position: absolute;
+    left: 14mm;
+    top: 0;
+    width: 66mm;
+    height: 12mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4mm;
+    text-align: center;
+  }
+  .calib-num { font-size: 18pt; font-weight: 900; line-height: 1; }
+  .calib-sub { font-size: 4.8pt; font-weight: 700; line-height: 1; letter-spacing: 0.2px; }
+  .calib-midline {
+    position: absolute;
+    left: 14mm;
+    right: 0;
+    top: 6mm;
+    border-top: 0.15mm dashed #000000;
+    opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+  <div class="${listClass}">${stickers}</div>
+</body>
+</html>
+  `;
+}
+
+function openAndPrintHtml(html, { width = 750, height = 600 } = {}) {
   if (typeof window === 'undefined') return false;
-
-  const isJewellery = options.stickerType === 'jewellery_80x12' || options.stickerType === 'jewellery';
-  const winWidth = isJewellery ? 700 : 750;
-  const winHeight = isJewellery ? 500 : 600;
-
-  const printWin = window.open('', '_blank', `width=${winWidth},height=${winHeight}`);
+  const printWin = window.open('', '_blank', `width=${width},height=${height}`);
   if (!printWin) {
-    window.alert('Please allow pop-ups to print barcode labels.');
+    window.alert('Please allow pop-ups to print labels.');
     return false;
   }
-
-  const html = await buildStickerPrintHtml(list, copiesPerItem, options);
   printWin.document.open();
   printWin.document.write(html);
   printWin.document.close();
@@ -711,4 +882,25 @@ export async function printBarcodeLabels(items, copiesPerItem = 1, options = {})
     printWin.close();
   }, 400);
   return true;
+}
+
+export function printJewelleryCalibration(options = {}) {
+  if (typeof window === 'undefined') return false;
+  return openAndPrintHtml(buildJewelleryCalibrationHtml(options), { width: 700, height: 500 });
+}
+
+export async function printBarcodeLabels(items, copiesPerItem = 1, options = {}) {
+  const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
+  if (list.length === 0) {
+    if (typeof window !== 'undefined') window.alert('No barcodes to print.');
+    return false;
+  }
+  if (typeof window === 'undefined') return false;
+
+  const isJewellery = options.stickerType === 'jewellery_80x12' || options.stickerType === 'jewellery';
+  const html = await buildStickerPrintHtml(list, copiesPerItem, options);
+  return openAndPrintHtml(html, {
+    width: isJewellery ? 700 : 750,
+    height: isJewellery ? 500 : 600
+  });
 }

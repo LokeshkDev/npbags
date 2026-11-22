@@ -5,6 +5,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { lookupBarcode, getAdminProducts, getProductBarcodes, generateProductBarcodes, getAdminAllBarcodes } from '../../lib/api';
 import { printBarcodeLabels, getLabelDetails } from '../../lib/barcodeLabel';
+import { JewelleryLabelControls } from '../../components/JewelleryLabelControls';
 import useScannerInput from '../../hooks/useScannerInput';
 import { extractScanCode } from '../../lib/scanCodeUtils';
 
@@ -16,23 +17,6 @@ export default function AdminBarcodesPage() {
 
   // Default sticker format: 'normal_35x25' (3-Up) vs 'jewellery_80x12' (1-Up)
   const [stickerFormat, setStickerFormat] = useState('normal_35x25');
-  const [jewelOffsetY, setJewelOffsetY] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem('npgrand_jewel_offset_y');
-      return saved !== null ? Number(saved) : 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [jewelPitchMm, setJewelPitchMm] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem('npgrand_jewel_pitch_mm');
-      const n = saved !== null ? Number(saved) : 12;
-      return Number.isFinite(n) && n >= 12 && n <= 30 ? n : 12;
-    } catch {
-      return 12;
-    }
-  });
 
   // Product selector for bulk barcode management
   const [products, setProducts] = useState([]);
@@ -183,14 +167,8 @@ export default function AdminBarcodesPage() {
 
   // Open thermal sticker print dialog
   const printStickers = (barcodeItem, copies = 3, format = stickerFormat) => {
-    let savedOffsetY = jewelOffsetY;
-    try {
-      const s = window.localStorage.getItem('npgrand_jewel_offset_y');
-      if (s !== null) savedOffsetY = Number(s);
-    } catch {}
     printBarcodeLabels(barcodeItem, copies, {
-      stickerType: format,
-      jewelOffsetY: format === 'jewellery_80x12' ? savedOffsetY : 0
+      stickerType: format
     });
   };
 
@@ -200,14 +178,8 @@ export default function AdminBarcodesPage() {
       alert('Please select at least one barcode sticker to print.');
       return;
     }
-    let savedOffsetY = jewelOffsetY;
-    try {
-      const s = window.localStorage.getItem('npgrand_jewel_offset_y');
-      if (s !== null) savedOffsetY = Number(s);
-    } catch {}
     printBarcodeLabels(itemsToPrint, copiesPerItem, {
-      stickerType: format,
-      jewelOffsetY: format === 'jewellery_80x12' ? savedOffsetY : 0
+      stickerType: format
     });
   };
 
@@ -294,59 +266,7 @@ export default function AdminBarcodesPage() {
             </div>
 
             {stickerFormat === 'jewellery_80x12' && (
-              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '7px', padding: '9px 12px', fontSize: '11.5px', color: '#92400e', marginTop: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                  <span><strong>Content Nudge:</strong> Fine-tune a single tag only. If the 2nd/3rd tag drifts, calibrate the printer&apos;s label length / gap sensor — a static offset cannot cancel multi-tag drift.</span>
-                  <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>Active: {jewelOffsetY}mm</span>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap' }}>
-                  {[-5, -3, 0, 0.5, 1, 2, 3].map(shift => (
-                    <button
-                      key={shift}
-                      type="button"
-                      onClick={() => {
-                        setJewelOffsetY(shift);
-                        try { window.localStorage.setItem('npgrand_jewel_offset_y', String(shift)); } catch {}
-                      }}
-                      style={{
-                        padding: '3px 9px',
-                        borderRadius: '5px',
-                        border: jewelOffsetY === shift ? '1.5px solid #b45309' : '1px solid #cbd5e1',
-                        background: jewelOffsetY === shift ? '#b45309' : '#fff',
-                        color: jewelOffsetY === shift ? '#fff' : '#334155',
-                        fontWeight: 800,
-                        fontSize: '11px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {shift === 0 ? '0mm (Default)' : (shift === 0.5 ? '+0.5mm' : `${shift > 0 ? '+' : ''}${shift}mm`)}
-                    </button>
-                  ))}
-                  <span style={{ fontSize: '10.5px', color: '#78350f', marginLeft: '6px' }}>
-                    *In print dialog: <strong>Margins: None</strong> and <strong>Scale: 100%</strong> (turn off “Fit to page / Fit to printable area”)
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                  <label style={{ fontSize: '11.5px', fontWeight: 800, color: '#92400e' }}>Label pitch / feed (mm):</label>
-                  <input
-                    type="number"
-                    min="12"
-                    max="30"
-                    step="0.1"
-                    value={jewelPitchMm}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      const next = Number.isFinite(v) ? Math.max(12, Math.min(30, v)) : 12;
-                      setJewelPitchMm(next);
-                      try { window.localStorage.setItem('npgrand_jewel_pitch_mm', String(next)); } catch {}
-                    }}
-                    style={{ width: '74px', padding: '3px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '12px' }}
-                  />
-                  <span style={{ fontSize: '10.5px', color: '#78350f' }}>
-                    80×12mm tag = <strong>12</strong>. If the roll has a 3mm tail/gap, set <strong>15</strong> (12+3).
-                  </span>
-                </div>
-              </div>
+              <JewelleryLabelControls style={{ marginTop: '10px' }} />
             )}
           </div>
 

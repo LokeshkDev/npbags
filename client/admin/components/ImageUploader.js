@@ -1,19 +1,42 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Icon } from './Icons';
+import { CameraCaptureModal } from './CameraCaptureModal';
+import { compressImageFile } from '../lib/imageCapture';
 
-export function ImageUploader({ label = 'Upload Image', currentImage = '', onFileSelect }) {
+export function ImageUploader({
+  label = 'Upload Image',
+  currentImage = '',
+  onFileSelect,
+  enableCamera = true
+}) {
   const [preview, setPreview] = useState(currentImage);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const fileInputRef = useRef(null);
+
+  const applyFile = async (file) => {
+    if (!file) return;
+    setProcessing(true);
+    try {
+      const prepared = await compressImageFile(file);
+      const objectUrl = URL.createObjectURL(prepared);
+      setPreview(objectUrl);
+      if (onFileSelect) onFileSelect(prepared);
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files && e.target.files[0];
-    if (file) {
-      const objectUrl = URL.createObjectURL(file);
-      setPreview(objectUrl);
-      if (onFileSelect) onFileSelect(file);
-    }
+    applyFile(file);
+    e.target.value = '';
+  };
+
+  const handleCaptured = (file) => {
+    applyFile(file);
   };
 
   return (
@@ -42,15 +65,32 @@ export function ImageUploader({ label = 'Upload Image', currentImage = '', onFil
         </div>
 
         <div>
-          <button
-            type="button"
-            className="admin-btn admin-btn-outline"
-            onClick={() => fileInputRef.current?.click()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Icon name="upload" size={16} />
-            <span>Choose File</span>
-          </button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={processing}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Icon name="upload" size={16} />
+              <span>{processing ? 'Preparing…' : 'Choose File'}</span>
+            </button>
+
+            {enableCamera && (
+              <button
+                type="button"
+                className="admin-btn admin-btn-outline"
+                onClick={() => setCameraOpen(true)}
+                disabled={processing}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Icon name="camera" size={16} />
+                <span>Take Photo</span>
+              </button>
+            )}
+          </div>
+
           <input
             ref={fileInputRef}
             type="file"
@@ -59,10 +99,18 @@ export function ImageUploader({ label = 'Upload Image', currentImage = '', onFil
             onChange={handleFileChange}
           />
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-            Supports PNG, JPEG, WebP (Max 5MB)
+            Supports PNG, JPEG, WebP (Max 10MB) · Photos are optimised automatically
           </div>
         </div>
       </div>
+
+      {enableCamera && (
+        <CameraCaptureModal
+          isOpen={cameraOpen}
+          onClose={() => setCameraOpen(false)}
+          onCapture={handleCaptured}
+        />
+      )}
     </div>
   );
 }

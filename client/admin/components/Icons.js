@@ -256,6 +256,21 @@ export function Icon({ name, className = '', size = 20, strokeWidth = 2.2, fill 
         <circle cx="12" cy="12" r="10" />
         <polyline points="12 6 12 14 16 14" />
       </>
+    ),
+    camera: (
+      <>
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+        <circle cx="12" cy="13" r="4" />
+      </>
+    ),
+    cameraSwitch: (
+      <>
+        <path d="M20 5h-3l-2-2h-6L7 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z" />
+        <path d="M9 12a3 3 0 0 1 5-2.2" />
+        <path d="M15 12a3 3 0 0 1-5 2.2" />
+        <polyline points="14 8 14 10 12 10" />
+        <polyline points="10 16 10 14 12 14" />
+      </>
     )
   };
 

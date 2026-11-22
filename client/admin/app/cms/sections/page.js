@@ -4,24 +4,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from '../../../components/Sidebar';
 import { Topbar } from '../../../components/Topbar';
 import { Icon } from '../../../components/Icons';
+import { CameraCaptureModal } from '../../../components/CameraCaptureModal';
+import { compressImageFile } from '../../../lib/imageCapture';
 import { getAdminCMSSections, updateAdminCMSSection, uploadCMSMedia, reorderAdminCMSSections, getAdminCategories } from '../../../lib/api';
 
 // Reusable Image Upload & Dimension Component
 function CMSImageUploader({ label, value, onChange, recommendedDimension }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
   const fileInputRef = useRef(null);
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files && e.target.files[0];
+  const uploadFile = async (file) => {
     if (!file) return;
 
     setUploading(true);
     setError('');
 
     try {
+      const prepared = await compressImageFile(file);
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('image', prepared);
       formData.append('folder', 'cms');
 
       const res = await uploadCMSMedia(formData);
@@ -38,6 +41,11 @@ function CMSImageUploader({ label, value, onChange, recommendedDimension }) {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    uploadFile(file);
   };
 
   return (
@@ -108,6 +116,16 @@ function CMSImageUploader({ label, value, onChange, recommendedDimension }) {
               <Icon name="upload" size={14} />
               <span>{uploading ? 'Uploading...' : 'Upload Image'}</span>
             </button>
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              onClick={() => setCameraOpen(true)}
+              disabled={uploading}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', fontSize: '12.5px', padding: '7px 14px' }}
+            >
+              <Icon name="camera" size={14} />
+              <span>Take Photo</span>
+            </button>
             <input
               ref={fileInputRef}
               type="file"
@@ -124,6 +142,12 @@ function CMSImageUploader({ label, value, onChange, recommendedDimension }) {
           )}
         </div>
       </div>
+
+      <CameraCaptureModal
+        isOpen={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={(file) => uploadFile(file)}
+      />
     </div>
   );
 }

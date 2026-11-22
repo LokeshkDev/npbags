@@ -56,6 +56,23 @@ function looksLikeBarcode(value) {
   return looksLikeBarcodeOrQR(value);
 }
 
+// Module-level cache so reopening the POS register does not block on a full
+// catalog refetch before variants/stock can be resolved instantly.
+let posCatalogCache = { list: [], fetchedAt: 0 };
+const POS_CATALOG_CACHE_TTL_MS = 30 * 1000;
+
+function getCachedPosCatalogProducts() {
+  const cached = posCatalogCache;
+  if (Array.isArray(cached.list) && cached.list.length > 0 && (Date.now() - cached.fetchedAt) < POS_CATALOG_CACHE_TTL_MS) {
+    return cached.list;
+  }
+  return null;
+}
+
+function setCachedPosCatalogProducts(list) {
+  posCatalogCache = { list: Array.isArray(list) ? list : [], fetchedAt: Date.now() };
+}
+
 function mergeProductLists(...lists) {
   const byId = new Map();
   lists.forEach(list => {
@@ -458,10 +475,16 @@ export function POSBillingModal() {
 
   // Load catalog products for POS search & autocomplete
   const loadCatalogProducts = () => {
-    getAdminProducts({ limit: 500, status: 'all', branch_id: adminUser?.branch_id || undefined })
+    const cached = getCachedPosCatalogProducts();
+    if (cached) {
+      setAllProducts(cached);
+      return Promise.resolve(cached);
+    }
+    return getAdminProducts({ limit: 500, status: 'all', branch_id: adminUser?.branch_id || undefined })
       .then(res => {
         const list = res?.products || res?.data?.products || (Array.isArray(res) ? res : []);
         if (Array.isArray(list) && list.length > 0) {
+          setCachedPosCatalogProducts(list);
           setAllProducts(list);
         }
       })
@@ -1567,13 +1590,15 @@ export function POSBillingModal() {
   const updateQuantity = (index, delta) => {
     setCart(prev => {
       const copy = [...prev];
-      const newQty = copy[index].quantity + delta;
+      const current = copy[index];
+      if (!current) return prev;
+      const newQty = Number(current.quantity || 1) + delta;
       if (newQty <= 0) {
-        copy.splice(index, 1);
-      } else {
-        copy[index].quantity = newQty;
+        const next = [...prev];
+        next.splice(index, 1);
+        return next;
       }
-      return copy;
+      return [...prev].map((item, i) => (i === index ? { ...item, quantity: newQty } : item));
     });
   };
 
