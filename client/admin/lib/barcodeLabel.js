@@ -297,14 +297,13 @@ export function renderJewellerySticker(item, options = {}) {
     ? `<span class="jewel-name">${label.productName.length > 14 ? label.productName.slice(0, 14) : label.productName}</span>`
     : '';
 
-  const continuous = Boolean(options.continuous);
+  // Always use absolute top position — this is the key to zero rounding drift.
   const index = Number.isFinite(Number(options.index)) ? Number(options.index) : 0;
   const pitch = Number.isFinite(Number(options.pitchMm)) ? Number(options.pitchMm) : 12;
-  const wrapperClass = continuous ? 'jewel-sticker-wrapper jewel-continuous' : 'jewel-sticker-wrapper';
-  const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
+  const topMm = (index * pitch).toFixed(3);
 
   return `
-    <div class="${wrapperClass}"${wrapperStyle}>
+    <div class="jewel-sticker-wrapper" style="top:${topMm}mm;">
       <div class="jewel-sticker">
         <!-- LEFT FLAP: barcode graphic -->
         <div class="jewel-flap jewel-flap-1">
@@ -377,10 +376,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 
   const stickers = stickersHtml;
 
-  // @page size = one physical label (12mm). Each wrapper gets page-break-after:always
-  // so the printer sees N separate pages = N labels. No tall-page trick — that makes
-  // the printer treat everything as one label.
-  const jewelleryPageSize = `77.5mm ${jewelleryPageHeightMm}mm`;
+  // ── Jewellery print: one tall continuous page, each label absolutely positioned ──
+  // This avoids Chrome's page-break rounding drift. The printer's gap sensor advances
+  // the paper between labels automatically. Each label is pinned at exactly index×pitch
+  // so no accumulation error is possible.
+  const totalHeightMm = Math.max(1, totalStickers) * jewelleryPageHeightMm;
 
   if (isJewellery) {
     return `
@@ -390,38 +390,48 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <meta charset="utf-8">
 <title>${options.title || 'Jewellery Barcode Tags (77.5x12mm)'}</title>
 <style>
-  @page { size: ${jewelleryPageSize}; margin: 0mm; }
-  @media print {
-    @page { size: ${jewelleryPageSize}; margin: 0mm; }
-    html, body { margin:0 !important; padding:0 !important; width:77.5mm !important; }
+  @page {
+    size: 77.5mm ${totalHeightMm}mm;
+    margin: 0mm;
   }
-  * { color:#000 !important; -webkit-text-fill-color:#000 !important; box-sizing:border-box; margin:0; padding:0; }
+  @media print {
+    @page { size: 77.5mm ${totalHeightMm}mm; margin: 0mm; }
+    html, body { margin:0 !important; padding:0 !important; }
+  }
+  * {
+    color:#000 !important;
+    -webkit-text-fill-color:#000 !important;
+    box-sizing:border-box;
+    margin:0; padding:0;
+  }
   html, body {
     margin:0 !important; padding:0 !important;
     width:77.5mm;
+    height:${totalHeightMm}mm;
     font-family: Arial, Helvetica, sans-serif;
     background:#ffffff;
     -webkit-print-color-adjust:exact !important;
     print-color-adjust:exact !important;
     font-weight:700;
+    overflow:hidden;
   }
-  /* ── One label = one @page (12mm). page-break-after:always advances one label per print page ── */
+  /* Container: exact total height, relative so children can be absolutely placed */
+  .jewel-list {
+    position:relative;
+    width:77.5mm;
+    height:${totalHeightMm}mm;
+    overflow:hidden;
+  }
+  /* Each label pinned at exact pixel position — zero rounding accumulation */
   .jewel-sticker-wrapper {
-    display:block;
+    position:absolute;
+    left:0;
     width:77.5mm;
     height:${jewelleryPageHeightMm}mm;
     overflow:hidden;
     background:#ffffff;
-    page-break-inside:avoid;
-    break-inside:avoid;
-    page-break-after:always;
-    break-after:page;
   }
-  .jewel-sticker-wrapper:last-child {
-    page-break-after:auto;
-    break-after:auto;
-  }
-  /* ── Single horizontal strip: flap1 | flap2 | tail ─────────────── */
+  /* Single horizontal strip: [barcode | info | tail] */
   .jewel-sticker {
     display:flex;
     flex-direction:row;
@@ -430,72 +440,44 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     height:12mm;
     overflow:hidden;
   }
-  /* LEFT FLAP: barcode graphic — ~30mm wide */
+  /* LEFT FLAP: barcode graphic ~30mm */
   .jewel-flap-1 {
-    flex:0 0 30mm;
-    width:30mm;
-    height:12mm;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    overflow:hidden;
-    background:#ffffff;
+    flex:0 0 30mm; width:30mm; height:12mm;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden; background:#ffffff;
     border-right:0.3mm solid #ccc;
   }
   .jewel-barcode-box {
-    width:28mm;
-    height:10mm;
-    display:flex;
-    align-items:center;
-    justify-content:center;
+    width:28mm; height:10mm;
+    display:flex; align-items:center; justify-content:center;
   }
   .jewel-barcode-box svg { width:100% !important; height:100% !important; display:block; }
   .jewel-barcode-box svg rect { stroke:none !important; shape-rendering:crispEdges !important; }
-  /* RIGHT FLAP: MRP + name + arrival — ~30mm wide */
+  /* RIGHT FLAP: MRP + name + arrival ~30mm */
   .jewel-flap-2 {
-    flex:0 0 30mm;
-    width:30mm;
-    height:12mm;
-    display:flex;
-    flex-direction:column;
-    align-items:flex-start;
-    justify-content:center;
-    padding:0 1.5mm;
-    overflow:hidden;
-    background:#ffffff;
+    flex:0 0 30mm; width:30mm; height:12mm;
+    display:flex; flex-direction:column;
+    align-items:flex-start; justify-content:center;
+    padding:0 1.5mm; overflow:hidden; background:#ffffff;
   }
   .jewel-mrp-row {
-    font-size:9pt;
-    font-weight:900;
-    line-height:1.1;
-    white-space:nowrap;
-    letter-spacing:-0.3px;
+    font-size:9pt; font-weight:900; line-height:1.1;
+    white-space:nowrap; letter-spacing:-0.3px;
   }
   .jewel-info-row {
-    font-size:6pt;
-    font-weight:700;
-    line-height:1.2;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    max-width:100%;
-    margin-top:0.5mm;
-    display:flex;
-    align-items:center;
-    gap:1mm;
+    font-size:6pt; font-weight:700; line-height:1.2;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:100%; margin-top:0.5mm;
+    display:flex; align-items:center; gap:1mm;
   }
-  .jewel-name { font-size:6pt; font-weight:700; }
-  .jewel-arrival { font-size:5.5pt; font-weight:700; opacity:0.8; }
+  .jewel-name   { font-size:6pt; font-weight:700; }
+  .jewel-arrival{ font-size:5.5pt; font-weight:700; opacity:0.8; }
   /* TAIL: blank folding stem */
-  .jewel-tail-zone {
-    flex:1 1 auto;
-    height:12mm;
-    background:#ffffff;
-  }
+  .jewel-tail-zone { flex:1 1 auto; height:12mm; background:#ffffff; }
 </style>
 </head>
 <body>
-${stickers}
+<div class="jewel-list">${stickers}</div>
 </body>
 </html>
 `;
