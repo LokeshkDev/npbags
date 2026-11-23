@@ -1,4 +1,4 @@
-// Canonical ISO/IEC 15417 Code 128 Symbol Widths (Indices 0 to 106)
+﻿// Canonical ISO/IEC 15417 Code 128 Symbol Widths (Indices 0 to 106)
 import { getLabelSettings } from './labelSettings';
 
 const CODE128_WIDTHS = [
@@ -158,7 +158,7 @@ export function getLabelDetails(item, options = {}) {
   if (aliasValue) {
     rate = String(aliasValue).trim();
   } else if (rateValue !== null && rateValue !== undefined && rateValue !== '') {
-    rate = Number.isFinite(Number(rateValue)) ? `₹${formatLabelMoney(rateValue)}` : String(rateValue);
+    rate = Number.isFinite(Number(rateValue)) ? `â‚¹${formatLabelMoney(rateValue)}` : String(rateValue);
   }
 
   const productName = firstNonEmpty(
@@ -219,21 +219,45 @@ export function getLabelDetails(item, options = {}) {
   }
 
   return {
-    mrp: formatLabelMoney(mrpValue, '—'),
+    mrp: formatLabelMoney(mrpValue, 'â€”'),
     sellingPrice: '',
     rate: showPurchaseRate ? rate : '',
-    sequence,
+    sequence: String(sequence || ''),
     productName: productName ? String(productName).trim() : '',
-    arrivalCode,
+    arrivalCode: arrivalCode ? String(arrivalCode).trim() : '',
     hasArrivalCode,
     isFootwear,
     size
   };
 }
 
+export function renderToySticker(item, options = {}) {
+  const label = getLabelDetails(item, options);
+  const barcodeText = item.barcode || 'NO BARCODE';
+  const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
+
+  // Arrival code line (if any)
+  const arrivalHtml = label.hasArrivalCode
+    ? `<span class="pname-text" title="${label.arrivalCode}">${label.arrivalCode.length > 24 ? label.arrivalCode.slice(0, 24) : label.arrivalCode}</span>`
+    : '<span class="pname-text"></span>';
+
+  const priceDisplayHtml = `<span class="mrp-label">MRP </span>â‚¹${label.mrp}`;
+
+  return `
+    <div class="barcode-sticker">
+      ${svgHtml}
+      <div class="info-row">
+        <span class="code-text">${barcodeText}</span>${arrivalHtml}
+      </div>
+      <div class="product-name" style="font-size:6.5pt;opacity:0.85;">${label.productName}</div>
+      <div class="mrp-text">${priceDisplayHtml}</div>
+    </div>
+  `;
+}
+
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  // Only show arrival code if entered — never fall back to product name
+  // Only show arrival code if entered â€” never fall back to product name
   const arrivalHtml = label.hasArrivalCode
     ? `<span class="pname-text" title="${label.arrivalCode}">${label.arrivalCode.length > 24 ? label.arrivalCode.slice(0, 24) : label.arrivalCode}</span>`
     : '<span class="pname-text"></span>';
@@ -245,7 +269,7 @@ export function renderNormalSticker(item, options = {}) {
   const sizeBadgeHtml = (label.isFootwear && label.size)
     ? `<span class="size-badge">SZ: ${label.size}</span>`
     : '';
-  const priceDisplayHtml = `<span class="mrp-label">MRP </span>₹${label.mrp}${sizeBadgeHtml}`;
+  const priceDisplayHtml = `<span class="mrp-label">MRP </span>â‚¹${label.mrp}${sizeBadgeHtml}`;
 
   return `
     <div class="barcode-sticker">
@@ -259,19 +283,18 @@ export function renderNormalSticker(item, options = {}) {
 
 export function renderJewellerySticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  const barcodeText = item.barcode || 'NO BARCODE';
 
-  // 1D Code-128 Barcode SVG
-  const svgHtml = getCleanBarcodeSVG(item, { height: 28, quietZone: 10 });
+  // 1D Code-128 barcode SVG
+  const svgHtml = getCleanBarcodeSVG(item, { height: 26, quietZone: 8 });
 
-  // Arrival code line (e.g. CW2) — strictly only if entered in field entry
+  // Arrival code — only if explicitly entered
   const arrivalHtml = label.hasArrivalCode
-    ? `<div class="jewel-arrival">${label.arrivalCode}</div>`
+    ? `<span class="jewel-arrival">${label.arrivalCode}</span>`
     : '';
 
-  // Footwear size badge (strictly only for footwear category)
-  const sizeBadge = (label.isFootwear && label.size)
-    ? ` • SZ: ${label.size}`
+  // Product name (truncated to fit)
+  const nameHtml = label.productName
+    ? `<span class="jewel-name">${label.productName.length > 14 ? label.productName.slice(0, 14) : label.productName}</span>`
     : '';
 
   const continuous = Boolean(options.continuous);
@@ -283,21 +306,20 @@ export function renderJewellerySticker(item, options = {}) {
   return `
     <div class="${wrapperClass}"${wrapperStyle}>
       <div class="jewel-sticker">
-        <!-- FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode -->
+        <!-- LEFT FLAP: barcode graphic -->
         <div class="jewel-flap jewel-flap-1">
-          ${arrivalHtml}
           <div class="jewel-barcode-box">${svgHtml}</div>
         </div>
 
-        <!-- FLAP 2: Back Face (~25mm x 12mm) — Centered Fold Arrow + MRP + Barcode Number (with footwear size if applicable) -->
+        <!-- RIGHT FLAP: MRP + product name + arrival code -->
         <div class="jewel-flap jewel-flap-2">
-          <div class="jewel-mrp-row">
-            <span class="jewel-mrp-val">MRP: ₹${label.mrp}</span>
+          <div class="jewel-mrp-row">MRP:&#8377;${label.mrp}</div>
+          <div class="jewel-info-row">
+            ${nameHtml}${arrivalHtml ? `<span class="jewel-sep">&nbsp;</span>${arrivalHtml}` : ''}
           </div>
-          <div class="jewel-barcode-num">${barcodeText}${sizeBadge}</div>
         </div>
 
-        <!-- TAIL: 3mm Blank Stem (~30mm) -->
+        <!-- TAIL: blank folding stem -->
         <div class="jewel-tail-zone"></div>
       </div>
     </div>
@@ -308,6 +330,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
   const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
+  const isToy = stickerType === 'toy';
   const settings = getLabelSettings();
   const rawOffsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : settings.offsetY;
   const rawOffsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : settings.offsetX;
@@ -331,11 +354,15 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 
   let stickerIndex = 0;
   let totalStickers = 0;
-  const stickers = list.map(item => {
+  let stickersHtml = list.map(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
     const copies = Math.max(1, Number.isFinite(requested) ? requested : 1);
     totalStickers += copies;
-    const renderFn = isJewellery ? renderJewellerySticker : renderNormalSticker;
+    const renderFn = (() => {
+      if (isToy) return renderToySticker;
+      if (isJewellery) return renderJewellerySticker;
+      return renderNormalSticker;
+    })();
     return Array.from({ length: copies }).map(() => {
       const html = renderFn(item, {
         ...options,
@@ -348,10 +375,18 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     }).join('');
   }).join('');
 
+  // Insert a blank wrapper only for jewellery pageâ€‘wise printing.
+  // TOY labels should start printing on the very first page.
+  if (!continuous && totalStickers > 1 && isJewellery) {
+    const blankWrapper = `<div class="jewel-sticker-wrapper" style="height:${jewelleryPageHeightMm}mm"></div>`;
+    stickersHtml = blankWrapper + stickersHtml;
+  }
+  const stickers = stickersHtml;
+
   const continuousHeightMm = Math.max(1, totalStickers) * jewelleryPageHeightMm;
   const jewelleryPageSize = continuous
-    ? `80mm ${continuousHeightMm}mm`
-    : `80mm ${jewelleryPageHeightMm}mm`;
+    ? `77.5mm ${continuousHeightMm}mm`
+    : `77.5mm ${jewelleryPageHeightMm}mm`;
 
   if (isJewellery) {
     return `
@@ -359,379 +394,178 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <html>
 <head>
 <meta charset="utf-8">
-<title>${options.title || 'Jewellery Barcode Tags (80x12mm)'}</title>
+<title>${options.title || 'Jewellery Barcode Tags (77.5x12mm)'}</title>
 <style>
-  @page {
-    size: ${jewelleryPageSize};
-    margin: 0mm;
-  }
+  @page { size: ${jewelleryPageSize}; margin: 0mm; }
   @media print {
-    @page {
-      size: ${jewelleryPageSize};
-      margin: 0mm;
-    }
-    html, body {
-      margin: 0 !important;
-      padding: 0 !important;
-      width: 80mm !important;
-      /* NO height constraint — let labels flow across pages naturally */
-    }
+    @page { size: ${jewelleryPageSize}; margin: 0mm; }
+    html, body { margin:0 !important; padding:0 !important; width:77.5mm !important; }
   }
-  * {
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
+  * { color:#000 !important; -webkit-text-fill-color:#000 !important; box-sizing:border-box; margin:0; padding:0; }
   html, body {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 80mm;
+    margin:0 !important; padding:0 !important;
+    width:77.5mm;
     font-family: Arial, Helvetica, sans-serif;
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    font-weight: 700;
-    background: #ffffff;
+    background:#ffffff;
+    -webkit-print-color-adjust:exact !important;
+    print-color-adjust:exact !important;
+    font-weight:700;
   }
-  .jewel-sticker-list {
-    display: block;
-    padding: 0;
-    margin: 0;
-    width: 80mm;
-  }
-  /* Continuous-strip mode: one tall page, absolutely positioned tags at the
-     exact physical pitch. This guarantees tag N starts at N × pitch and is
-     not affected by sub-pixel flow rounding in the browser print engine. */
-  .jewel-sticker-list.jewel-continuous-list {
-    position: relative;
-    height: ${continuousHeightMm}mm;
-  }
+  /* ── Wrapper: one label per page-break ─────────────────────────── */
   .jewel-sticker-wrapper {
-    display: block;
-    width: 80mm;
-    height: ${jewelleryPageHeightMm}mm;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    overflow: hidden;
-    box-sizing: border-box;
-    background: #ffffff;
-    color: #000000 !important;
-    margin: 0;
-    padding: 0;
+    display:block;
+    width:77.5mm;
+    height:${jewelleryPageHeightMm}mm;
+    overflow:hidden;
+    background:#ffffff;
+    page-break-inside:avoid;
+    break-inside:avoid;
+    page-break-after:always;
+    break-after:page;
   }
-  /* Non-continuous mode: force EXACTLY one tag per physical page.
-     Relying on wrapper height == page height alone is not enough — the
-     browser resolves paged media in CSS px (1mm = 3.7795px) and snaps to
-     device pixels, so every page boundary accumulates a sub-pixel error.
-     On tag 1 it is invisible, but by tag 3/4/5 the tag has visibly drifted
-     down relative to the die-cut. A hard break resets the origin on every
-     page and stops the drift completely. */
-  .jewel-sticker-wrapper:not(.jewel-continuous) {
-    page-break-after: always;
-    break-after: page;
-  }
-  .jewel-sticker-wrapper:not(.jewel-continuous):last-child {
-    page-break-after: auto;
-    break-after: auto;
-  }
+  .jewel-sticker-wrapper:last-child { page-break-after:auto; break-after:auto; }
   .jewel-sticker-wrapper.jewel-continuous {
-    position: absolute;
-    left: 0;
-    right: 0;
-    page-break-inside: auto;
-    break-inside: auto;
-    page-break-after: auto;
-    break-after: auto;
+    position:absolute; left:0; right:0;
+    page-break-inside:auto; break-inside:auto;
+    page-break-after:auto; break-after:auto;
   }
+  /* ── Single horizontal strip: flap1 | flap2 | tail ─────────────── */
   .jewel-sticker {
-    /* Always keep the full 12mm label height. The old code did
-       height: 12 - abs(offset), which shrank/clipped the tag whenever a
-       saved offset was active. The nudge is applied with transform so it
-       can never change layout height or push content into the next tag. */
-    width: 80mm;
-    height: 12mm;
-    transform: translate(${offsetX}mm, ${offsetY}mm);
-    transform-origin: top left;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    box-sizing: border-box;
-    overflow: visible;
-    margin: 0;
-    padding-left: 1.8mm;
+    display:flex;
+    flex-direction:row;
+    align-items:stretch;
+    width:77.5mm;
+    height:12mm;
+    overflow:hidden;
   }
-  /* FLAP 1: Front Face (~25mm x 12mm) — Arrival Code (if entered) + Centered 1D Barcode */
+  /* LEFT FLAP: barcode graphic — ~30mm wide */
   .jewel-flap-1 {
-    width: 24mm;
-    height: 12mm;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    padding: 0.2mm 0.3mm;
-    overflow: hidden;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .jewel-arrival {
-    font-size: 5pt;
-    font-weight: 900;
-    line-height: 1;
-    margin-bottom: 0.3mm;
-    letter-spacing: 0.2px;
-    text-transform: uppercase;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: clip;
-    text-align: center;
+    flex:0 0 30mm;
+    width:30mm;
+    height:12mm;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    background:#ffffff;
+    border-right:0.3mm solid #ccc;
   }
   .jewel-barcode-box {
-    width: 22.5mm;
-    height: 7.2mm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #ffffff !important;
-    overflow: hidden;
-    flex-shrink: 0;
+    width:28mm;
+    height:10mm;
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
-  .jewel-barcode-box svg {
-    width: 100% !important;
-    height: 100% !important;
-    display: block;
-    background: #ffffff !important;
-    shape-rendering: crispEdges !important;
-  }
-  .jewel-barcode-box svg rect {
-    shape-rendering: crispEdges !important;
-    stroke: none !important;
-  }
-
-  /* FLAP 2: Back Face (~25mm x 12mm) — Centered ◄ MRP:XXX + Barcode Number */
+  .jewel-barcode-box svg { width:100% !important; height:100% !important; display:block; }
+  .jewel-barcode-box svg rect { stroke:none !important; shape-rendering:crispEdges !important; }
+  /* RIGHT FLAP: MRP + name + arrival — ~30mm wide */
   .jewel-flap-2 {
-    width: 24mm;
-    height: 12mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    box-sizing: border-box;
-    padding: 0 0.5mm;
-    gap: 0.5mm;
-    overflow: hidden;
-    text-align: center;
-    flex-shrink: 0;
+    flex:0 0 30mm;
+    width:30mm;
+    height:12mm;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    justify-content:center;
+    padding:0 1.5mm;
+    overflow:hidden;
+    background:#ffffff;
   }
   .jewel-mrp-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.6mm;
-    white-space: nowrap;
-    line-height: 1;
+    font-size:9pt;
+    font-weight:900;
+    line-height:1.1;
+    white-space:nowrap;
+    letter-spacing:-0.3px;
   }
-  .jewel-arrow {
-    font-size: 6.5pt;
-    font-weight: 900;
-    line-height: 1;
+  .jewel-info-row {
+    font-size:6pt;
+    font-weight:700;
+    line-height:1.2;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:100%;
+    margin-top:0.5mm;
+    display:flex;
+    align-items:center;
+    gap:1mm;
   }
-  .jewel-mrp-val {
-    font-size: 8pt;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: -0.2px;
-  }
-  .jewel-barcode-num {
-    font-size: 6pt;
-    font-weight: 800;
-    font-family: Arial, sans-serif;
-    letter-spacing: 0.2px;
-    line-height: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: clip;
-    text-align: center;
-  }
-
-  /* Rat-Tail Stem: ~30mm x 3mm (Blank) */
+  .jewel-name { font-size:6pt; font-weight:700; }
+  .jewel-arrival { font-size:5.5pt; font-weight:700; opacity:0.8; }
+  /* TAIL: blank folding stem */
   .jewel-tail-zone {
-    width: 28mm;
-    height: 3mm;
-    background: transparent;
-    box-sizing: border-box;
-    flex-shrink: 0;
+    flex:1 1 auto;
+    height:12mm;
+    background:#ffffff;
   }
 </style>
 </head>
 <body>
-  <div class="jewel-sticker-list${continuous ? ' jewel-continuous-list' : ''}">${stickers}</div>
+${stickers}
 </body>
 </html>
-    `;
+`;
   }
-
-  // Normal 35x25mm (3-in-a-row / 3-Up roll) — TSC thermal barcode printer
+  // For non-jewellery (normal / toy) — full CSS so stickers are not collapsed.
+  const normalW = options.pageWidthMm ? (options.pageWidthMm + 'mm') : '38mm';
+  const normalH = options.pageHeightMm ? (options.pageHeightMm + 'mm') : '25mm';
   return `
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>${options.title || 'Barcode Stickers (35x25mm)'}</title>
+<title>${options.title || 'Barcode Tags'}</title>
 <style>
-  @page {
-    size: 110mm 25mm;
-    margin: 0;
-  }
-  * {
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-  body {
-    margin: 0;
-    padding: 0;
+  @page { size: ${normalW} ${normalH}; margin: 0mm; }
+  @media print { @page { size: ${normalW} ${normalH}; margin: 0mm; } html, body { margin:0 !important; padding:0 !important; } }
+  * { color:#000 !important; -webkit-text-fill-color:#000 !important; box-sizing:border-box; margin:0; padding:0; }
+  html, body {
+    margin:0 !important; padding:0 !important;
     font-family: Arial, Helvetica, sans-serif;
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    font-weight: 700;
-    width: 110mm;
+    background:#ffffff;
+    -webkit-print-color-adjust:exact !important;
+    print-color-adjust:exact !important;
   }
-  .sticker-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2mm;
-    padding: 0 0.5mm;
-    margin: 0 auto;
-    width: 110mm;
-  }
+  .sticker-grid { display:flex; flex-wrap:wrap; gap:0; padding:0; margin:0; width:100%; }
   .barcode-sticker {
-    width: 35mm;
-    height: 25mm;
-    border: none;
-    padding: 0 1.2mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: center;
-    text-align: center;
-    page-break-inside: avoid;
-    overflow: hidden;
-    color: #000000 !important;
-    background: #ffffff !important;
+    width:${normalW}; height:${normalH};
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:0.8mm 1mm; overflow:hidden; background:#ffffff;
+    page-break-inside:avoid; break-inside:avoid;
   }
-  .logo-space {
-    width: 100%;
-    height: 4.8mm;
-    flex-shrink: 0;
-    background: transparent !important;
-  }
-  .store-name {
-    font-size: 7.5pt;
-    font-weight: 900;
-    letter-spacing: 0.3px;
-    color: #000000 !important;
-  }
+  .logo-space { width:100%; flex-shrink:0; }
+  .store-name { font-size:7pt; font-weight:900; text-align:center; width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .barcode-svg-container {
-    width: 32mm;
-    height: 6.5mm;
-    margin-top: 0.6mm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #ffffff !important;
+    width:100%; height:10mm; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; background:#ffffff !important;
   }
-  .barcode-svg-container svg {
-    width: 100% !important;
-    height: 100% !important;
-    display: block;
-    background: #ffffff !important;
-  }
-  .barcode-svg-container svg rect {
-    stroke: none !important;
-    stroke-width: 0 !important;
-    shape-rendering: crispEdges !important;
-  }
+  .barcode-svg-container svg { width:100% !important; height:100% !important; display:block; background:#ffffff !important; }
+  .barcode-svg-container svg rect { stroke:none !important; stroke-width:0 !important; shape-rendering:crispEdges !important; }
   .info-row {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1mm;
-    padding: 0 0.2mm;
-    margin-top: 0.6mm;
-    line-height: 1;
-    color: #000000 !important;
+    width:100%; display:flex; justify-content:space-between; align-items:center;
+    gap:1mm; padding:0 0.2mm; margin-top:0.4mm; line-height:1;
   }
-  .code-text {
-    font-size: 5.5pt;
-    font-weight: 700;
-    font-family: monospace;
-    letter-spacing: 0.2px;
-    max-width: 50%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
-  .pname-text {
-    font-size: 5.8pt;
-    font-weight: 700;
-    font-family: Arial, Helvetica, sans-serif;
-    letter-spacing: 0.1px;
-    line-height: 1;
-    max-width: 50%;
-    text-align: right;
-    overflow: hidden;
-    text-overflow: clip;
-    white-space: nowrap;
-    color: #000000 !important;
-  }
+  .code-text { font-size:5.5pt; font-weight:700; font-family:monospace; letter-spacing:0.2px; max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pname-text { font-size:5.8pt; font-weight:700; max-width:45%; text-align:right; overflow:hidden; text-overflow:clip; white-space:nowrap; }
+  .product-name { width:100%; font-size:6.5pt; font-weight:700; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:0.3mm; }
   .mrp-text {
-    width: 100%;
-    font-size: 10pt;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: -0.2px;
-    margin-top: 0.8mm;
-    white-space: nowrap;
-    color: #000000 !important;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 2mm;
+    width:100%; font-size:10pt; font-weight:900; line-height:1; letter-spacing:-0.2px;
+    margin-top:0.6mm; white-space:nowrap;
+    display:flex; align-items:center; justify-content:center; gap:2mm;
   }
-  .mrp-text .mrp-label {
-    font-size: 6.5pt;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-  .size-badge {
-    font-size: 8pt;
-    font-weight: 900;
-    border: 0.8px solid #000000;
-    padding: 0.2mm 1.2mm;
-    border-radius: 0.5mm;
-    letter-spacing: 0.2px;
-    line-height: 1;
-    display: inline-block;
-  }
+  .mrp-text .mrp-label { font-size:6.5pt; font-weight:900; }
+  .size-badge { font-size:8pt; font-weight:900; border:0.8px solid #000; padding:0.2mm 1.2mm; border-radius:0.5mm; display:inline-block; }
 </style>
 </head>
 <body>
   <div class="sticker-grid">${stickers}</div>
 </body>
 </html>
-  `;
+`;
 }
+
 
 function renderCalibrationSticker(index, options = {}) {
   const continuous = Boolean(options.continuous);
@@ -740,13 +574,13 @@ function renderCalibrationSticker(index, options = {}) {
   const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
   const num = index + 1;
 
-  // Horizontal ruler every 10mm across the 80mm width — verifies the print is
-  // not horizontally scaled (0mm must sit on the left edge, 80mm on the right).
+  // Horizontal ruler every 10mm across the 77.5mm width â€” verifies the print is
+  // not horizontally scaled (0mm must sit on the left edge, 77.5mm on the right).
   let xTicks = '';
   for (let mm = 0; mm <= 70; mm += 10) {
     xTicks += `<div class="calib-xtick" style="left:${mm}mm;"><span>${mm}</span></div>`;
   }
-  // Vertical ruler every 3mm down the 12mm height — verifies the feed/length.
+  // Vertical ruler every 3mm down the 12mm height â€” verifies the feed/length.
   let yTicks = '';
   for (let mm = 0; mm <= 9; mm += 3) {
     yTicks += `<div class="calib-ytick" style="top:${mm}mm;"><span>${mm}</span></div>`;
@@ -761,7 +595,7 @@ function renderCalibrationSticker(index, options = {}) {
         <div class="calib-vline"></div>
         <div class="calib-center">
           <div class="calib-num">${num}</div>
-          <div class="calib-sub">80×12mm · PITCH ${pitch}mm</div>
+          <div class="calib-sub">80Ã—12mm Â· PITCH ${pitch}mm</div>
         </div>
       </div>
     </div>
@@ -784,7 +618,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
     .map((_, index) => renderCalibrationSticker(index, { continuous, pitchMm: pitch }))
     .join('');
 
-  const pageSize = continuous ? `80mm ${count * pitch}mm` : `80mm ${pitch}mm`;
+  const pageSize = continuous ? `77.5mm ${count * pitch}mm` : `77.5mm ${pitch}mm`;
   const listClass = `jewel-sticker-list${continuous ? ' jewel-continuous-list' : ''}`;
   const listHeight = continuous ? `height:${count * pitch}mm;` : '';
 
@@ -793,7 +627,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
 <html>
 <head>
 <meta charset="utf-8">
-<title>Jewellery Tag Calibration (80x12mm)</title>
+<title>Jewellery Tag Calibration (77.5x12mm)</title>
 <style>
   @page { size: ${pageSize}; margin: 0mm; }
   @media print { @page { size: ${pageSize}; margin: 0mm; } }
@@ -807,15 +641,15 @@ export function buildJewelleryCalibrationHtml(options = {}) {
   html, body {
     margin: 0 !important;
     padding: 0 !important;
-    width: 80mm;
+    width: 77.5mm;
     font-family: Arial, Helvetica, sans-serif;
     background: #ffffff;
   }
-  .jewel-sticker-list { display: block; width: 80mm; padding: 0; margin: 0; ${listHeight} }
+  .jewel-sticker-list { display: block; width: 77.5mm; padding: 0; margin: 0; ${listHeight} }
   .jewel-sticker-list.jewel-continuous-list { position: relative; }
   .jewel-sticker-wrapper {
     display: block;
-    width: 80mm;
+    width: 77.5mm;
     height: ${pitch}mm;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -840,12 +674,12 @@ export function buildJewelleryCalibrationHtml(options = {}) {
     page-break-after: auto;
     break-after: auto;
   }
-  /* Exact-size 80×12mm calibration tag. The outer frame IS the real die-cut
-     edge — if it does not fill the physical tag, the printer scale is wrong.
+  /* Exact-size 80Ã—12mm calibration tag. The outer frame IS the real die-cut
+     edge â€” if it does not fill the physical tag, the printer scale is wrong.
      The rulers measure the print in millimetres on both axes. */
   .calib-sticker {
     position: relative;
-    width: 80mm;
+    width: 77.5mm;
     height: 12mm;
     transform: translate(${offsetX}mm, ${offsetY}mm);
     transform-origin: top left;
@@ -861,7 +695,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
   .calib-xruler {
     position: absolute;
     left: 0; top: 0;
-    width: 80mm; height: 4.4mm;
+    width: 77.5mm; height: 4.4mm;
     border-bottom: 0.2mm solid #000000;
   }
   .calib-xtick {
