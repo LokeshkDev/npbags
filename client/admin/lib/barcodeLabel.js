@@ -375,18 +375,12 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     }).join('');
   }).join('');
 
-  // Insert a blank wrapper only for jewellery pageâ€‘wise printing.
-  // TOY labels should start printing on the very first page.
-  if (!continuous && totalStickers > 1 && isJewellery) {
-    const blankWrapper = `<div class="jewel-sticker-wrapper" style="height:${jewelleryPageHeightMm}mm"></div>`;
-    stickersHtml = blankWrapper + stickersHtml;
-  }
   const stickers = stickersHtml;
 
   const continuousHeightMm = Math.max(1, totalStickers) * jewelleryPageHeightMm;
-  const jewelleryPageSize = continuous
-    ? `77.5mm ${continuousHeightMm}mm`
-    : `77.5mm ${jewelleryPageHeightMm}mm`;
+  // Always use a tall page (all labels) so page-break-after:always advances
+  // exactly one label height — no browser sub-pixel rounding drift.
+  const jewelleryPageSize = `77.5mm ${continuousHeightMm}mm`;
 
   if (isJewellery) {
     return `
@@ -411,7 +405,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     print-color-adjust:exact !important;
     font-weight:700;
   }
-  /* ── Wrapper: one label per page-break ─────────────────────────── */
+  /* ── One label per physical label — NO page-breaks, let the TSC feed sensor advance ── */
   .jewel-sticker-wrapper {
     display:block;
     width:77.5mm;
@@ -423,11 +417,9 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     page-break-after:always;
     break-after:page;
   }
-  .jewel-sticker-wrapper:last-child { page-break-after:auto; break-after:auto; }
-  .jewel-sticker-wrapper.jewel-continuous {
-    position:absolute; left:0; right:0;
-    page-break-inside:auto; break-inside:auto;
-    page-break-after:auto; break-after:auto;
+  .jewel-sticker-wrapper:last-child {
+    page-break-after:auto;
+    break-after:auto;
   }
   /* ── Single horizontal strip: flap1 | flap2 | tail ─────────────── */
   .jewel-sticker {
@@ -508,7 +500,6 @@ ${stickers}
 </html>
 `;
   }
-  // For non-jewellery (normal / toy) — full CSS so stickers are not collapsed.
   const normalW = options.pageWidthMm ? (options.pageWidthMm + 'mm') : '38mm';
   const normalH = options.pageHeightMm ? (options.pageHeightMm + 'mm') : '25mm';
   return `
