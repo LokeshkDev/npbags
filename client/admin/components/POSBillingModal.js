@@ -902,7 +902,7 @@ export function POSBillingModal() {
 
   // Open the out-of-stock prompt to top up a variant's stock
   const openStockPrompt = ({ product = null, variant = null, item = null, cartIndex = -1 }) => {
-    if (!variant || !variant.id) return;
+    if (!product && !variant) return;
     setStockPrompt({ product, variant, item, cartIndex });
     setStockAddQty('1');
     setStockError('');
@@ -948,8 +948,12 @@ export function POSBillingModal() {
     const stock = effectiveItemStock(item);
     // Block if stock is 0 or below — applies to both single-variant (variant.id present)
     // and plain products (no variant) when stock_quantity is explicitly known and zero.
-    const stockKnown = item.stock_quantity !== undefined && item.stock_quantity !== null;
-    const isOutOfStock = stockKnown ? stock <= 0 : (item.variant?.id ? stock <= 0 : false);
+    const variantStockValue = item.variant?.id ? variantStock(item.variant) : null;
+    const resolvedStock = item.variant?.id && variantStockValue !== null ? variantStockValue : stock;
+    if (item.variant?.id && variantStockValue !== null && item.stock_quantity !== resolvedStock) {
+      item.stock_quantity = resolvedStock;
+    }
+    const isOutOfStock = resolvedStock <= 0;
 
     if (isOutOfStock) {
       if (item.variant?.id) {
@@ -959,9 +963,11 @@ export function POSBillingModal() {
           item
         });
       } else {
-        // No variant id — show warning toast but still allow (can't top-up without variant)
-        showToast(`⚠ "${item.product_name || 'Item'}" appears out of stock (Stock: ${stock}). Proceeding anyway.`, 'error', 3500);
-        handleAddItemToCart(item);
+        openStockPrompt({
+          product: productOverride || findProductForItem(item),
+          variant: null,
+          item
+        });
       }
       return;
     }
@@ -1493,6 +1499,25 @@ export function POSBillingModal() {
       return copy;
     });
 
+    setTimeout(() => {
+      const staffEl = document.getElementById(`pos-item-staff-${index}`);
+      if (staffEl) {
+        staffEl.focus();
+        return;
+      }
+      const qtyEl = document.getElementById(`pos-item-qty-${index}`);
+      if (qtyEl) {
+        qtyEl.focus();
+        qtyEl.select();
+        return;
+      }
+      const priceEl = document.getElementById(`pos-item-price-${index}`);
+      if (priceEl) {
+        priceEl.focus();
+        priceEl.select();
+      }
+    }, 60);
+
     if (stock <= 0) {
       openStockPrompt({ product, variant, cartIndex: index });
     }
@@ -1501,7 +1526,7 @@ export function POSBillingModal() {
   // Top up a variant's stock from the out-of-stock popup, then continue billing
   const handleStockSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!stockPrompt?.variant?.id || stockSaving) return;
+    if (!stockPrompt || stockSaving) return;
 
     const qty = Math.max(0, parseInt(stockAddQty, 10) || 0);
     if (qty <= 0) {
@@ -1510,22 +1535,26 @@ export function POSBillingModal() {
       return;
     }
 
-    const target = normalizeVariant(stockPrompt.variant);
-    const current = Number(variantStock(target)) || 0;
-    const newStock = current + qty;
     const prompt = stockPrompt;
+    const target = normalizeVariant(prompt.variant);
+    const isVariantTarget = Boolean(target && target.id);
+    const current = Number(isVariantTarget ? variantStock(target) : (Number((prompt.item || {}).stock_quantity ?? (prompt.product || {}).stock_quantity ?? (prompt.product || {}).stock ?? 0)) || 0);
+    const newStock = current + qty;
 
     setStockSaving(true);
     setStockError('');
     try {
-      await adjustAdminVariantStock({
-        variant_id: target.id,
-        new_stock: newStock,
-        reason: 'POS out-of-stock stock add'
-      });
+      if (isVariantTarget) {
+        await adjustAdminVariantStock({
+          variant_id: target.id,
+          new_stock: newStock,
+          reason: 'POS out-of-stock stock add'
+        });
+      }
 
       const applyToProductList = (list) => {
         if (!Array.isArray(list)) return list;
+        if (!isVariantTarget) return list;
         return list.map(p => {
           if (!Array.isArray(p.variants) || !p.variants.some(v => String(v.id) === String(target.id))) {
             return p;

@@ -1099,7 +1099,6 @@ export default function AdminBarcodesPage() {
                   const it = customPrintItem;
                   const c = customPrintCopies;
                   const f = customPrintFormat;
-                  setCustomPrintItem(null);
                   printStickers(it, c, f);
                 }}
                 style={{

@@ -1522,7 +1522,6 @@ export default function AdminVendorsPage() {
       title: `Purchase Bill ${barcodePrintBill?.bill_number || ''} Barcodes`,
       stickerType: barcodeStickerFormat
     });
-    setBarcodePrintBill(null);
   };
 
   const handleConfirmBill = async (bill) => {
