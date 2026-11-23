@@ -981,8 +981,10 @@ export function POSBillingModal() {
       return sameProduct && sameVariant ? sum + (ci.quantity || 1) : sum;
     }, 0);
 
-    if (stockKnown && existingCartQty >= stock) {
-      showToast(`⚠ Max available stock (${stock}) already in cart for "${item.product_name || 'item'}".`, 'error', 3000);
+    const stockKnown = resolvedStock !== null && resolvedStock !== undefined && Number.isFinite(Number(resolvedStock));
+
+    if (stockKnown && existingCartQty >= resolvedStock) {
+      showToast(`⚠ Max available stock (${resolvedStock}) already in cart for "${item.product_name || 'item'}".`, 'error', 3000);
       return;
     }
 
@@ -1626,6 +1628,15 @@ export function POSBillingModal() {
         const next = [...prev];
         next.splice(index, 1);
         return next;
+      }
+      if (delta > 0) {
+        const maxStock = current.stock_quantity !== undefined && current.stock_quantity !== null && Number.isFinite(Number(current.stock_quantity))
+          ? Number(current.stock_quantity)
+          : null;
+        if (maxStock !== null && newQty > maxStock) {
+          showToast(`⚠ Max available stock (${maxStock}) reached for "${current.product_name || 'item'}".`, 'error', 3000);
+          return prev;
+        }
       }
       return [...prev].map((item, i) => (i === index ? { ...item, quantity: newQty } : item));
     });
@@ -3650,7 +3661,17 @@ export function POSBillingModal() {
                               value={item.quantity}
                               onChange={(e) => {
                                 const val = parseInt(e.target.value, 10);
-                                if (!Number.isNaN(val) && val > 0) updateItemField(idx, 'quantity', val);
+                                if (!Number.isNaN(val) && val > 0) {
+                                  const maxStock = item.stock_quantity !== undefined && item.stock_quantity !== null && Number.isFinite(Number(item.stock_quantity))
+                                    ? Number(item.stock_quantity)
+                                    : null;
+                                  if (maxStock !== null && val > maxStock) {
+                                    showToast(`⚠ Max available stock (${maxStock}) reached for "${item.product_name || 'item'}".`, 'error', 3000);
+                                    updateItemField(idx, 'quantity', maxStock);
+                                  } else {
+                                    updateItemField(idx, 'quantity', val);
+                                  }
+                                }
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {

@@ -367,7 +367,10 @@ async function getAllProducts(req, res, next) {
 
 async function getProductByIdentifier(req, res, next, { includeOffline = false } = {}) {
   try {
-    const { identifier } = req.params;
+    const identifier = req.params.identifier || req.params.id;
+    if (!identifier) {
+      return sendError(res, 'Product identifier is required', 400);
+    }
     const onlineFilter = includeOffline ? '' : ' AND (p.is_online = TRUE OR p.is_online IS NULL)';
 
     const rows = await query(
