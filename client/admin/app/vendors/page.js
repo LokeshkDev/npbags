@@ -10,6 +10,7 @@ import { useAdminAuth } from '../../lib/auth';
 import useScannerInput from '../../hooks/useScannerInput';
 import { printBarcodeLabels } from '../../lib/barcodeLabel';
 import { JewelleryLabelControls } from '../../components/JewelleryLabelControls';
+import { NormalLabelControls } from '../../components/NormalLabelControls';
 import { extractScanCode } from '../../lib/scanCodeUtils';
 import {
   getAdminVendors,
@@ -89,7 +90,10 @@ const newBillItem = () => ({
   product_name: '',
   variant_id: '',
   variant_info: '',
+  model_name: '',
+  current_stock: null,
   variant_quantities: {},
+  variant_model_names: {},
   variant_rates: {},
   variant_mrps: {},
   variant_prices: {},
@@ -636,7 +640,12 @@ export default function AdminVendorsPage() {
           product_name: item.product_name || '',
           variant_id: item.variant_id ? String(item.variant_id) : '',
           variant_info: item.variant_info || '',
+          model_name: item.model_name || item.variant_model_name || '',
+          current_stock: item.current_stock !== undefined ? Number(item.current_stock) : null,
+          product_stock: item.product_stock !== undefined ? Number(item.product_stock) : null,
+          variant_stock_quantity: item.variant_stock_quantity !== undefined ? Number(item.variant_stock_quantity) : null,
           variant_quantities: item.variant_id ? { [String(item.variant_id)]: Number(item.quantity) || 1 } : {},
+          variant_model_names: item.variant_id && (item.model_name || item.variant_model_name) ? { [String(item.variant_id)]: String(item.model_name || item.variant_model_name) } : {},
           variant_rates: item.variant_id && (item.purchase_rate || item.purchased_rate || item.rate_value) ? { [String(item.variant_id)]: String(item.purchase_rate || item.purchased_rate || item.rate_value) } : {},
           variant_mrps: item.variant_id && item.mrp ? { [String(item.variant_id)]: String(item.mrp) } : {},
           variant_prices: item.variant_id && (item.price || item.sale_price) ? { [String(item.variant_id)]: String(item.price || item.sale_price) } : {},
@@ -837,7 +846,9 @@ export default function AdminVendorsPage() {
         product_id: match.id,
         variant_id: chosenVarId,
         variant_info: firstVar ? [firstVar.model_name, firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
+        model_name: firstVar?.model_name || match.barcode_short_name || '',
         variant_quantities: matchedVariant ? { [String(matchedVariant.id)]: 1 } : {},
+        variant_model_names: matchedVariant && matchedVariant.model_name ? { [String(matchedVariant.id)]: matchedVariant.model_name } : {},
         new_variants: [],
         barcode: matchedVariant?.barcode || match.barcode || val,
         purchase_rate: activeRate,
@@ -848,7 +859,7 @@ export default function AdminVendorsPage() {
         expiry_date: toDateInput(match.expiry_date)
       });
     } else {
-      updateBillItem(index, { product_name: value, barcode: val, product_id: '', variant_id: '', variant_info: '', variant_quantities: {}, new_variants: [] });
+      updateBillItem(index, { product_name: value, barcode: val, product_id: '', variant_id: '', variant_info: '', model_name: '', variant_quantities: {}, variant_model_names: {}, new_variants: [] });
     }
   };
 
@@ -868,7 +879,9 @@ export default function AdminVendorsPage() {
           product_id: res.product_id,
           variant_id: res.variant_id ? String(res.variant_id) : '',
           variant_info: res.variant ? [res.variant.model_name, res.variant.color_name, res.variant.size_name].filter(Boolean).join(' / ') : '',
+          model_name: res.variant?.model_name || res.model_name || res.barcode_short_name || '',
           variant_quantities: res.variant_id ? { [String(res.variant_id)]: 1 } : {},
+          variant_model_names: res.variant_id && (res.variant?.model_name || res.model_name) ? { [String(res.variant_id)]: res.variant?.model_name || res.model_name } : {},
           barcode: res.barcode || code,
           purchase_rate: res.purchased_rate !== null && res.purchased_rate !== undefined && String(res.purchased_rate).trim() !== ''
             ? String(res.purchased_rate)
@@ -1360,6 +1373,7 @@ export default function AdminVendorsPage() {
             product_name: item.product_name,
             variant_id: variantId ? Number(variantId) : null,
             variant_info: variantInfo || null,
+            model_name: extraPrices?.model_name || item.model_name || (newVariant && newVariant.model_name) || null,
             new_variant: newVariant || null,
             scanned_barcode: item.barcode || null,
             stock_applied_qty: Math.max(0, Number(stockApplied) || 0),
@@ -1423,7 +1437,10 @@ export default function AdminVendorsPage() {
             const varAlias = item.variant_rate_aliases?.[vid] !== undefined
               ? item.variant_rate_aliases[vid]
               : (item.purchase_rate_alias || v?.purchase_rate_alias || '');
-            return buildPayload(vid, info, qty, applied, null, { purchase_rate: varRate, mrp: varMrp, price: varPrice, purchase_rate_alias: varAlias });
+            const varModel = item.variant_model_names?.[vid] !== undefined && item.variant_model_names[vid] !== ''
+              ? item.variant_model_names[vid]
+              : (v?.model_name || item.model_name || '');
+            return buildPayload(vid, info, qty, applied, null, { purchase_rate: varRate, mrp: varMrp, price: varPrice, purchase_rate_alias: varAlias, model_name: varModel });
           });
           newVariantEntries.forEach(nv => {
             const info = [nv.model_name, nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || 'New variant';
@@ -1439,7 +1456,8 @@ export default function AdminVendorsPage() {
               purchase_rate: nv.purchase_rate || item.purchase_rate,
               mrp: nv.mrp || item.mrp,
               price: nv.price,
-              purchase_rate_alias: nv.rate_alias || item.purchase_rate_alias || ''
+              purchase_rate_alias: nv.rate_alias || item.purchase_rate_alias || '',
+              model_name: String(nv.model_name || '').trim() || null
             }));
           });
           if (lines.length > 0) return lines;
@@ -1448,14 +1466,15 @@ export default function AdminVendorsPage() {
             return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty, null, {
               purchase_rate: item.variant_rates?.[String(item.variant_id)] || item.purchase_rate,
               mrp: item.variant_mrps?.[String(item.variant_id)] || item.mrp,
-              price: item.variant_prices?.[String(item.variant_id)]
+              price: item.variant_prices?.[String(item.variant_id)],
+              model_name: item.variant_model_names?.[String(item.variant_id)] || item.model_name
             })];
           }
           // No quantities entered for any variant — skip this line
           return [];
         }
 
-        return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty)];
+        return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty, null, { model_name: item.model_name })];
       })
     };
     if (payload.items.length === 0) {
@@ -2821,15 +2840,21 @@ export default function AdminVendorsPage() {
                     const variantSource = products.find(p => String(p.id) === String(item.product_id));
                     const variants = Array.isArray(variantSource?.variants) ? variantSource.variants : [];
 
-                    // Stock calculation for this item
-                    let currentStock = 0;
+                    // Stock calculation for this item ("how much we have")
+                    let currentStock = (item.current_stock !== undefined && item.current_stock !== null) ? Number(item.current_stock) : 0;
                     if (item.variant_id) {
                       const vObj = variants.find(v => String(v.id) === String(item.variant_id));
-                      currentStock = vObj ? (Number(vObj.stock_quantity) || 0) : 0;
+                      if (vObj && vObj.stock_quantity !== undefined) {
+                        currentStock = Number(vObj.stock_quantity) || 0;
+                      } else if (item.variant_stock_quantity !== undefined && item.variant_stock_quantity !== null) {
+                        currentStock = Number(item.variant_stock_quantity) || 0;
+                      }
                     } else if (variantSource) {
                       currentStock = variants.length > 0
                         ? variants.reduce((sum, v) => sum + (Number(v.stock_quantity) || 0), 0)
                         : (Number(variantSource.stock) || 0);
+                    } else if (item.product_stock !== undefined && item.product_stock !== null) {
+                      currentStock = Number(item.product_stock) || 0;
                     }
                     const addQty = parseInt(item.quantity, 10) || 0;
                     const appliedQty = Math.min(addQty, Math.max(0, Number(item.stock_applied_qty) || 0));
@@ -2880,37 +2905,57 @@ export default function AdminVendorsPage() {
                                 {detectingItemIndex === index ? '⏳' : '🔍'}
                               </button>
                             </div>
-                            {item.product_id ? (
-                              <div style={{ fontSize: '9.5px', color: '#15803d', marginTop: '2px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span>✓ Linked to catalog</span>
-                                {item.barcode && <span style={{ fontFamily: 'monospace', color: '#64748b' }}>({item.barcode})</span>}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
+                              {item.product_id ? (
+                                <span style={{ fontSize: '9.5px', color: '#15803d', fontWeight: 700 }}>✓ Linked</span>
+                              ) : null}
+                              {item.barcode && (
+                                <span style={{ fontFamily: 'monospace', color: '#64748b', fontSize: '9.5px' }}>({item.barcode})</span>
+                              )}
+                              <span
+                                style={{
+                                  background: currentStock > 0 ? '#ecfdf5' : '#fef2f2',
+                                  color: currentStock > 0 ? '#15803d' : '#b91c1c',
+                                  border: currentStock > 0 ? '1px solid #bbf7d0' : '1px solid #fecaca',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '10.5px',
+                                  fontWeight: 800
+                                }}
+                                title="Current available stock on hand"
+                              >
+                                📦 Stock: {currentStock} on hand
+                              </span>
+                              {item.model_name && (
+                                <span style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '1px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 800 }}>
+                                  Model: {item.model_name}
+                                </span>
+                              )}
+                            </div>
+                            {!item.product_id && item.product_name && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '10px', color: '#b45309', fontWeight: 700 }}>Not in catalog:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRedirectNewProduct(item.product_name, item.barcode || item.product_name)}
+                                  style={{
+                                    background: '#fef3c7',
+                                    border: '1px solid #fde68a',
+                                    color: '#92400e',
+                                    borderRadius: '4px',
+                                    padding: '1px 8px',
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                >
+                                  <span>➕ Add New Product</span>
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>({item.barcode || item.product_name})</span>
+                                </button>
                               </div>
-                            ) : (
-                              item.product_name && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: '10px', color: '#b45309', fontWeight: 700 }}>Not in catalog:</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRedirectNewProduct(item.product_name, item.barcode || item.product_name)}
-                                    style={{
-                                      background: '#fef3c7',
-                                      border: '1px solid #fde68a',
-                                      color: '#92400e',
-                                      borderRadius: '4px',
-                                      padding: '1px 8px',
-                                      fontSize: '10px',
-                                      fontWeight: 800,
-                                      cursor: 'pointer',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px'
-                                    }}
-                                  >
-                                    <span>➕ Add New Product</span>
-                                    <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>({item.barcode || item.product_name})</span>
-                                  </button>
-                                </div>
-                              )
                             )}
                           </div>
                           <div>
@@ -2919,7 +2964,32 @@ export default function AdminVendorsPage() {
                                 {variants.length + (item.new_variants || []).length} variant{(variants.length + (item.new_variants || []).length) > 1 ? 's' : ''} · enter qty below
                               </div>
                             ) : (
-                              <input type="text" value={item.variant_info} onChange={(e) => updateBillItem(index, { variant_info: e.target.value })} placeholder="Variant/size (optional)" style={{ width: '100%', padding: '7px 9px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <input
+                                  type="text"
+                                  value={item.model_name || ''}
+                                  onChange={(e) => updateBillItem(index, { model_name: e.target.value })}
+                                  placeholder="Model Name (e.g. A 1262)"
+                                  style={{
+                                    width: '100%',
+                                    padding: '5px 7px',
+                                    borderRadius: '5px',
+                                    border: '1.5px solid #6366f1',
+                                    fontSize: '11.5px',
+                                    fontWeight: 700,
+                                    background: '#f5f3ff',
+                                    color: '#312e81'
+                                  }}
+                                  title="Model / Variant Name (saves in original product)"
+                                />
+                                <input
+                                  type="text"
+                                  value={item.variant_info || ''}
+                                  onChange={(e) => updateBillItem(index, { variant_info: e.target.value })}
+                                  placeholder="Variant/size info"
+                                  style={{ width: '100%', padding: '4px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11px' }}
+                                />
+                              </div>
                             )}
                           </div>
                           <div>
@@ -2998,13 +3068,35 @@ export default function AdminVendorsPage() {
                                 const vRate = item.variant_rates?.[vId] !== undefined ? item.variant_rates[vId] : (v.purchase_price ?? item.purchase_rate ?? '');
                                 const vMrp = item.variant_mrps?.[vId] !== undefined ? item.variant_mrps[vId] : (v.mrp ?? item.mrp ?? '');
                                 const vPrice = item.variant_prices?.[vId] !== undefined ? item.variant_prices[vId] : (v.price ?? v.sale_price ?? '');
+                                const vModel = item.variant_model_names?.[vId] !== undefined ? item.variant_model_names[vId] : (v.model_name || item.model_name || '');
                                 return (
-                                  <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1.1fr 55px 75px 75px 75px', gap: '6px', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '6px 8px' }}>
+                                  <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 55px 75px 75px 75px', gap: '6px', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '6px 8px' }}>
                                     <div style={{ overflow: 'hidden' }}>
                                       <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>
                                         {label}
                                       </div>
-                                      <div style={{ fontSize: '9.5px', color: '#64748b' }}>Stock {current}{qty > 0 ? ` → ${projected}` : ''}</div>
+                                      <div style={{ fontSize: '9.5px', color: current > 0 ? '#15803d' : '#b91c1c', fontWeight: 800 }}>
+                                        📦 Stock: {current} on hand{qty > 0 ? ` → ${projected}` : ''}
+                                      </div>
+                                      <div style={{ marginTop: '3px' }}>
+                                        <input
+                                          type="text"
+                                          value={vModel}
+                                          placeholder="Model Name"
+                                          onChange={(e) => setVariantField(index, 'variant_model_names', vId, e.target.value)}
+                                          style={{
+                                            width: '100%',
+                                            padding: '3px 6px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #c7d2fe',
+                                            fontSize: '10.5px',
+                                            fontWeight: 700,
+                                            color: '#312e81',
+                                            background: '#f5f3ff'
+                                          }}
+                                          title="Model Name for this variant (saves in original product)"
+                                        />
+                                      </div>
                                       {v.barcode && <div style={{ fontSize: '9px', color: '#94a3b8', fontFamily: 'monospace' }}>{v.barcode}</div>}
                                     </div>
                                     <div>
@@ -3509,7 +3601,19 @@ export default function AdminVendorsPage() {
                               </div>
                             ) : null}
                           </td>
-                          <td style={{ padding: '9px 12px', color: '#64748b' }}>{item.variant_info || '—'}</td>
+                          <td style={{ padding: '9px 12px', color: '#64748b' }}>
+                            <div>{item.variant_info || 'Standard'}</div>
+                            {item.model_name && (
+                              <div style={{ fontSize: '10.5px', color: '#1e40af', fontWeight: 800, marginTop: '2px' }}>
+                                Model: {item.model_name}
+                              </div>
+                            )}
+                            {(item.current_stock !== undefined && item.current_stock !== null) ? (
+                              <div style={{ fontSize: '10.5px', color: '#047857', fontWeight: 800, marginTop: '2px' }}>
+                                📦 Stock: {item.current_stock} on hand
+                              </div>
+                            ) : null}
+                          </td>
                           <td style={{ padding: '9px 12px', textAlign: 'center' }}>{item.quantity}</td>
                           <td style={{ padding: '9px 12px', textAlign: 'right' }}>{item.purchase_rate || `₹${money(item.rate_value)}`}</td>
                           <td style={{ padding: '9px 12px', textAlign: 'right', color: Number(item.discount_amount) > 0 ? '#b91c1c' : '#64748b' }}>
@@ -3670,6 +3774,9 @@ export default function AdminVendorsPage() {
 
                   {barcodeStickerFormat === 'jewellery_80x12' && (
                     <JewelleryLabelControls style={{ marginTop: '10px' }} />
+                  )}
+                  {barcodeStickerFormat === 'normal_35x25' && (
+                    <NormalLabelControls style={{ marginTop: '10px' }} />
                   )}
                 </div>
 

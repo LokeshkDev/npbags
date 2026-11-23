@@ -288,6 +288,8 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     }
   }
 
+  const itemModelName = String(item.model_name || (requestedNewVariant && requestedNewVariant.model_name) || '').trim() || null;
+
   if (variantId) {
     const variants = await tx.query(
       'SELECT * FROM product_variants WHERE id = ? AND product_id = ? LIMIT 1',
@@ -295,24 +297,59 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     );
     if (variants.length === 0) throw httpError(`Selected variant does not belong to ${product.name}`, 400);
     const variant = variants[0];
-    variantInfo = variantInfo || [variant.model_name, variant.color_name, variant.size_name].filter(Boolean).join(' / ');
+    const finalModelName = itemModelName || variant.model_name || null;
+    variantInfo = variantInfo || [finalModelName, variant.color_name, variant.size_name].filter(Boolean).join(' / ');
 
-    // Update variant purchase rate, MRP and selling price if specified on this bill item
+    // Update variant purchase rate, MRP, selling price, and model_name if specified
     const vPurchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null;
     const vMrp = item.mrp !== undefined && item.mrp !== null && item.mrp !== '' ? parseFloat(item.mrp) : null;
     const vPrice = item.price !== undefined && item.price !== null && item.price !== '' ? parseFloat(item.price) : null;
     const vSalePrice = item.sale_price !== undefined && item.sale_price !== null && item.sale_price !== '' ? parseFloat(item.sale_price) : vPrice;
-    if (vPurchaseRate !== null || vMrp !== null || vPrice !== null) {
-      await tx.query(
-        `UPDATE product_variants
-         SET purchase_price = COALESCE(?, purchase_price),
-             mrp = COALESCE(?, mrp),
-             price = COALESCE(?, price),
-             sale_price = COALESCE(?, sale_price)
-         WHERE id = ?`,
-        [vPurchaseRate, vMrp, vPrice, vSalePrice, variantId]
+    await tx.query(
+      `UPDATE product_variants
+       SET model_name = COALESCE(?, model_name),
+           purchase_price = COALESCE(?, purchase_price),
+           mrp = COALESCE(?, mrp),
+           price = COALESCE(?, price),
+           sale_price = COALESCE(?, sale_price)
+       WHERE id = ?`,
+      [itemModelName, vPurchaseRate, vMrp, vPrice, vSalePrice, variantId]
+    );
+  } else if (itemModelName) {
+    // If no variantId explicitly passed, save model_name to original product's variants
+    const existingVariants = await tx.query(
+      'SELECT id, model_name FROM product_variants WHERE product_id = ? ORDER BY id ASC',
+      [product.id]
+    );
+    if (existingVariants.length > 0) {
+      await tx.query('UPDATE product_variants SET model_name = ? WHERE id = ?', [itemModelName, existingVariants[0].id]);
+      if (existingVariants.length === 1) {
+        variantId = existingVariants[0].id;
+      }
+    } else {
+      const ins = await tx.query(
+        `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, sku, mrp, price, sale_price)
+         VALUES (?, ?, 'Standard', '#000000', 'Standard', ?, ?, ?, ?, ?, ?)`,
+        [
+          product.id,
+          itemModelName,
+          parseInt(product.stock, 10) || 0,
+          product.purchase_price,
+          `NP-${product.id}-STD`,
+          product.mrp,
+          product.price,
+          product.sale_price || product.price
+        ]
       );
+      variantId = ins.insertId;
     }
+  }
+
+  // Also update products.barcode_short_name to match model_name if empty
+  if (itemModelName && (!product.barcode_short_name || product.barcode_short_name === product.name)) {
+    try {
+      await tx.query('UPDATE products SET barcode_short_name = ? WHERE id = ?', [itemModelName, product.id]);
+    } catch (_) {}
   }
 
   return {
@@ -320,6 +357,7 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     variant_id: variantId,
     product_name: product.name,
     variant_info: variantInfo,
+    model_name: itemModelName,
     product_mrp: product.mrp,
     product_price: product.price,
     product_sale_price: product.sale_price,
@@ -552,6 +590,17 @@ async function getPurchaseBillBarcodes(req, res, next) {
     const bill = bills[0];
 
     try {
+      // Auto-link any unlinked bill items to product_variants by model_name or sku if variant_id was not set
+      await query(
+        `UPDATE purchase_bill_items pbi
+         JOIN product_variants pv ON pbi.product_id = pv.product_id AND (
+           (pv.model_name IS NOT NULL AND pv.model_name != '' AND LOWER(pbi.variant_info) = LOWER(pv.model_name))
+           OR (pv.sku IS NOT NULL AND pv.sku != '' AND LOWER(pbi.variant_info) = LOWER(pv.sku))
+         )
+         SET pbi.variant_id = pv.id
+         WHERE pbi.purchase_bill_id = ? AND pbi.variant_id IS NULL`,
+        [id]
+      );
       await ensureBarcodesForBillItems(id, req.user ? req.user.id : null);
     } catch (barcodeError) {
       console.warn('[PurchaseBill] Could not ensure barcodes for bill items:', barcodeError.message);
@@ -559,7 +608,8 @@ async function getPurchaseBillBarcodes(req, res, next) {
 
     const items = await query(
       `SELECT pbi.id AS bill_item_id, pbi.product_id, pbi.variant_id, pbi.product_name,
-              pbi.variant_info, pbi.quantity, pbi.purchase_rate, pbi.rate_value, pbi.purchase_rate_alias, pbi.mrp,
+              pbi.variant_info, COALESCE(pbi.model_name, pv.model_name) AS model_name,
+              pbi.quantity, pbi.purchase_rate, pbi.rate_value, pbi.purchase_rate_alias, pbi.mrp,
               pbi.price AS item_price, pbi.sale_price AS item_sale_price,
               p.name AS catalog_name, p.price, p.sale_price, p.mrp AS catalog_mrp,
               p.purchase_price, p.purchased_rate, p.category_id,
@@ -627,7 +677,8 @@ async function getPurchaseBillBarcodes(req, res, next) {
         product_id: item.product_id,
         variant_id: item.variant_id,
         product_name: item.product_name || item.catalog_name || 'Item',
-        variant_info: item.variant_info || [item.color_name, item.size_name].filter(Boolean).join(' / ') || '',
+        variant_info: item.variant_info || [item.model_name, item.color_name, item.size_name].filter(Boolean).join(' / ') || '',
+        model_name: item.model_name || null,
         sku: item.sku || null,
         barcode: chosen ? chosen.barcode : null,
         barcode_sequence: chosen ? chosen.barcode_sequence : null,
@@ -896,7 +947,12 @@ async function getPurchaseBillById(req, res, next) {
 
     const items = await query(
       `SELECT pbi.*, p.slug AS product_slug, p.mrp, p.purchase_price, p.purchased_rate,
-              pv.color_name, pv.size_name, pv.sku
+              p.stock AS product_stock,
+              COALESCE(pv.stock_quantity, p.stock, 0) AS current_stock,
+              COALESCE(pbi.model_name, pv.model_name) AS model_name,
+              pv.model_name AS variant_model_name,
+              pv.color_name, pv.size_name, pv.sku,
+              pv.stock_quantity AS variant_stock_quantity
        FROM purchase_bill_items pbi
        LEFT JOIN products p ON pbi.product_id = p.id
        LEFT JOIN product_variants pv ON pbi.variant_id = pv.id
@@ -1073,18 +1129,19 @@ async function createPurchaseBill(req, res, next) {
       for (const item of normalizedItems) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
-            purchase_bill_id, product_id, variant_id, product_name, variant_info,
+            purchase_bill_id, product_id, variant_id, product_name, variant_info, model_name,
             quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, price, sale_price, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
             landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
             stock_applied_qty, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             billId,
             item.product_id,
             item.variant_id || null,
             item.product_name,
             item.variant_info || null,
+            item.model_name || null,
             item.quantity,
             item.purchase_rate || null,
             item.rate_value || 0,
@@ -1308,18 +1365,19 @@ async function updatePurchaseBill(req, res, next) {
       for (const item of normalizedItems) {
         await tx.query(
           `INSERT INTO purchase_bill_items (
-            purchase_bill_id, product_id, variant_id, product_name, variant_info,
+            purchase_bill_id, product_id, variant_id, product_name, variant_info, model_name,
             quantity, purchase_rate, rate_value, purchase_rate_alias, mrp, price, sale_price, gst_type, gst_rate,
             discount_type, discount_value, discount_amount,
             landing_cost, purchase_margin, landing_margin, manufacturing_date, expiry_date,
             stock_applied_qty, total_amount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             item.product_id,
             item.variant_id || null,
             item.product_name,
             item.variant_info || null,
+            item.model_name || null,
             item.quantity,
             item.purchase_rate || null,
             item.rate_value || 0,

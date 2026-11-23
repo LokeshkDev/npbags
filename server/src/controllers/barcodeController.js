@@ -103,13 +103,14 @@ async function lookupBarcode(req, res, next) {
       return sendError(res, 'Valid barcode / QR code is required', 400);
     }
     const branch_id = req.query.branch_id || (req.user && req.user.role !== 'admin' ? req.user.branch_id : null);
+    const isRegionalBranch = Boolean(branch_id && Number(branch_id) > 1);
 
     const getBranchStock = async (productId) => {
-      if (!branch_id || !productId) return null;
+      if (!isRegionalBranch || !productId) return null;
       try {
         const rows = await query('SELECT stock, is_active FROM branch_stocks WHERE branch_id = ? AND product_id = ? LIMIT 1', [branch_id, productId]);
         if (rows.length === 0) return null;
-        if (Number(branch_id) > 1 && Number(rows[0].is_active) !== 1) return null;
+        if (Number(rows[0].is_active) !== 1) return null;
         return rows[0].stock;
       } catch (err) {
         return null;
@@ -165,7 +166,7 @@ async function lookupBarcode(req, res, next) {
 
       const effectivePrice = row.sale_price > 0 ? parseFloat(row.sale_price) : parseFloat(row.price);
 
-      const branchStockVal = branchStockQuantity !== null ? branchStockQuantity : await getBranchStock(row.product_id);
+      const branchStockVal = isRegionalBranch ? (branchStockQuantity !== null ? branchStockQuantity : await getBranchStock(row.product_id)) : null;
       let baseStock = row.variant_id ? row.stock_quantity : row.product_stock;
 
       let resolvedVariant = row.variant_id ? {
@@ -174,7 +175,8 @@ async function lookupBarcode(req, res, next) {
         color: row.color_name,
         color_hex: row.color_hex,
         size: row.size_name,
-        stock: branchStockVal !== null ? branchStockVal : (row.stock_quantity !== null && row.stock_quantity !== undefined ? row.stock_quantity : baseStock)
+        stock: (row.stock_quantity !== null && row.stock_quantity !== undefined) ? row.stock_quantity : (branchStockVal !== null ? branchStockVal : baseStock),
+        stock_quantity: (row.stock_quantity !== null && row.stock_quantity !== undefined) ? row.stock_quantity : (branchStockVal !== null ? branchStockVal : baseStock)
       } : null;
 
       // Single-variant or variant stock fallback if primary barcode has null variant_id
@@ -196,16 +198,19 @@ async function lookupBarcode(req, res, next) {
                 color: vRows[0].color_name,
                 color_hex: vRows[0].color_hex,
                 size: vRows[0].size_name,
-                stock: branchStockVal !== null ? branchStockVal : (vRows[0].stock_quantity !== null && vRows[0].stock_quantity !== undefined ? vRows[0].stock_quantity : baseStock)
+                stock: (vRows[0].stock_quantity !== null && vRows[0].stock_quantity !== undefined) ? vRows[0].stock_quantity : (branchStockVal !== null ? branchStockVal : baseStock),
+                stock_quantity: (vRows[0].stock_quantity !== null && vRows[0].stock_quantity !== undefined) ? vRows[0].stock_quantity : (branchStockVal !== null ? branchStockVal : baseStock)
               };
             }
           }
         } catch (_) {}
       }
 
-      const effectiveStock = branchStockVal !== null
-        ? branchStockVal
-        : (baseStock !== undefined && baseStock !== null ? baseStock : 0);
+      const effectiveStock = (row.variant_id && row.stock_quantity !== null && row.stock_quantity !== undefined)
+        ? row.stock_quantity
+        : (branchStockVal !== null
+          ? branchStockVal
+          : (baseStock !== undefined && baseStock !== null ? baseStock : 0));
 
       return sendSuccess(res, {
         found_by: 'barcode',

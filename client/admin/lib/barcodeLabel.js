@@ -257,24 +257,46 @@ export function renderToySticker(item, options = {}) {
 
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  // Only show arrival code if entered — never fall back to product name
-  const arrivalHtml = label.hasArrivalCode
-    ? `<span class="pname-text" title="${label.arrivalCode}">${label.arrivalCode.length > 24 ? label.arrivalCode.slice(0, 24) : label.arrivalCode}</span>`
-    : '<span class="pname-text"></span>';
-  const showStore = options.showStoreName !== false;
-  const storeNameHtml = showStore ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
+
+  // Variant / Model name for the right column parallel to barcode number
+  const rawVariant = firstNonEmpty(
+    item?.model_name && (item?.color_name || item?.size_name)
+      ? `${item.model_name} ${[item.color_name, item.size_name].filter(Boolean).join(' ')}`
+      : null,
+    item?.model_name,
+    item?.variant_info,
+    [item?.color_name, item?.size_name].filter(Boolean).join(' '),
+    item?.sku,
+    item?.variant_name,
+    label.hasArrivalCode ? label.arrivalCode : ''
+  );
+  const variantText = rawVariant && !/^(standard|default|none|n\/?a|—|-)$/i.test(String(rawVariant).trim())
+    ? String(rawVariant).trim()
+    : (label.hasArrivalCode ? label.arrivalCode : '');
+
+  const rightColHtml = variantText
+    ? `<span class="variant-text" title="${variantText}">${variantText.length > 20 ? variantText.slice(0, 20) : variantText}</span>`
+    : '<span class="variant-text"></span>';
+
   const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 10 });
 
-  const sizeBadgeHtml = (label.isFootwear && label.size)
+  const sizeBadgeHtml = (label.isFootwear && label.size && !variantText.includes(label.size))
     ? `<span class="size-badge">SZ: ${label.size}</span>`
     : '';
   const priceDisplayHtml = `<span class="mrp-label">MRP </span>&#8377;${label.mrp}${sizeBadgeHtml}`;
 
+  const productNameHtml = label.productName
+    ? `<div class="product-name">${label.productName}</div>`
+    : '';
+
   return `
     <div class="barcode-sticker">
-      ${storeNameHtml}
+      ${productNameHtml}
       <div class="barcode-svg-container">${svgHtml}</div>
-      <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}</span>${arrivalHtml}</div>
+      <div class="info-row">
+        <span class="code-text">${item.barcode || 'NO BARCODE'}</span>
+        ${rightColHtml}
+      </div>
       <div class="mrp-text">${priceDisplayHtml}</div>
     </div>
   `;
@@ -296,11 +318,19 @@ export function renderJewellerySticker(item, options = {}) {
     ? `<span class="jewel-name">${label.productName.length > 14 ? label.productName.slice(0, 14) : label.productName}</span>`
     : '';
 
-  // Always use absolute top position — this is the key to zero rounding drift.
   const index = Number.isFinite(Number(options.index)) ? Number(options.index) : 0;
   const pitch = Number.isFinite(Number(options.pitchMm)) ? Number(options.pitchMm) : 12;
+  const continuous = Boolean(options.continuous);
+  const offsetY = Number.isFinite(Number(options.offsetY)) ? Number(options.offsetY) : 0;
+  const offsetX = Number.isFinite(Number(options.offsetX)) ? Number(options.offsetX) : 0;
+
+  const wrapperClass = continuous ? 'jewel-sticker-wrapper jewel-continuous' : 'jewel-sticker-wrapper';
+  const wrapperStyle = continuous
+    ? ` style="position:absolute; top:${(index * pitch + offsetY).toFixed(3)}mm; left:${offsetX.toFixed(3)}mm;"`
+    : (offsetY !== 0 || offsetX !== 0 ? ` style="transform:translate(${offsetX}mm, ${offsetY}mm);"` : '');
+
   return `
-    <div class="jewel-sticker-wrapper">
+    <div class="${wrapperClass}"${wrapperStyle}>
       <div class="jewel-sticker">
         <!-- LEFT FLAP: barcode graphic -->
         <div class="jewel-flap jewel-flap-1">
@@ -333,6 +363,13 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const offsetY = Number.isFinite(rawOffsetY) ? Math.max(-6, Math.min(6, rawOffsetY)) : 0;
   const offsetX = Number.isFinite(rawOffsetX) ? Math.max(-6, Math.min(6, rawOffsetX)) : 0;
 
+  const normalOffsetY = options.normalOffsetY !== undefined
+    ? Number(options.normalOffsetY)
+    : (settings.normalOffsetY !== undefined ? Number(settings.normalOffsetY) : 7.0);
+  const normalOffsetX = options.normalOffsetX !== undefined
+    ? Number(options.normalOffsetX)
+    : (settings.normalOffsetX !== undefined ? Number(settings.normalOffsetX) : 0);
+
   const rawPitch = options.jewelPitchMm !== undefined ? options.jewelPitchMm : settings.pitchMm;
   const parsedPitch = Number(rawPitch);
   const jewelleryPageHeightMm = Number.isFinite(parsedPitch) && parsedPitch >= 12 && parsedPitch <= 30
@@ -360,17 +397,21 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
         ...options,
         continuous,
         index: stickerIndex,
-        pitchMm: jewelleryPageHeightMm
+        pitchMm: jewelleryPageHeightMm,
+        offsetY,
+        offsetX
       });
       stickerCards.push(html);
       stickerIndex += 1;
     }
   });
 
-  const jewelleryPageSize = `77.5mm ${jewelleryPageHeightMm}mm`;
-
   if (isJewellery) {
     const stickers = stickerCards.join('');
+    const totalContinuousHeightMm = (totalStickers * jewelleryPageHeightMm).toFixed(2);
+    const jewelleryPageSize = continuous ? `77.5mm ${totalContinuousHeightMm}mm` : `77.5mm ${jewelleryPageHeightMm}mm`;
+    const listHeight = continuous ? `height:${totalContinuousHeightMm}mm; position:relative;` : '';
+
     return `
 <!DOCTYPE html>
 <html>
@@ -396,6 +437,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     print-color-adjust:exact !important;
     font-weight:700;
   }
+  .jewel-sticker-list { display: block; width: 77.5mm; padding: 0; margin: 0; ${listHeight} }
   .jewel-sticker-wrapper {
     display:block;
     width:77.5mm;
@@ -404,11 +446,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     overflow:hidden;
     background:#ffffff;
     margin:0; padding:0;
-    page-break-before:auto;
-    page-break-inside:avoid;
-    break-inside:avoid;
-    page-break-after:always;
-    break-after:page;
+    ${continuous ? '' : 'page-break-before:auto; page-break-inside:avoid; break-inside:avoid; page-break-after:always; break-after:page;'}
   }
   .jewel-sticker-wrapper:last-child {
     page-break-after:avoid;
@@ -514,7 +552,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     width: 110mm;
     height: 25mm;
     max-height: 25mm;
@@ -532,9 +570,13 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   }
   .barcode-sticker {
     width: 34.5mm;
-    height: 24mm;
-    border: 0.5px solid #000000;
-    padding: 0.8mm 1.2mm;
+    height: 25mm;
+    max-height: 25mm;
+    border: none !important;
+    padding-top: ${normalOffsetY.toFixed(2)}mm;
+    padding-bottom: 0.6mm;
+    padding-left: ${(1 + normalOffsetX).toFixed(2)}mm;
+    padding-right: ${(1 - normalOffsetX).toFixed(2)}mm;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -544,21 +586,24 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     break-inside: avoid;
     overflow: hidden;
     background: #ffffff !important;
+    box-sizing: border-box;
   }
-  .store-name {
-    font-size: 7.5pt;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: 0.2px;
-    text-align: center;
+  .product-name {
     width: 100%;
+    font-size: 6.5pt;
+    font-weight: 800;
+    line-height: 1.1;
+    text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: #000000 !important;
+    padding: 0 0.5mm;
+    margin-bottom: 0.2mm;
   }
   .barcode-svg-container {
     width: 32mm;
-    height: 8.5mm;
+    height: 7.2mm;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -584,6 +629,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     gap: 1mm;
     padding: 0 0.5mm;
     line-height: 1;
+    margin-top: 0.2mm;
   }
   .code-text {
     font-size: 5.8pt;
@@ -594,10 +640,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: #000000 !important;
   }
-  .pname-text {
+  .variant-text {
     font-size: 5.8pt;
-    font-weight: 700;
+    font-weight: 800;
     font-family: Arial, Helvetica, sans-serif;
     letter-spacing: 0.1px;
     line-height: 1;
@@ -606,19 +653,11 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     overflow: hidden;
     text-overflow: clip;
     white-space: nowrap;
-  }
-  .product-name {
-    width: 100%;
-    font-size: 6.5pt;
-    font-weight: 700;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    color: #000000 !important;
   }
   .mrp-text {
     width: 100%;
-    font-size: 10pt;
+    font-size: 9.5pt;
     font-weight: 900;
     line-height: 1;
     letter-spacing: -0.2px;
@@ -627,6 +666,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     align-items: center;
     justify-content: center;
     gap: 1.5mm;
+    margin-top: 0.2mm;
   }
   .mrp-text .mrp-label {
     font-size: 6.8pt;
@@ -634,7 +674,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     letter-spacing: 0;
   }
   .size-badge {
-    font-size: 8pt;
+    font-size: 7.5pt;
     font-weight: 900;
     border: 0.8px solid #000000;
     padding: 0.2mm 1.2mm;

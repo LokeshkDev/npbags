@@ -203,40 +203,51 @@ function getEffectiveProductStock(prod, variant = null) {
   if (!prod) return 0;
   const pVariants = Array.isArray(prod.variants) ? prod.variants : [];
 
-  // 1. If branch stock is explicitly set on prod
-  if (prod.branch_stock !== undefined && prod.branch_stock !== null) {
-    return Number(prod.branch_stock);
-  }
-
-  // 2. Specific variant passed
+  // 1. Specific variant passed
   if (variant) {
-    const vStock = variantStock(variant);
-    if (vStock !== null && vStock !== undefined && vStock > 0) return vStock;
+    let vStock = variantStock(variant);
+    if ((vStock === null || vStock === undefined || Number.isNaN(vStock)) && variant.id && pVariants.length > 0) {
+      const matched = pVariants.find(v => String(v.id) === String(variant.id));
+      if (matched) vStock = variantStock(matched);
+    }
+    if (vStock !== null && vStock !== undefined && !Number.isNaN(vStock)) {
+      return Number(vStock);
+    }
   }
 
-  // 3. Single-variant product (1 variant in catalog)
+  // 2. Single-variant product (1 variant in catalog)
   if (pVariants.length === 1) {
     const vStock = variantStock(pVariants[0]);
-    const pStock = productStock(prod);
-    // If variant has positive stock, prioritize it
-    if (vStock !== null && vStock !== undefined && vStock > 0) return vStock;
-    // If product has positive stock, use product stock
-    if (pStock !== null && pStock !== undefined && pStock > 0) return pStock;
-    // Whichever is defined
-    return (vStock !== null && vStock !== undefined) ? vStock : ((pStock !== null && pStock !== undefined) ? pStock : 0);
-  }
-
-  // 4. Multiple variants (> 1)
-  if (pVariants.length > 1) {
-    if (variant) {
-      const vStock = variantStock(variant);
-      return vStock !== null && vStock !== undefined ? vStock : 0;
+    if (vStock !== null && vStock !== undefined && !Number.isNaN(vStock)) {
+      return Number(vStock);
     }
-    return pVariants.reduce((sum, v) => sum + (variantStock(v) || 0), 0);
+    const pStock = productStock(prod);
+    if (pStock !== null && pStock !== undefined && !Number.isNaN(pStock)) {
+      return Number(pStock);
+    }
+    return 0;
   }
 
-  // 5. Zero variants (standard product)
-  return productStock(prod) ?? 0;
+  // 3. Multiple variants (> 1) and no specific variant passed
+  if (pVariants.length > 1) {
+    const sum = pVariants.reduce((total, v) => {
+      const s = variantStock(v);
+      return total + (s !== null && !Number.isNaN(s) ? Number(s) : 0);
+    }, 0);
+    if (sum > 0) return sum;
+    const pStock = productStock(prod);
+    return (pStock !== null && !Number.isNaN(pStock)) ? Number(pStock) : sum;
+  }
+
+  // 4. Zero variants (standard product)
+  const pStock = productStock(prod);
+  if (pStock !== null && pStock !== undefined && !Number.isNaN(pStock)) {
+    return Number(pStock);
+  }
+  if (prod.branch_stock !== undefined && prod.branch_stock !== null && !Number.isNaN(Number(prod.branch_stock))) {
+    return Number(prod.branch_stock);
+  }
+  return 0;
 }
 
 function normalizeVariant(variant) {
@@ -474,11 +485,13 @@ export function POSBillingModal() {
   };
 
   // Load catalog products for POS search & autocomplete
-  const loadCatalogProducts = () => {
-    const cached = getCachedPosCatalogProducts();
-    if (cached) {
-      setAllProducts(cached);
-      return Promise.resolve(cached);
+  const loadCatalogProducts = (force = false) => {
+    if (!force) {
+      const cached = getCachedPosCatalogProducts();
+      if (cached) {
+        setAllProducts(cached);
+        return Promise.resolve(cached);
+      }
     }
     return getAdminProducts({ limit: 500, status: 'all', branch_id: adminUser?.branch_id || undefined })
       .then(res => {
@@ -567,7 +580,8 @@ export function POSBillingModal() {
   useEffect(() => {
     if (isPOSOpen) {
       loadSalesStaff();
-      loadCatalogProducts();
+      setCachedPosCatalogProducts([]);
+      loadCatalogProducts(true);
       loadHeldBillsData();
       recoverDraftBill();
       setTimeout(() => {
@@ -640,6 +654,15 @@ export function POSBillingModal() {
         }
       })
       .catch(() => {});
+
+    const handleOrderUpdated = () => {
+      setCachedPosCatalogProducts([]);
+      loadCatalogProducts(true);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('np_order_updated', handleOrderUpdated);
+      return () => window.removeEventListener('np_order_updated', handleOrderUpdated);
+    }
 
   }, []);
 
@@ -1600,7 +1623,8 @@ export function POSBillingModal() {
 
       closeStockPrompt();
       showToast(`Stock updated to ${newStock} for ${prompt.product?.name || prompt.item?.product_name || 'item'}`, 'success', 3000);
-      loadCatalogProducts();
+      setCachedPosCatalogProducts([]);
+      loadCatalogProducts(true);
     } catch (err) {
       setStockError(err.message || 'Could not update stock');
     } finally {
@@ -2052,7 +2076,8 @@ export function POSBillingModal() {
       setCustomerEmail(cleanCustomerEmail(customerEmail));
       setDiscountInput('');
       setReceivedAmount('');
-      loadCatalogProducts();
+      setCachedPosCatalogProducts([]);
+      loadCatalogProducts(true);
       try {
         window.localStorage.removeItem(POS_DRAFT_KEY);
       } catch (draftErr) {
@@ -3448,11 +3473,11 @@ export function POSBillingModal() {
                     const lineTax = Math.round((lineTotal - lineTaxable) * 100) / 100;
                     const catalogProduct = resolveCatalogItem(item);
                     const catalogVariants = Array.isArray(catalogProduct?.variants) ? catalogProduct.variants : [];
-                    const lineStock = (catalogVariants.length <= 1 && catalogProduct)
+                    const lineStock = catalogProduct
                       ? getEffectiveProductStock(catalogProduct, item.variant)
                       : (item.stock_quantity !== undefined && item.stock_quantity !== null
                           ? Number(item.stock_quantity)
-                          : (catalogProduct ? getEffectiveProductStock(catalogProduct, item.variant) : 0));
+                          : (item.stock !== undefined && item.stock !== null ? Number(item.stock) : 0));
 
                     return (
                       <tr
@@ -3998,9 +4023,7 @@ export function POSBillingModal() {
                                   const displayPrice = isSingleVariant && (p.sale_price || p.price)
                                     ? (Number(p.sale_price) > 0 ? p.sale_price : p.price)
                                     : itemSellingPriceFor(v, p);
-                                  const displayStock = isSingleVariant
-                                    ? getEffectiveProductStock(p, pVariants[0] || v)
-                                    : (v ? variantStock(v) : (productStock(p) ?? 0));
+                                  const displayStock = getEffectiveProductStock(p, v || (isSingleVariant ? pVariants[0] : null));
                                   const bc = isSingleVariant
                                     ? (p.barcode || v?.barcode || `NP-${p.id}`)
                                     : (v?.barcode || p.barcode || `NP-${p.id}`);
@@ -4802,9 +4825,7 @@ export function POSBillingModal() {
                   const displayPrice = isSingleVariant && (p.sale_price || p.price)
                     ? (Number(p.sale_price) > 0 ? p.sale_price : p.price)
                     : itemSellingPriceFor(v, p);
-                  const displayStock = isSingleVariant
-                    ? getEffectiveProductStock(p, pVariants[0] || v)
-                    : (v ? variantStock(v) : (productStock(p) ?? 0));
+                  const displayStock = getEffectiveProductStock(p, v || (isSingleVariant ? pVariants[0] : null));
                   const bc = isSingleVariant
                     ? (p.barcode || v?.barcode || `NP-${p.id}`)
                     : (v?.barcode || p.barcode || `NP-${p.id}`);

@@ -129,14 +129,19 @@ async function getAllProducts(req, res, next) {
 
     let branchSelect = '';
     let branchJoin = '';
-    if (branch_id) {
+    if (isRegionalBranch) {
       branchSelect = `, COALESCE(bs.stock, 0) AS branch_stock, bs.low_stock_threshold AS branch_low_stock_threshold, COALESCE(bs.is_active, 0) AS is_branch_active`;
-      if (isRegionalBranch && include_inactive !== '1' && include_inactive !== 'true' && req.query.include_inactive_branch !== '1') {
+      if (include_inactive !== '1' && include_inactive !== 'true' && req.query.include_inactive_branch !== '1') {
         // For regional branches, only return products that have been explicitly assigned and are active in this branch
         branchJoin = ` INNER JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ? AND bs.is_active = 1`;
       } else {
         branchJoin = ` LEFT JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ?`;
       }
+      params.push(branch_id);
+    } else if (branch_id) {
+      // Main store / branch 1: stock is warehouse stock p.stock
+      branchSelect = `, COALESCE(bs.stock, p.stock) AS branch_stock, bs.low_stock_threshold AS branch_low_stock_threshold, COALESCE(bs.is_active, 1) AS is_branch_active`;
+      branchJoin = ` LEFT JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ?`;
       params.push(branch_id);
     }
 
@@ -336,14 +341,21 @@ async function getAllProducts(req, res, next) {
         }
       }
 
-      // If branch context is provided, override stock with branch_stock
-      if (branch_id) {
+      // If regional branch context is provided, override stock with branch_stock
+      if (isRegionalBranch) {
         prod.warehouse_stock = prod.stock;
         prod.stock = prod.branch_stock !== undefined ? prod.branch_stock : 0;
         if (prod.branch_low_stock_threshold) {
           prod.low_stock_threshold = prod.branch_low_stock_threshold;
         }
       }
+
+      // If product has variants, calculate total variant stock across variants
+      const variantTotalStock = variants.reduce((sum, v) => sum + (Number(v.stock_quantity) || 0), 0);
+      if (variants.length > 0 && (!prod.stock || Number(prod.stock) === 0) && variantTotalStock > 0) {
+        prod.stock = variantTotalStock;
+      }
+      prod.stock_quantity = prod.stock;
     }
 
     // Get total count matching active filters
