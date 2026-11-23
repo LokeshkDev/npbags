@@ -516,7 +516,7 @@ async function loadItems(tx, billId) {
 
 // Ensure every product on a purchase bill has its primary (and variant) barcodes
 // so the labels can be printed and the same codes work in POS billing.
-async function ensureBarcodesForBillItems(billId, userId = null) {
+async function ensureBarcodesForBillItems(billId, userId = null, options = {}) {
   const productRows = await query(
     `SELECT DISTINCT product_id
      FROM purchase_bill_items
@@ -529,7 +529,7 @@ async function ensureBarcodesForBillItems(billId, userId = null) {
     if (!productId) continue;
     try {
       const variants = await query('SELECT * FROM product_variants WHERE product_id = ?', [productId]);
-      await generateProductBarcodes(productId, variants, userId, { query });
+      await generateProductBarcodes(productId, variants, userId, { query }, options);
     } catch (barcodeError) {
       console.warn(`[PurchaseBill] Could not generate barcodes for product ${productId}:`, barcodeError.message);
     }
@@ -585,7 +585,7 @@ async function getPurchaseBillBarcodes(req, res, next) {
          FROM product_barcodes pb
          LEFT JOIN product_variants pv ON pb.variant_id = pv.id
          WHERE pb.product_id IN (${placeholders}) AND pb.status = 'active'
-         ORDER BY pb.is_primary DESC, pb.id ASC`,
+         ORDER BY pb.id DESC`,
         productIds
       );
     }
@@ -598,9 +598,16 @@ async function getPurchaseBillBarcodes(req, res, next) {
 
     const labels = items.map(item => {
       const productBarcodes = barcodesByProduct.get(item.product_id) || [];
-      const variantMatch = item.variant_id
-        ? productBarcodes.find(barcode => String(barcode.variant_id) === String(item.variant_id))
-        : null;
+      let variantMatch = null;
+      if (item.variant_id) {
+        variantMatch = productBarcodes.find(barcode => String(barcode.variant_id) === String(item.variant_id));
+      }
+      if (!variantMatch && (item.size_name || item.color_name)) {
+        variantMatch = productBarcodes.find(barcode =>
+          (!item.size_name || barcode.size === item.size_name) &&
+          (!item.color_name || barcode.color === item.color_name)
+        );
+      }
       const primaryMatch = productBarcodes.find(barcode => Number(barcode.is_primary) === 1);
       const chosen = variantMatch || primaryMatch || productBarcodes[0] || null;
       const purchaseRate = item.purchase_rate || item.rate_value || item.variant_purchase_price || item.purchased_rate || item.purchase_price || null;
@@ -650,6 +657,28 @@ async function getPurchaseBillBarcodes(req, res, next) {
       },
       items: labels
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// POST /api/admin/purchase-bills/:id/barcodes/generate
+async function regenerateBillBarcodes(req, res, next) {
+  try {
+    const { id } = req.params;
+    const userId = req.user ? req.user.id : null;
+    const regenerate = req.body?.regenerate !== undefined ? Boolean(req.body.regenerate) : true;
+    const variantId = req.body?.variantId || null;
+    const productId = req.body?.productId || null;
+
+    if (productId) {
+      const variants = await query('SELECT * FROM product_variants WHERE product_id = ?', [productId]);
+      await generateProductBarcodes(productId, variants, userId, { query }, { regenerate, variantId });
+    } else {
+      await ensureBarcodesForBillItems(id, userId, { regenerate });
+    }
+
+    return getPurchaseBillBarcodes(req, res, next);
   } catch (error) {
     next(error);
   }
@@ -1769,6 +1798,7 @@ module.exports = {
   getOutstandingPurchaseBills,
   getPurchaseBillById,
   getPurchaseBillBarcodes,
+  regenerateBillBarcodes,
   createPurchaseBill,
   updatePurchaseBill,
   confirmPurchaseBill,

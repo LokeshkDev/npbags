@@ -57,10 +57,12 @@ async function generateBarcodesForProduct(req, res, next) {
 
     const variants = await query(`SELECT * FROM product_variants WHERE product_id = ?`, [productId]);
     const userId = req.user ? req.user.id : null;
+    const regenerate = Boolean(req.body?.regenerate || req.query?.regenerate === 'true');
+    const variantId = req.body?.variantId || req.query?.variantId || null;
 
-    const generated = await generateProductBarcodes(productId, variants, userId, { query });
+    const generated = await generateProductBarcodes(productId, variants, userId, { query }, { regenerate, variantId });
 
-    // Fetch the full active list after generation
+    // Fetch the full active list after generation (newest first)
     const barcodes = await query(
       `SELECT pb.*, pv.sku, pv.color_name, pv.size_name, pv.stock_quantity,
               COALESCE(pv.price, p.price) AS price,
@@ -73,7 +75,7 @@ async function generateBarcodesForProduct(req, res, next) {
        LEFT JOIN categories c ON p.category_id = c.id
        LEFT JOIN product_variants pv ON pb.variant_id = pv.id
        WHERE pb.product_id = ? AND pb.status = 'active'
-       ORDER BY pb.is_primary DESC, pb.id ASC`,
+       ORDER BY pb.is_primary DESC, pb.id DESC`,
       [productId]
     );
 

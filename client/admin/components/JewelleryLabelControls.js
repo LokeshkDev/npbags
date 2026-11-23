@@ -88,7 +88,7 @@ export function JewelleryLabelControls({ style, showCalibration = true }) {
         ))}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
         <label style={{ fontSize: '11.5px', fontWeight: 800, color: '#92400e' }}>Label pitch / feed (mm):</label>
         <input
           type="number"
@@ -98,14 +98,43 @@ export function JewelleryLabelControls({ style, showCalibration = true }) {
           value={settings.pitchMm}
           onChange={(e) => {
             const v = Number(e.target.value);
-            const next = Number.isFinite(v) ? Math.max(12, Math.min(30, v)) : 12;
+            const next = Number.isFinite(v) ? Math.max(12, Math.min(30, v)) : 12.4;
             updateSettings({ pitchMm: next });
           }}
           style={{ width: '74px', padding: '3px 6px', borderRadius: '5px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '12px' }}
         />
-        <span style={{ fontSize: '10.5px', color: '#78350f' }}>
-          80×12mm tag = <strong>12</strong>. If the roll has a 3mm tail/gap, set <strong>15</strong>.
-        </span>
+        <button
+          type="button"
+          onClick={() => updateSettings({ pitchMm: 12.4 })}
+          style={{
+            padding: '2px 8px',
+            borderRadius: '5px',
+            border: settings.pitchMm === 12.4 ? '1.5px solid #b45309' : '1px solid #cbd5e1',
+            background: settings.pitchMm === 12.4 ? '#b45309' : '#fff',
+            color: settings.pitchMm === 12.4 ? '#fff' : '#334155',
+            fontSize: '11px',
+            fontWeight: 800,
+            cursor: 'pointer'
+          }}
+        >
+          12.4mm (Default: 12mm Tag + 0.4mm Gap)
+        </button>
+        <button
+          type="button"
+          onClick={() => updateSettings({ pitchMm: 12.0 })}
+          style={{
+            padding: '2px 8px',
+            borderRadius: '5px',
+            border: settings.pitchMm === 12.0 ? '1.5px solid #b45309' : '1px solid #cbd5e1',
+            background: settings.pitchMm === 12.0 ? '#b45309' : '#fff',
+            color: settings.pitchMm === 12.0 ? '#fff' : '#334155',
+            fontSize: '11px',
+            fontWeight: 800,
+            cursor: 'pointer'
+          }}
+        >
+          12.0mm
+        </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>

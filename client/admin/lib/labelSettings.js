@@ -15,7 +15,7 @@ export const LABEL_SETTINGS_KEYS = {
 };
 
 export const LABEL_SETTINGS_DEFAULTS = {
-  pitchMm: 12,
+  pitchMm: 12.4, // 12mm label height + 0.4mm physical gap between stickers
   offsetX: 0,
   offsetY: 0,
   continuous: true
@@ -34,8 +34,10 @@ export function getLabelSettings() {
     const storedX = window.localStorage.getItem(LABEL_SETTINGS_KEYS.offsetX);
     const storedY = window.localStorage.getItem(LABEL_SETTINGS_KEYS.offsetY);
     const storedContinuous = window.localStorage.getItem(LABEL_SETTINGS_KEYS.continuous);
+    // If not set or stored as legacy 12mm without gap, update to 12.4mm (12mm tag + 0.4mm gap)
+    const effectivePitch = (storedPitch === null || storedPitch === '12') ? 12.4 : clampNumber(storedPitch, 12, 30, 12.4);
     return {
-      pitchMm: clampNumber(storedPitch, 12, 30, 12),
+      pitchMm: effectivePitch,
       offsetX: clampNumber(storedX, -6, 6, 0),
       offsetY: clampNumber(storedY, -6, 6, 0),
       continuous: storedContinuous === null ? LABEL_SETTINGS_DEFAULTS.continuous : storedContinuous === '1'

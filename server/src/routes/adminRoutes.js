@@ -137,6 +137,7 @@ router.post('/purchase-bills/scan/apply-stock', purchaseScanController.applyScan
 router.get('/purchase-bills', purchaseBillController.getAllPurchaseBills);
 router.get('/purchase-bills/:id', purchaseBillController.getPurchaseBillById);
 router.get('/purchase-bills/:id/barcodes', purchaseBillController.getPurchaseBillBarcodes);
+router.post('/purchase-bills/:id/barcodes/generate', purchaseBillController.regenerateBillBarcodes);
 router.post('/purchase-bills', purchaseBillController.createPurchaseBill);
 router.put('/purchase-bills/:id', purchaseBillController.updatePurchaseBill);
 router.post('/purchase-bills/:id/confirm', purchaseBillController.confirmPurchaseBill);

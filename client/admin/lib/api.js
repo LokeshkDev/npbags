@@ -400,9 +400,17 @@ export async function getProductBarcodes(productId) {
   return adminFetch(`/admin/products/${productId}/barcodes`);
 }
 
-export async function generateProductBarcodes(productId) {
+export async function generateProductBarcodes(productId, data = {}) {
   return adminFetch(`/admin/products/${productId}/barcodes/generate`, {
-    method: 'POST'
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+export async function regeneratePurchaseBillBarcodes(billId, data = {}) {
+  return adminFetch(`/admin/purchase-bills/${billId}/barcodes/generate`, {
+    method: 'POST',
+    body: JSON.stringify(data)
   });
 }
 

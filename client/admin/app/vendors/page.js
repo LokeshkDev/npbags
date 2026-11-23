@@ -21,6 +21,7 @@ import {
   getAdminOutstandingPurchaseBills,
   getAdminPurchaseBillById,
   getAdminPurchaseBillBarcodes,
+  regeneratePurchaseBillBarcodes,
   getNextPurchaseBillNumber,
   createAdminPurchaseBill,
   updateAdminPurchaseBill,
@@ -34,7 +35,8 @@ import {
   getAdminBranches,
   scanPurchaseBarcode,
   createProductFromScan,
-  applyScannedStock
+  applyScannedStock,
+  generateProductBarcodes
 } from '../../lib/api';
 
 const money = (value) => Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -249,6 +251,7 @@ export default function AdminVendorsPage() {
   const [barcodePrintMode, setBarcodePrintMode] = useState('quantity');
   const [barcodePrintCopies, setBarcodePrintCopies] = useState(1);
   const [barcodeStickerFormat, setBarcodeStickerFormat] = useState('normal_35x25');
+  const [generatingBarcodes, setGeneratingBarcodes] = useState(false);
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_date: today(), payment_method: 'Cash', notes: '' });
   const [recordingPayment, setRecordingPayment] = useState(false);
 
@@ -1526,6 +1529,45 @@ export default function AdminVendorsPage() {
       setBarcodePrintBill(null);
     } finally {
       setLoadingBarcodePrint(false);
+    }
+  };
+
+  const handleGenerateBarcodesForBill = async (specificProductId = null, specificVariantId = null) => {
+    if (!barcodePrintBill?.id) return;
+    try {
+      setGeneratingBarcodes(true);
+      const res = await regeneratePurchaseBillBarcodes(barcodePrintBill.id, {
+        productId: specificProductId || undefined,
+        variantId: specificVariantId || undefined,
+        regenerate: true
+      });
+      const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
+      if (res?.bill) {
+        setBarcodePrintBill(prev => ({ ...(prev || {}), ...res.bill }));
+      }
+      setBarcodePrintItems(items);
+      showToast('✓ Generated unique barcodes for each variant!', 'success');
+    } catch (err) {
+      // Fallback: per-product regeneration
+      try {
+        if (specificProductId) {
+          await generateProductBarcodes(specificProductId, { regenerate: true, variantId: specificVariantId || undefined });
+        } else {
+          const productIds = [...new Set(barcodePrintItems.map(item => item.product_id).filter(Boolean))];
+          for (const pid of productIds) {
+            await generateProductBarcodes(pid, { regenerate: true });
+          }
+        }
+        const refreshed = await getAdminPurchaseBillBarcodes(barcodePrintBill.id);
+        const refItems = Array.isArray(refreshed?.items) ? refreshed.items : (Array.isArray(refreshed) ? refreshed : []);
+        if (refreshed?.bill) setBarcodePrintBill(prev => ({ ...(prev || {}), ...refreshed.bill }));
+        setBarcodePrintItems(refItems);
+        showToast('✓ Generated unique barcodes for each variant!', 'success');
+      } catch (fallbackErr) {
+        showToast(fallbackErr.message || err.message || 'Failed to generate barcodes', 'error');
+      }
+    } finally {
+      setGeneratingBarcodes(false);
     }
   };
 
@@ -3674,6 +3716,27 @@ export default function AdminVendorsPage() {
                       />
                     </div>
                   )}
+                  <button
+                    type="button"
+                    disabled={generatingBarcodes}
+                    onClick={() => handleGenerateBarcodesForBill()}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #16a34a',
+                      background: generatingBarcodes ? '#f0fdf4' : '#16a34a',
+                      color: generatingBarcodes ? '#15803d' : '#fff',
+                      fontWeight: 800,
+                      fontSize: '11.5px',
+                      cursor: generatingBarcodes ? 'not-allowed' : 'pointer'
+                    }}
+                    title="Generate or regenerate unique barcodes for each variant across all products in this bill"
+                  >
+                    {generatingBarcodes ? '⏳ Generating...' : '⚡ Generate / Regenerate All Barcodes'}
+                  </button>
                   <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 800, color: '#0f172a' }}>
                     Total labels: {barcodePrintTotal}
                   </span>
@@ -3697,8 +3760,56 @@ export default function AdminVendorsPage() {
                         <tr key={`${item.bill_item_id || item.product_id}-${index}`} style={{ borderTop: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '7px 10px', fontWeight: 700 }}>{item.product_name}</td>
                           <td style={{ padding: '7px 10px', color: '#64748b' }}>{item.variant_info || '—'}</td>
-                          <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 700, color: item.barcode ? '#065935' : '#b91c1c' }}>
-                            {item.barcode || 'NOT GENERATED'}
+                          <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 700 }}>
+                            {item.barcode ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ color: '#065935' }}>{item.barcode}</span>
+                                {item.product_id && (
+                                  <button
+                                    type="button"
+                                    disabled={generatingBarcodes}
+                                    onClick={() => handleGenerateBarcodesForBill(item.product_id, item.variant_id)}
+                                    style={{
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #cbd5e1',
+                                      background: '#f8fafc',
+                                      color: '#475569',
+                                      fontWeight: 700,
+                                      fontSize: '10px',
+                                      cursor: generatingBarcodes ? 'not-allowed' : 'pointer'
+                                    }}
+                                    title="Regenerate a brand new unique barcode for this item"
+                                  >
+                                    🔄 Regenerate
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#b91c1c' }}>NOT GENERATED</span>
+                                {item.product_id && (
+                                  <button
+                                    type="button"
+                                    disabled={generatingBarcodes}
+                                    onClick={() => handleGenerateBarcodesForBill(item.product_id, item.variant_id)}
+                                    style={{
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #16a34a',
+                                      background: '#dcfce7',
+                                      color: '#15803d',
+                                      fontWeight: 800,
+                                      fontSize: '10px',
+                                      cursor: generatingBarcodes ? 'not-allowed' : 'pointer'
+                                    }}
+                                    title="Generate unique barcode for this item's variants"
+                                  >
+                                    Generate
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'center' }}>{item.quantity || 1}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right' }}>{item.purchase_rate ? `₹${money(item.purchase_rate)}` : '—'}</td>

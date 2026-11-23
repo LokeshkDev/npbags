@@ -202,25 +202,61 @@ async function insertBarcodeWithSequence(pool, fields, userId) {
 /**
  * Generates Primary Barcode and per-variant barcodes for a product
  */
-async function generateProductBarcodes(productId, variants = [], userId = null, pool) {
+async function generateProductBarcodes(productId, variants = [], userId = null, pool, options = {}) {
   const generated = [];
+  const regenerate = Boolean(options && (options.regenerate || options.force));
+  const targetVariantId = options && options.variantId ? options.variantId : null;
 
-  // 1. Check & generate Primary Barcode
-  const primaryExist = await pool.query(
-    'SELECT * FROM product_barcodes WHERE product_id = ? AND is_primary = 1 AND status = "active"',
-    [productId]
-  );
+  // If variants array is empty, attempt to load all variants from product_variants
+  let variantList = Array.isArray(variants) ? [...variants] : [];
+  if (variantList.length === 0) {
+    try {
+      const dbVariants = await pool.query('SELECT * FROM product_variants WHERE product_id = ?', [productId]);
+      if (Array.isArray(dbVariants) && dbVariants.length > 0) {
+        variantList = dbVariants;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
 
-  if (Array.isArray(primaryExist) && primaryExist.length === 0) {
-    const primary = await insertBarcodeWithSequence(pool, { productId, isPrimary: 1 }, userId);
-    generated.push({ type: 'primary', barcode: primary.barcode, barcode_sequence: primary.barcode_sequence });
+  // If regenerate is requested, deactivate existing active barcodes
+  if (regenerate) {
+    if (targetVariantId) {
+      await pool.query(
+        'UPDATE product_barcodes SET status = "inactive" WHERE product_id = ? AND variant_id = ? AND status = "active"',
+        [productId, targetVariantId]
+      );
+    } else {
+      await pool.query(
+        'UPDATE product_barcodes SET status = "inactive" WHERE product_id = ? AND status = "active"',
+        [productId]
+      );
+    }
+  }
+
+  // 1. Check & generate Primary Barcode (only if not targeting a specific variant)
+  if (!targetVariantId) {
+    const primaryExist = await pool.query(
+      'SELECT * FROM product_barcodes WHERE product_id = ? AND is_primary = 1 AND status = "active"',
+      [productId]
+    );
+
+    if (Array.isArray(primaryExist) && primaryExist.length === 0) {
+      const primary = await insertBarcodeWithSequence(pool, { productId, isPrimary: 1 }, userId);
+      generated.push({ type: 'primary', barcode: primary.barcode, barcode_sequence: primary.barcode_sequence, id: primary.id });
+    }
   }
 
   // 2. Check & generate Variant Barcodes
-  for (const variant of variants) {
+  for (const variant of variantList) {
     const variantId = variant.id || null;
     const size = variant.size_name || variant.size || null;
     const color = variant.color_name || variant.color || null;
+
+    if (targetVariantId && String(variantId) !== String(targetVariantId)) {
+      continue;
+    }
 
     let variantExist = [];
     if (variantId) {
@@ -236,7 +272,7 @@ async function generateProductBarcodes(productId, variants = [], userId = null, 
     }
 
     if (Array.isArray(variantExist) && variantExist.length === 0) {
-      const variant = await insertBarcodeWithSequence(
+      const variantBarcode = await insertBarcodeWithSequence(
         pool,
         { productId, variantId, size, color, isPrimary: 0 },
         userId
@@ -246,8 +282,31 @@ async function generateProductBarcodes(productId, variants = [], userId = null, 
         variant_id: variantId,
         size,
         color,
-        barcode: variant.barcode,
-        barcode_sequence: variant.barcode_sequence
+        barcode: variantBarcode.barcode,
+        barcode_sequence: variantBarcode.barcode_sequence,
+        id: variantBarcode.id
+      });
+    }
+  }
+
+  // If a specific variantId was requested but wasn't in variantList, ensure it gets generated
+  if (targetVariantId && generated.length === 0) {
+    const existing = await pool.query(
+      'SELECT * FROM product_barcodes WHERE product_id = ? AND variant_id = ? AND status = "active"',
+      [productId, targetVariantId]
+    );
+    if (Array.isArray(existing) && existing.length === 0) {
+      const vBarcode = await insertBarcodeWithSequence(
+        pool,
+        { productId, variantId: targetVariantId, isPrimary: 0 },
+        userId
+      );
+      generated.push({
+        type: 'variant',
+        variant_id: targetVariantId,
+        barcode: vBarcode.barcode,
+        barcode_sequence: vBarcode.barcode_sequence,
+        id: vBarcode.id
       });
     }
   }

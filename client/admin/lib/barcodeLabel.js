@@ -1,5 +1,5 @@
-﻿// Canonical ISO/IEC 15417 Code 128 Symbol Widths (Indices 0 to 106)
-import { getLabelSettings } from './labelSettings';
+// Canonical ISO/IEC 15417 Code 128 Symbol Widths (Indices 0 to 106)
+import { getLabelSettings } from './labelSettings.js';
 
 const CODE128_WIDTHS = [
   '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
@@ -110,7 +110,7 @@ export function generateCode128SVG(text, options = {}) {
     rects += `<rect x="${barStart}" y="0" width="${barW}" height="${height}" fill="#000000" stroke="none" shape-rendering="crispEdges" />`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalModules} ${height}" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges">${rects}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalModules} ${height}" width="100%" height="100%" shape-rendering="crispEdges">${rects}</svg>`;
 }
 
 export function getCleanBarcodeSVG(item, options = {}) {
@@ -158,7 +158,7 @@ export function getLabelDetails(item, options = {}) {
   if (aliasValue) {
     rate = String(aliasValue).trim();
   } else if (rateValue !== null && rateValue !== undefined && rateValue !== '') {
-    rate = Number.isFinite(Number(rateValue)) ? `â‚¹${formatLabelMoney(rateValue)}` : String(rateValue);
+    rate = Number.isFinite(Number(rateValue)) ? `&#8377;${formatLabelMoney(rateValue)}` : String(rateValue);
   }
 
   const productName = firstNonEmpty(
@@ -219,7 +219,7 @@ export function getLabelDetails(item, options = {}) {
   }
 
   return {
-    mrp: formatLabelMoney(mrpValue, 'â€”'),
+    mrp: formatLabelMoney(mrpValue, '—'),
     sellingPrice: '',
     rate: showPurchaseRate ? rate : '',
     sequence: String(sequence || ''),
@@ -241,7 +241,7 @@ export function renderToySticker(item, options = {}) {
     ? `<span class="pname-text" title="${label.arrivalCode}">${label.arrivalCode.length > 24 ? label.arrivalCode.slice(0, 24) : label.arrivalCode}</span>`
     : '<span class="pname-text"></span>';
 
-  const priceDisplayHtml = `<span class="mrp-label">MRP </span>â‚¹${label.mrp}`;
+  const priceDisplayHtml = `<span class="mrp-label">MRP </span>&#8377;${label.mrp}`;
 
   return `
     <div class="barcode-sticker">
@@ -257,23 +257,22 @@ export function renderToySticker(item, options = {}) {
 
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
-  // Only show arrival code if entered â€” never fall back to product name
+  // Only show arrival code if entered — never fall back to product name
   const arrivalHtml = label.hasArrivalCode
     ? `<span class="pname-text" title="${label.arrivalCode}">${label.arrivalCode.length > 24 ? label.arrivalCode.slice(0, 24) : label.arrivalCode}</span>`
     : '<span class="pname-text"></span>';
-  const logoSpaceMm = options.topLogoOffsetMm !== undefined ? options.topLogoOffsetMm : 4.8;
-  const logoSpaceHtml = logoSpaceMm > 0 ? `<div class="logo-space" style="height:${logoSpaceMm}mm;"></div>` : '';
-  const storeNameHtml = options.showStoreName ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
-  const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 12 });
+  const showStore = options.showStoreName !== false;
+  const storeNameHtml = showStore ? `<div class="store-name">${options.storeName || 'NP Grand'}</div>` : '';
+  const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 10 });
 
   const sizeBadgeHtml = (label.isFootwear && label.size)
     ? `<span class="size-badge">SZ: ${label.size}</span>`
     : '';
-  const priceDisplayHtml = `<span class="mrp-label">MRP </span>â‚¹${label.mrp}${sizeBadgeHtml}`;
+  const priceDisplayHtml = `<span class="mrp-label">MRP </span>&#8377;${label.mrp}${sizeBadgeHtml}`;
 
   return `
     <div class="barcode-sticker">
-      ${storeNameHtml || logoSpaceHtml}
+      ${storeNameHtml}
       <div class="barcode-svg-container">${svgHtml}</div>
       <div class="info-row"><span class="code-text">${item.barcode || 'NO BARCODE'}</span>${arrivalHtml}</div>
       <div class="mrp-text">${priceDisplayHtml}</div>
@@ -331,27 +330,23 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   const settings = getLabelSettings();
   const rawOffsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : settings.offsetY;
   const rawOffsetX = options.jewelOffsetX !== undefined ? Number(options.jewelOffsetX) : settings.offsetX;
-  // Clamp so a stale/out-of-range saved offset can never blow up the label box.
   const offsetY = Number.isFinite(rawOffsetY) ? Math.max(-6, Math.min(6, rawOffsetY)) : 0;
   const offsetX = Number.isFinite(rawOffsetX) ? Math.max(-6, Math.min(6, rawOffsetX)) : 0;
 
-  // Physical label height is 12mm. Some rolls (e.g. 80x12mm with a 3mm
-  // tail/gap) have a larger feed pitch than the label itself. The TSC driver
-  // normally advances by label+gap, but if the browser page length is what
-  // drives the feed, we must match the real pitch or every tag after the
-  // first drifts. 12 = label only (driver adds gap), 15 = 12mm label + 3mm.
   const rawPitch = options.jewelPitchMm !== undefined ? options.jewelPitchMm : settings.pitchMm;
   const parsedPitch = Number(rawPitch);
   const jewelleryPageHeightMm = Number.isFinite(parsedPitch) && parsedPitch >= 12 && parsedPitch <= 30
     ? parsedPitch
-    : 12;
+    : 12.4;
   const continuous = options.jewelContinuous !== undefined
     ? Boolean(options.jewelContinuous)
     : Boolean(settings.continuous);
 
   let stickerIndex = 0;
   let totalStickers = 0;
-  let stickersHtml = list.map(item => {
+  const stickerCards = [];
+
+  list.forEach(item => {
     const requested = parseInt(item?.copies ?? copiesPerItem, 10);
     const copies = Math.max(1, Number.isFinite(requested) ? requested : 1);
     totalStickers += copies;
@@ -360,26 +355,22 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
       if (isJewellery) return renderJewellerySticker;
       return renderNormalSticker;
     })();
-    return Array.from({ length: copies }).map(() => {
+    for (let c = 0; c < copies; c++) {
       const html = renderFn(item, {
         ...options,
         continuous,
         index: stickerIndex,
         pitchMm: jewelleryPageHeightMm
       });
+      stickerCards.push(html);
       stickerIndex += 1;
-      return html;
-    }).join('');
-  }).join('');
+    }
+  });
 
-  const stickers = stickersHtml;
-
-  // Page-break-after approach: each label = one 12mm @page.
-  // Printer gap sensor advances to next physical label automatically.
-  // No pitch calculation needed — gap sensor handles physical spacing.
   const jewelleryPageSize = `77.5mm ${jewelleryPageHeightMm}mm`;
 
   if (isJewellery) {
+    const stickers = stickerCards.join('');
     return `
 <!DOCTYPE html>
 <html>
@@ -405,7 +396,6 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     print-color-adjust:exact !important;
     font-weight:700;
   }
-  /* Each wrapper = exactly one 12mm physical label */
   .jewel-sticker-wrapper {
     display:block;
     width:77.5mm;
@@ -424,7 +414,6 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     page-break-after:avoid;
     break-after:avoid;
   }
-  /* Single horizontal strip */
   .jewel-sticker {
     display:flex; flex-direction:row; align-items:stretch;
     width:77.5mm; height:12mm; overflow:hidden; margin:0; padding:0;
@@ -454,68 +443,214 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 </style>
 </head>
 <body>
-${stickers}
+<div class="${continuous ? 'jewel-sticker-list' : '' }">${stickers}</div>
 </body>
 </html>
 `;
   }
-  const normalW = options.pageWidthMm ? (options.pageWidthMm + 'mm') : '38mm';
-  const normalH = options.pageHeightMm ? (options.pageHeightMm + 'mm') : '25mm';
+
+  // Normal 35x25mm (3-in-a-row / 3-Up roll: 110mm width x 25mm height)
+  const rows = [];
+  for (let i = 0; i < stickerCards.length; i += 3) {
+    rows.push(stickerCards.slice(i, i + 3));
+  }
+
+  const normalRowsHtml = rows.map((row, rowIdx) => {
+    const isLast = rowIdx === rows.length - 1;
+    const cards = row.join('');
+    let placeholders = '';
+    for (let p = row.length; p < 3; p++) {
+      placeholders += '<div class="barcode-sticker barcode-sticker-placeholder" style="visibility:hidden;border:none;"></div>';
+    }
+    return `<div class="sticker-row${isLast ? ' last-row' : ''}">${cards}${placeholders}</div>`;
+  }).join('');
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>${options.title || 'Barcode Tags'}</title>
+<title>${options.title || 'Barcode Stickers (35x25mm)'}</title>
 <style>
-  @page { size: ${normalW} ${normalH}; margin: 0mm; }
-  @media print { @page { size: ${normalW} ${normalH}; margin: 0mm; } html, body { margin:0 !important; padding:0 !important; } }
-  * { color:#000 !important; -webkit-text-fill-color:#000 !important; box-sizing:border-box; margin:0; padding:0; }
+  @page {
+    size: 110mm 25mm;
+    margin: 0mm;
+  }
+  @media print {
+    @page {
+      size: 110mm 25mm;
+      margin: 0mm;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 110mm !important;
+    }
+  }
+  * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
   html, body {
-    margin:0 !important; padding:0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 110mm;
     font-family: Arial, Helvetica, sans-serif;
-    background:#ffffff;
-    -webkit-print-color-adjust:exact !important;
-    print-color-adjust:exact !important;
+    background: #ffffff;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-weight: 700;
   }
-  .sticker-grid { display:flex; flex-wrap:wrap; gap:0; padding:0; margin:0; width:100%; }
+  .sticker-grid {
+    display: block;
+    width: 110mm;
+    margin: 0 auto;
+    padding: 0;
+  }
+  .sticker-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 110mm;
+    height: 25mm;
+    max-height: 25mm;
+    padding: 0 1mm;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: always;
+    break-after: page;
+  }
+  .sticker-row.last-row,
+  .sticker-row:last-child {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
   .barcode-sticker {
-    width:${normalW}; height:${normalH};
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:0.8mm 1mm; overflow:hidden; background:#ffffff;
-    page-break-inside:avoid; break-inside:avoid;
+    width: 34.5mm;
+    height: 24mm;
+    border: 0.5px solid #000000;
+    padding: 0.8mm 1.2mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    text-align: center;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: hidden;
+    background: #ffffff !important;
   }
-  .logo-space { width:100%; flex-shrink:0; }
-  .store-name { font-size:7pt; font-weight:900; text-align:center; width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .store-name {
+    font-size: 7.5pt;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.2px;
+    text-align: center;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .barcode-svg-container {
-    width:100%; height:10mm; flex-shrink:0;
-    display:flex; align-items:center; justify-content:center; background:#ffffff !important;
+    width: 32mm;
+    height: 8.5mm;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff !important;
+    overflow: hidden;
   }
-  .barcode-svg-container svg { width:100% !important; height:100% !important; display:block; background:#ffffff !important; }
-  .barcode-svg-container svg rect { stroke:none !important; stroke-width:0 !important; shape-rendering:crispEdges !important; }
+  .barcode-svg-container svg {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+    background: #ffffff !important;
+  }
+  .barcode-svg-container svg rect {
+    stroke: none !important;
+    stroke-width: 0 !important;
+    shape-rendering: crispEdges !important;
+  }
   .info-row {
-    width:100%; display:flex; justify-content:space-between; align-items:center;
-    gap:1mm; padding:0 0.2mm; margin-top:0.4mm; line-height:1;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1mm;
+    padding: 0 0.5mm;
+    line-height: 1;
   }
-  .code-text { font-size:5.5pt; font-weight:700; font-family:monospace; letter-spacing:0.2px; max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .pname-text { font-size:5.8pt; font-weight:700; max-width:45%; text-align:right; overflow:hidden; text-overflow:clip; white-space:nowrap; }
-  .product-name { width:100%; font-size:6.5pt; font-weight:700; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:0.3mm; }
+  .code-text {
+    font-size: 5.8pt;
+    font-weight: 700;
+    font-family: monospace;
+    letter-spacing: 0.2px;
+    max-width: 50%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pname-text {
+    font-size: 5.8pt;
+    font-weight: 700;
+    font-family: Arial, Helvetica, sans-serif;
+    letter-spacing: 0.1px;
+    line-height: 1;
+    max-width: 50%;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+  .product-name {
+    width: 100%;
+    font-size: 6.5pt;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .mrp-text {
-    width:100%; font-size:10pt; font-weight:900; line-height:1; letter-spacing:-0.2px;
-    margin-top:0.6mm; white-space:nowrap;
-    display:flex; align-items:center; justify-content:center; gap:2mm;
+    width: 100%;
+    font-size: 10pt;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5mm;
   }
-  .mrp-text .mrp-label { font-size:6.5pt; font-weight:900; }
-  .size-badge { font-size:8pt; font-weight:900; border:0.8px solid #000; padding:0.2mm 1.2mm; border-radius:0.5mm; display:inline-block; }
+  .mrp-text .mrp-label {
+    font-size: 6.8pt;
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+  .size-badge {
+    font-size: 8pt;
+    font-weight: 900;
+    border: 0.8px solid #000000;
+    padding: 0.2mm 1.2mm;
+    border-radius: 0.5mm;
+    letter-spacing: 0.2px;
+    line-height: 1;
+    display: inline-block;
+  }
 </style>
 </head>
 <body>
-  <div class="sticker-grid">${stickers}</div>
+  <div class="sticker-grid">${normalRowsHtml}</div>
 </body>
 </html>
 `;
 }
-
 
 function renderCalibrationSticker(index, options = {}) {
   const continuous = Boolean(options.continuous);
@@ -524,13 +659,13 @@ function renderCalibrationSticker(index, options = {}) {
   const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
   const num = index + 1;
 
-  // Horizontal ruler every 10mm across the 77.5mm width â€” verifies the print is
+  // Horizontal ruler every 10mm across the 77.5mm width — verifies the print is
   // not horizontally scaled (0mm must sit on the left edge, 77.5mm on the right).
   let xTicks = '';
   for (let mm = 0; mm <= 70; mm += 10) {
     xTicks += `<div class="calib-xtick" style="left:${mm}mm;"><span>${mm}</span></div>`;
   }
-  // Vertical ruler every 3mm down the 12mm height â€” verifies the feed/length.
+  // Vertical ruler every 3mm down the 12mm height — verifies the feed/length.
   let yTicks = '';
   for (let mm = 0; mm <= 9; mm += 3) {
     yTicks += `<div class="calib-ytick" style="top:${mm}mm;"><span>${mm}</span></div>`;
@@ -625,7 +760,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
     break-after: auto;
   }
   /* Exact-size 80Ã—12mm calibration tag. The outer frame IS the real die-cut
-     edge â€” if it does not fill the physical tag, the printer scale is wrong.
+     edge — if it does not fill the physical tag, the printer scale is wrong.
      The rulers measure the print in millimetres on both axes. */
   .calib-sticker {
     position: relative;
@@ -752,5 +887,6 @@ export async function printBarcodeLabels(items, copiesPerItem = 1, options = {})
     height: isJewellery ? 500 : 600
   });
 }
+
 
 
