@@ -739,19 +739,30 @@ function renderCalibrationSticker(index, options = {}) {
   const wrapperClass = continuous ? 'jewel-sticker-wrapper jewel-continuous' : 'jewel-sticker-wrapper';
   const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
   const num = index + 1;
-  const ticks = [0, 3, 6, 9, 12]
-    .map((mm) => `<div class="calib-tick" style="top:${mm}mm;"><span>${mm}</span></div>`)
-    .join('');
+
+  // Horizontal ruler every 10mm across the 80mm width — verifies the print is
+  // not horizontally scaled (0mm must sit on the left edge, 80mm on the right).
+  let xTicks = '';
+  for (let mm = 0; mm <= 70; mm += 10) {
+    xTicks += `<div class="calib-xtick" style="left:${mm}mm;"><span>${mm}</span></div>`;
+  }
+  // Vertical ruler every 3mm down the 12mm height — verifies the feed/length.
+  let yTicks = '';
+  for (let mm = 0; mm <= 9; mm += 3) {
+    yTicks += `<div class="calib-ytick" style="top:${mm}mm;"><span>${mm}</span></div>`;
+  }
 
   return `
     <div class="${wrapperClass}"${wrapperStyle}>
-      <div class="jewel-sticker calib-sticker">
-        <div class="calib-ruler">${ticks}</div>
+      <div class="calib-sticker">
+        <div class="calib-frame"></div>
+        <div class="calib-xruler">${xTicks}</div>
+        <div class="calib-yruler">${yTicks}</div>
+        <div class="calib-vline"></div>
         <div class="calib-center">
           <div class="calib-num">${num}</div>
-          <div class="calib-sub">CALIBRATION • pitch ${pitch}mm</div>
+          <div class="calib-sub">80×12mm · PITCH ${pitch}mm</div>
         </div>
-        <div class="calib-midline"></div>
       </div>
     </div>
   `;
@@ -811,68 +822,104 @@ export function buildJewelleryCalibrationHtml(options = {}) {
     overflow: hidden;
     background: #ffffff;
   }
+  /* Hard break per tag so browser rounding can never accumulate into drift. */
+  .jewel-sticker-wrapper:not(.jewel-continuous) {
+    page-break-after: always;
+    break-after: page;
+  }
+  .jewel-sticker-wrapper:not(.jewel-continuous):last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
   .jewel-sticker-wrapper.jewel-continuous {
     position: absolute;
     left: 0;
     right: 0;
     page-break-inside: auto;
     break-inside: auto;
+    page-break-after: auto;
+    break-after: auto;
   }
+  /* Exact-size 80×12mm calibration tag. The outer frame IS the real die-cut
+     edge — if it does not fill the physical tag, the printer scale is wrong.
+     The rulers measure the print in millimetres on both axes. */
   .calib-sticker {
     position: relative;
     width: 80mm;
     height: 12mm;
     transform: translate(${offsetX}mm, ${offsetY}mm);
     transform-origin: top left;
-    overflow: visible;
-  }
-  .calib-ruler {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 14mm;
-    height: 12mm;
-    border-right: 0.35mm solid #000000;
-  }
-  .calib-tick {
-    position: absolute;
-    left: 0;
-    width: 14mm;
-    height: 0;
-    border-top: 0.25mm solid #000000;
-  }
-  .calib-tick span {
-    position: absolute;
-    left: 0.8mm;
-    top: -1.7mm;
-    font-size: 4.5pt;
-    font-weight: 700;
+    overflow: hidden;
     background: #ffffff;
-    padding: 0 0.4mm;
+  }
+  .calib-frame {
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+    border: 0.25mm solid #000000;
+    pointer-events: none;
+  }
+  .calib-xruler {
+    position: absolute;
+    left: 0; top: 0;
+    width: 80mm; height: 4.4mm;
+    border-bottom: 0.2mm solid #000000;
+  }
+  .calib-xtick {
+    position: absolute;
+    top: 0;
+    height: 4.4mm;
+    border-left: 0.2mm solid #000000;
+  }
+  .calib-xtick span {
+    position: absolute;
+    left: 0.4mm;
+    bottom: 0.15mm;
+    font-size: 4.6pt;
+    font-weight: 900;
     line-height: 1;
+    background: #ffffff;
+    padding: 0 0.2mm;
+  }
+  .calib-yruler {
+    position: absolute;
+    left: 0; top: 0;
+    width: 7mm; height: 12mm;
+    border-right: 0.2mm solid #000000;
+  }
+  .calib-ytick {
+    position: absolute;
+    left: 0;
+    width: 7mm;
+    border-top: 0.2mm solid #000000;
+  }
+  .calib-ytick span {
+    position: absolute;
+    left: 1.1mm;
+    top: 0.2mm;
+    font-size: 4.6pt;
+    font-weight: 900;
+    line-height: 1;
+    background: #ffffff;
+    padding: 0 0.2mm;
   }
   .calib-center {
     position: absolute;
-    left: 14mm;
-    top: 0;
-    width: 66mm;
-    height: 12mm;
+    left: 7mm; right: 0;
+    top: 4.4mm; bottom: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.4mm;
+    gap: 0.3mm;
     text-align: center;
   }
-  .calib-num { font-size: 18pt; font-weight: 900; line-height: 1; }
-  .calib-sub { font-size: 4.8pt; font-weight: 700; line-height: 1; letter-spacing: 0.2px; }
-  .calib-midline {
+  .calib-num { font-size: 14pt; font-weight: 900; line-height: 1; }
+  .calib-sub { font-size: 4.8pt; font-weight: 800; line-height: 1; letter-spacing: 0.2px; }
+  .calib-vline {
     position: absolute;
-    left: 14mm;
-    right: 0;
-    top: 6mm;
-    border-top: 0.15mm dashed #000000;
-    opacity: 0.6;
+    left: 40mm; top: 4.4mm; bottom: 0;
+    border-left: 0.15mm dashed #000000;
+    opacity: 0.5;
   }
 </style>
 </head>

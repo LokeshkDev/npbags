@@ -72,8 +72,9 @@ CREATE TABLE IF NOT EXISTS product_variants (
   product_id VARCHAR(128) NOT NULL,
   color_name VARCHAR(64) NOT NULL,
   color_hex VARCHAR(16) NOT NULL,
+  model_name VARCHAR(150) NULL,
   size_name VARCHAR(64) NOT NULL,
-  stock_quantity INT DEFAULT 50,
+  stock_quantity INT DEFAULT 0,
   sku VARCHAR(64) NULL,
   CONSTRAINT fk_product_variants_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

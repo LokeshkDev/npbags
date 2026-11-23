@@ -546,6 +546,7 @@ export default function AdminProductsPage() {
       {
         color_name: 'Standard',
         color_hex: '#111827',
+        model_name: '',
         size_name: '',
         stock_quantity: 0,
         image_url: '',
@@ -704,8 +705,9 @@ export default function AdminProductsPage() {
         id: v.id,
         color_name: v.color_name || 'Standard',
         color_hex: v.color_hex || '#111827',
+        model_name: v.model_name || '',
         size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
-        stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
+        stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 0,
         sku: v.sku || '',
         image_url: v.image_url || '',
         barcode: v.barcode || '',
@@ -718,8 +720,9 @@ export default function AdminProductsPage() {
       setVariants(p.colors.map(c => ({
         color_name: c.name || 'Standard',
         color_hex: c.hex || '#111827',
+        model_name: c.model_name || '',
         size_name: '',
-        stock_quantity: c.stock_quantity !== undefined ? c.stock_quantity : 50,
+        stock_quantity: c.stock_quantity !== undefined ? c.stock_quantity : 0,
         sku: '',
         image_url: c.img || '',
         barcode: '',
@@ -733,8 +736,9 @@ export default function AdminProductsPage() {
         {
           color_name: 'Standard',
           color_hex: '#111827',
+          model_name: '',
           size_name: '',
-          stock_quantity: 50,
+          stock_quantity: 0,
           image_url: '',
           sku: '',
           barcode: '',
@@ -780,8 +784,9 @@ export default function AdminProductsPage() {
             id: v.id,
             color_name: v.color_name || 'Standard',
             color_hex: v.color_hex || '#111827',
+            model_name: v.model_name || '',
             size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
-            stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 50,
+            stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 0,
             sku: v.sku || '',
             image_url: v.image_url || '',
             barcode: v.barcode || '',
@@ -942,6 +947,7 @@ export default function AdminProductsPage() {
       {
         color_name: '',
         color_hex: '#1e293b',
+        model_name: '',
         size_name: '',
         stock_quantity: 0,
         image_url: '',
@@ -1282,6 +1288,7 @@ export default function AdminProductsPage() {
       setVariants(sourceVariants.map(v => ({
         color_name: v.color_name || 'Standard',
         color_hex: v.color_hex || '#111827',
+        model_name: v.model_name || '',
         size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
         stock_quantity: 0,
         sku: v.sku || '',
@@ -1290,7 +1297,7 @@ export default function AdminProductsPage() {
       })));
     } else {
       setVariants([
-        { color_name: 'Standard', color_hex: '#111827', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
+        { color_name: 'Standard', color_hex: '#111827', model_name: '', size_name: '', stock_quantity: 0, image_url: '', sku: '', barcode: '' }
       ]);
     }
 
@@ -3056,7 +3063,7 @@ export default function AdminProductsPage() {
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '1.1fr 85px 0.9fr 85px 1.5fr auto',
+                      gridTemplateColumns: '1.1fr 1fr 85px 0.9fr 85px 1.5fr auto',
                       gap: '10px',
                       alignItems: 'center'
                     }}
@@ -3072,6 +3079,20 @@ export default function AdminProductsPage() {
                         style={{ height: '36px', fontSize: '13px' }}
                         value={v.color_name}
                         onChange={(e) => handleVariantChange(idx, 'color_name', e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Model Name
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. Model No / Design"
+                        style={{ height: '36px', fontSize: '13px' }}
+                        value={v.model_name || ''}
+                        onChange={(e) => handleVariantChange(idx, 'model_name', e.target.value)}
                       />
                     </div>
 

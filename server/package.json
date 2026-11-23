@@ -11,6 +11,7 @@
     "db:seed": "node src/scripts/seed-db.js",
     "db:migrate:vendor": "node src/scripts/migrate-vendor-purchase-billing.js",
     "db:migrate:rate-history": "node src/scripts/migrate-purchase-rate-history.js",
+    "db:migrate:variant-model": "node src/scripts/migrate-variant-model-name.js",
     "db:migrate:branch-associations": "node src/scripts/backfill-branch-product-associations.js"
   },
   "dependencies": {

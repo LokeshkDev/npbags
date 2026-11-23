@@ -280,7 +280,7 @@ async function getAllProducts(req, res, next) {
       prod.images_detailed = images;
 
       const variants = await query(
-        `SELECT pv.id, pv.color_name, pv.color_hex, pv.size_name, pv.stock_quantity, pv.purchase_price, pv.price, pv.sale_price, pv.mrp, pv.sku, pv.image_url,
+        `SELECT pv.id, pv.color_name, pv.color_hex, pv.model_name, pv.size_name, pv.stock_quantity, pv.purchase_price, pv.price, pv.sale_price, pv.mrp, pv.sku, pv.image_url,
                 (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
          FROM product_variants pv
          WHERE pv.product_id = ?`,
@@ -398,7 +398,7 @@ async function getProductByIdentifier(req, res, next, { includeOffline = false }
 
     // Variants
     const variants = await query(
-      `SELECT id, color_name, color_hex, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url
+      `SELECT id, color_name, color_hex, model_name, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url
        FROM product_variants
        WHERE product_id = ?`,
       [product.id]
@@ -706,12 +706,13 @@ async function createProduct(req, res, next) {
       const vPurchasePrice = v.purchase_price !== undefined && v.purchase_price !== null && v.purchase_price !== '' ? parseFloat(v.purchase_price) : (purchase_price ? parseFloat(purchase_price) : null);
 
       const variantResult = await query(
-        `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO product_variants (product_id, color_name, color_hex, model_name, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           v.color_name || 'Standard',
           v.color_hex || '#000000',
+          v.model_name || null,
           normalizedSize,
           v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 0,
           vPurchasePrice,
@@ -1092,14 +1093,15 @@ async function updateProduct(req, res, next) {
           const vPurchasePrice = v.purchase_price !== undefined && v.purchase_price !== null && v.purchase_price !== '' ? parseFloat(v.purchase_price) : (purchase_price ? parseFloat(purchase_price) : null);
 
           const variantResult = await query(
-            `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO product_variants (product_id, color_name, color_hex, model_name, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
               v.color_name || 'Standard',
               v.color_hex || '#000000',
+              v.model_name || null,
               normalizedSize,
-              v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 50,
+              v.stock_quantity !== undefined && v.stock_quantity !== null ? parseInt(v.stock_quantity, 10) : 0,
               vPurchasePrice,
               vPrice,
               vSalePrice,
@@ -1303,9 +1305,9 @@ async function duplicateProduct(req, res, next) {
     const variants = await query(`SELECT * FROM product_variants WHERE product_id = ?`, [id]);
     for (const v of variants) {
       await query(
-        `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newId, v.color_name, v.color_hex, v.size_name, v.stock_quantity, v.purchase_price, v.price, v.sale_price, v.mrp, v.sku ? `${v.sku}-CPY` : null, v.image_url]
+        `INSERT INTO product_variants (product_id, color_name, color_hex, model_name, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newId, v.color_name, v.color_hex, v.model_name, v.size_name, v.stock_quantity, v.purchase_price, v.price, v.sale_price, v.mrp, v.sku ? `${v.sku}-CPY` : null, v.image_url]
       );
     }
 
