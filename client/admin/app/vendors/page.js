@@ -91,6 +91,7 @@ const newBillItem = () => ({
   variant_rates: {},
   variant_mrps: {},
   variant_prices: {},
+  variant_rate_aliases: {},
   new_variants: [],
   quantity: 1,
   purchase_rate: '',
@@ -636,6 +637,7 @@ export default function AdminVendorsPage() {
           variant_rates: item.variant_id && (item.purchase_rate || item.purchased_rate || item.rate_value) ? { [String(item.variant_id)]: String(item.purchase_rate || item.purchased_rate || item.rate_value) } : {},
           variant_mrps: item.variant_id && item.mrp ? { [String(item.variant_id)]: String(item.mrp) } : {},
           variant_prices: item.variant_id && (item.price || item.sale_price) ? { [String(item.variant_id)]: String(item.price || item.sale_price) } : {},
+          variant_rate_aliases: item.variant_id && item.purchase_rate_alias ? { [String(item.variant_id)]: String(item.purchase_rate_alias) } : {},
           quantity: Number(item.quantity) || 1,
           purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
           purchase_rate_alias: item.purchase_rate_alias || '',
@@ -936,7 +938,7 @@ export default function AdminVendorsPage() {
         if (idx !== index) return item;
         const newVariants = [
           ...(item.new_variants || []),
-          { key: `nv-${newVariantKey++}`, model_name: '', color_name: '', size_name: '', sku: '', barcode: '', quantity: '', purchase_rate: item.purchase_rate || '', mrp: item.mrp || '', price: '', _detectMsg: '', _detectType: '' }
+          { key: `nv-${newVariantKey++}`, model_name: '', color_name: '', size_name: '', rate_alias: '', barcode: '', quantity: '', purchase_rate: item.purchase_rate || '', mrp: item.mrp || '', price: '', _detectMsg: '', _detectType: '' }
         ];
         const next = { ...item, new_variants: newVariants };
         return { ...next, quantity: lineVariantQtyTotal(next) || item.quantity };
@@ -1346,6 +1348,9 @@ export default function AdminVendorsPage() {
           const effectivePrice = extraPrices?.price !== undefined && extraPrices?.price !== ''
             ? extraPrices.price
             : null;
+          const effectiveAlias = extraPrices?.purchase_rate_alias !== undefined
+            ? extraPrices.purchase_rate_alias
+            : item.purchase_rate_alias;
 
           return {
             product_id: item.product_id || null,
@@ -1359,7 +1364,7 @@ export default function AdminVendorsPage() {
             quantity,
             purchase_rate: effectiveRate !== '' && effectiveRate !== null && effectiveRate !== undefined ? String(effectiveRate) : null,
             rate_value: parseFloat(String(effectiveRate).replace(/[^0-9.-]/g, '')) || 0,
-            purchase_rate_alias: item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : null,
+            purchase_rate_alias: effectiveAlias !== null && effectiveAlias !== undefined && String(effectiveAlias).trim() !== '' ? String(effectiveAlias).trim() : null,
             mrp: effectiveMrp,
             price: effectivePrice,
             sale_price: effectivePrice,
@@ -1390,7 +1395,7 @@ export default function AdminVendorsPage() {
             String(v.model_name || '').trim() ||
             String(v.color_name || '').trim() ||
             String(v.size_name || '').trim() ||
-            String(v.sku || '').trim() ||
+            String(v.rate_alias || '').trim() ||
             String(v.barcode || '').trim()
           ));
 
@@ -1412,15 +1417,17 @@ export default function AdminVendorsPage() {
             const varPrice = item.variant_prices?.[vid] !== undefined && item.variant_prices[vid] !== ''
               ? item.variant_prices[vid]
               : (v?.price || v?.sale_price);
-            return buildPayload(vid, info, qty, applied, null, { purchase_rate: varRate, mrp: varMrp, price: varPrice });
+            const varAlias = item.variant_rate_aliases?.[vid] !== undefined
+              ? item.variant_rate_aliases[vid]
+              : (item.purchase_rate_alias || v?.purchase_rate_alias || '');
+            return buildPayload(vid, info, qty, applied, null, { purchase_rate: varRate, mrp: varMrp, price: varPrice, purchase_rate_alias: varAlias });
           });
           newVariantEntries.forEach(nv => {
-            const info = [nv.model_name, nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || String(nv.sku || '').trim() || 'New variant';
+            const info = [nv.model_name, nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || 'New variant';
             lines.push(buildPayload(null, info, nv.quantity, 0, {
               model_name: String(nv.model_name || '').trim() || null,
               color_name: String(nv.color_name || '').trim() || null,
               size_name: String(nv.size_name || '').trim() || null,
-              sku: String(nv.sku || '').trim() || null,
               barcode: String(nv.barcode || '').trim() || null,
               purchase_rate: nv.purchase_rate ? parseFloat(nv.purchase_rate) : (item.purchase_rate ? parseFloat(item.purchase_rate) : null),
               mrp: nv.mrp ? parseFloat(nv.mrp) : (item.mrp ? parseFloat(item.mrp) : null),
@@ -1428,7 +1435,8 @@ export default function AdminVendorsPage() {
             }, {
               purchase_rate: nv.purchase_rate || item.purchase_rate,
               mrp: nv.mrp || item.mrp,
-              price: nv.price
+              price: nv.price,
+              purchase_rate_alias: nv.rate_alias || item.purchase_rate_alias || ''
             }));
           });
           if (lines.length > 0) return lines;
@@ -2932,13 +2940,13 @@ export default function AdminVendorsPage() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '8px' }}>
                               <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>Variant Stock Update (each variant separately)</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty, purchase rate, MRP &amp; selling price per variant</span>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty, purchase rate, MRP, selling price &amp; rate alias (arrival code) per variant</span>
                                 <button type="button" onClick={() => addNewVariant(index)} style={{ background: '#eff6ff', border: '1px solid #93c5fd', color: '#1d4ed8', borderRadius: '5px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                                   + NEW VARIANT
                                 </button>
                               </div>
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '8px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(430px, 1fr))', gap: '8px' }}>
                               {variants.map(v => {
                                 const vId = String(v.id);
                                 const qty = Number(item.variant_quantities?.[vId]) || 0;
@@ -3008,6 +3016,17 @@ export default function AdminVendorsPage() {
                                         title={`Selling price for ${label}`}
                                       />
                                     </div>
+                                    <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <label style={{ fontSize: '9px', fontWeight: 800, color: '#4338ca', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Rate Alias (Arrival Code)</label>
+                                      <input
+                                        type="text"
+                                        value={item.variant_rate_aliases?.[vId] ?? (item.purchase_rate_alias || v.purchase_rate_alias || '')}
+                                        onChange={(e) => setVariantField(index, 'variant_rate_aliases', vId, e.target.value)}
+                                        placeholder="e.g. ARR-01 / NA-25"
+                                        style={{ flex: 1, minWidth: 0, padding: '4px 6px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11px', fontWeight: 700, color: '#3730a3' }}
+                                        title={`Rate alias printed on barcode stickers for ${label}`}
+                                      />
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -3030,8 +3049,8 @@ export default function AdminVendorsPage() {
                                         <input value={nv.size_name} onChange={(e) => updateNewVariant(index, nv.key, 'size_name', e.target.value)} placeholder="e.g. M" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
                                       </div>
                                       <div>
-                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>SKU (Opt)</label>
-                                        <input value={nv.sku} onChange={(e) => updateNewVariant(index, nv.key, 'sku', e.target.value)} placeholder="Auto" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#4338ca', marginBottom: '2px', textTransform: 'uppercase' }}>Rate Alias (Arrival Code)</label>
+                                        <input value={nv.rate_alias || ''} onChange={(e) => updateNewVariant(index, nv.key, 'rate_alias', e.target.value)} placeholder="e.g. ARR-01" title="Printed on barcode stickers instead of the purchase rate" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11px', fontWeight: 700, color: '#3730a3' }} />
                                       </div>
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 55px 78px 78px 78px 26px', gap: '6px', alignItems: 'end', marginTop: '6px' }}>
