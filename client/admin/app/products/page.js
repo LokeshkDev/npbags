@@ -3070,20 +3070,6 @@ export default function AdminProductsPage() {
                   >
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
-                        Color Name
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Warm Oatmeal"
-                        style={{ height: '36px', fontSize: '13px' }}
-                        value={v.color_name}
-                        onChange={(e) => handleVariantChange(idx, 'color_name', e.target.value)}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
                         Model Name
                       </label>
                       <input
@@ -3093,6 +3079,19 @@ export default function AdminProductsPage() {
                         style={{ height: '36px', fontSize: '13px' }}
                         value={v.model_name || ''}
                         onChange={(e) => handleVariantChange(idx, 'model_name', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Color Name
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. Warm Oatmeal"
+                        style={{ height: '36px', fontSize: '13px' }}
+                        value={v.color_name}
+                        onChange={(e) => handleVariantChange(idx, 'color_name', e.target.value)}
                       />
                     </div>
 

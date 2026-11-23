@@ -18,7 +18,7 @@ export const LABEL_SETTINGS_DEFAULTS = {
   pitchMm: 12,
   offsetX: 0,
   offsetY: 0,
-  continuous: false
+  continuous: true
 };
 
 function clampNumber(value, min, max, fallback) {
@@ -38,7 +38,7 @@ export function getLabelSettings() {
       pitchMm: clampNumber(storedPitch, 12, 30, 12),
       offsetX: clampNumber(storedX, -6, 6, 0),
       offsetY: clampNumber(storedY, -6, 6, 0),
-      continuous: storedContinuous === '1'
+      continuous: storedContinuous === null ? LABEL_SETTINGS_DEFAULTS.continuous : storedContinuous === '1'
     };
   } catch {
     return { ...LABEL_SETTINGS_DEFAULTS };
