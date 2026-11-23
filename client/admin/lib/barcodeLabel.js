@@ -377,10 +377,10 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 
   const stickers = stickersHtml;
 
-  const continuousHeightMm = Math.max(1, totalStickers) * jewelleryPageHeightMm;
-  // Always use a tall page (all labels) so page-break-after:always advances
-  // exactly one label height — no browser sub-pixel rounding drift.
-  const jewelleryPageSize = `77.5mm ${continuousHeightMm}mm`;
+  // @page size = one physical label (12mm). Each wrapper gets page-break-after:always
+  // so the printer sees N separate pages = N labels. No tall-page trick — that makes
+  // the printer treat everything as one label.
+  const jewelleryPageSize = `77.5mm ${jewelleryPageHeightMm}mm`;
 
   if (isJewellery) {
     return `
@@ -405,7 +405,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     print-color-adjust:exact !important;
     font-weight:700;
   }
-  /* ── One label per physical label — NO page-breaks, let the TSC feed sensor advance ── */
+  /* ── One label = one @page (12mm). page-break-after:always advances one label per print page ── */
   .jewel-sticker-wrapper {
     display:block;
     width:77.5mm;
@@ -793,3 +793,4 @@ export async function printBarcodeLabels(items, copiesPerItem = 1, options = {})
     height: isJewellery ? 500 : 600
   });
 }
+
