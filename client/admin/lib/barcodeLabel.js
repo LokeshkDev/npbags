@@ -422,12 +422,29 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     margin: 0;
     padding: 0;
   }
+  /* Non-continuous mode: force EXACTLY one tag per physical page.
+     Relying on wrapper height == page height alone is not enough — the
+     browser resolves paged media in CSS px (1mm = 3.7795px) and snaps to
+     device pixels, so every page boundary accumulates a sub-pixel error.
+     On tag 1 it is invisible, but by tag 3/4/5 the tag has visibly drifted
+     down relative to the die-cut. A hard break resets the origin on every
+     page and stops the drift completely. */
+  .jewel-sticker-wrapper:not(.jewel-continuous) {
+    page-break-after: always;
+    break-after: page;
+  }
+  .jewel-sticker-wrapper:not(.jewel-continuous):last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
   .jewel-sticker-wrapper.jewel-continuous {
     position: absolute;
     left: 0;
     right: 0;
     page-break-inside: auto;
     break-inside: auto;
+    page-break-after: auto;
+    break-after: auto;
   }
   .jewel-sticker {
     /* Always keep the full 12mm label height. The old code did
