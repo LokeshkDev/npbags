@@ -273,6 +273,7 @@ export default function AdminVendorsPage() {
   const [scanError, setScanError] = useState('');
   const [pendingNewProduct, setPendingNewProduct] = useState(null);
   const [detectingItemIndex, setDetectingItemIndex] = useState(null);
+  const [detectingNewVariantKey, setDetectingNewVariantKey] = useState(null);
   const [savingScannedProduct, setSavingScannedProduct] = useState(false);
 
   const showToast = (text, type = 'success') => {
@@ -830,7 +831,7 @@ export default function AdminVendorsPage() {
         product_name: match.name,
         product_id: match.id,
         variant_id: chosenVarId,
-        variant_info: firstVar ? [firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
+        variant_info: firstVar ? [firstVar.model_name, firstVar.color_name, firstVar.size_name].filter(Boolean).join(' / ') : '',
         variant_quantities: matchedVariant ? { [String(matchedVariant.id)]: 1 } : {},
         new_variants: [],
         barcode: matchedVariant?.barcode || match.barcode || val,
@@ -861,7 +862,7 @@ export default function AdminVendorsPage() {
           product_name: res.product_name,
           product_id: res.product_id,
           variant_id: res.variant_id ? String(res.variant_id) : '',
-          variant_info: res.variant ? [res.variant.color_name, res.variant.size_name].filter(Boolean).join(' / ') : '',
+          variant_info: res.variant ? [res.variant.model_name, res.variant.color_name, res.variant.size_name].filter(Boolean).join(' / ') : '',
           variant_quantities: res.variant_id ? { [String(res.variant_id)]: 1 } : {},
           barcode: res.barcode || code,
           purchase_rate: res.purchased_rate !== null && res.purchased_rate !== undefined && String(res.purchased_rate).trim() !== ''
@@ -935,7 +936,7 @@ export default function AdminVendorsPage() {
         if (idx !== index) return item;
         const newVariants = [
           ...(item.new_variants || []),
-          { key: `nv-${newVariantKey++}`, color_name: '', size_name: '', sku: '', quantity: '', purchase_rate: item.purchase_rate || '', mrp: item.mrp || '', price: '' }
+          { key: `nv-${newVariantKey++}`, model_name: '', color_name: '', size_name: '', sku: '', barcode: '', quantity: '', purchase_rate: item.purchase_rate || '', mrp: item.mrp || '', price: '', _detectMsg: '', _detectType: '' }
         ];
         const next = { ...item, new_variants: newVariants };
         return { ...next, quantity: lineVariantQtyTotal(next) || item.quantity };
@@ -966,6 +967,54 @@ export default function AdminVendorsPage() {
       });
       return { ...prev, items };
     });
+  };
+
+  const updateNewVariantFields = (index, key, fields) => {
+    setBillForm(prev => {
+      const items = prev.items.map((item, idx) => {
+        if (idx !== index) return item;
+        const newVariants = (item.new_variants || []).map(v => v.key === key ? { ...v, ...fields } : v);
+        const next = { ...item, new_variants: newVariants };
+        return { ...next, quantity: lineVariantQtyTotal(next) || '' };
+      });
+      return { ...prev, items };
+    });
+  };
+
+  const handleDetectNewVariantBarcode = async (index, key, codeToDetect) => {
+    const item = billForm.items[index];
+    const nv = (item?.new_variants || []).find(v => v.key === key);
+    const code = String(codeToDetect !== undefined ? codeToDetect : nv?.barcode || '').trim();
+    if (!code) {
+      showToast('Enter or scan a barcode first', 'info');
+      return;
+    }
+    setDetectingNewVariantKey(key);
+    try {
+      const res = await scanPurchaseBarcode(code, adminUser?.branch_id || null);
+      if (res && res.found) {
+        const v = res.variant || {};
+        const fields = { barcode: code };
+        const modelName = res.model_name || v.model_name || '';
+        const colorName = res.color_name || v.color_name || '';
+        const sizeName = res.size_name || v.size_name || '';
+        if (modelName && !nv?.model_name) fields.model_name = modelName;
+        if (colorName && !nv?.color_name) fields.color_name = colorName;
+        if (sizeName && !nv?.size_name) fields.size_name = sizeName;
+        if (res.mrp !== null && res.mrp !== undefined && !nv?.mrp) fields.mrp = String(res.mrp);
+        if (res.price !== null && res.price !== undefined && !nv?.price) fields.price = String(res.price);
+        fields._detectMsg = `Detected: ${res.product_name || 'Product'}${modelName ? ` · ${modelName}` : ''}`;
+        fields._detectType = 'success';
+        updateNewVariantFields(index, key, fields);
+        showToast(`Barcode detected: ${res.product_name || code}`, 'success');
+      } else {
+        updateNewVariantFields(index, key, { barcode: code, _detectMsg: `Barcode "${code}" is unregistered — will be linked to this new variant.`, _detectType: 'info' });
+      }
+    } catch (err) {
+      updateNewVariantFields(index, key, { barcode: code, _detectMsg: err.message || 'Barcode not found — will be linked to this new variant.', _detectType: 'info' });
+    } finally {
+      setDetectingNewVariantKey(null);
+    }
   };
 
   const addBillItem = () => setBillForm(prev => ({ ...prev, items: [...prev.items, newBillItem()] }));
@@ -1338,9 +1387,11 @@ export default function AdminVendorsPage() {
         const newVariantEntries = (item.new_variants || [])
           .map(v => ({ ...v, quantity: Number(v.quantity) || 0 }))
           .filter(v => v.quantity > 0 && (
+            String(v.model_name || '').trim() ||
             String(v.color_name || '').trim() ||
             String(v.size_name || '').trim() ||
-            String(v.sku || '').trim()
+            String(v.sku || '').trim() ||
+            String(v.barcode || '').trim()
           ));
 
         // Products with variants (or bill-introduced new variants): emit one
@@ -1348,7 +1399,7 @@ export default function AdminVendorsPage() {
         if (productVariants.length > 0 || newVariantEntries.length > 0) {
           const lines = variantEntries.map(([vid, qty]) => {
             const v = productVariants.find(x => String(x.id) === String(vid));
-            const info = v ? [v.color_name, v.size_name].filter(Boolean).join(' / ') : null;
+            const info = v ? [v.model_name, v.color_name, v.size_name].filter(Boolean).join(' / ') : null;
             const applied = String(item.variant_id || '') === String(vid)
               ? Math.max(0, Number(item.stock_applied_qty) || 0)
               : 0;
@@ -1364,11 +1415,13 @@ export default function AdminVendorsPage() {
             return buildPayload(vid, info, qty, applied, null, { purchase_rate: varRate, mrp: varMrp, price: varPrice });
           });
           newVariantEntries.forEach(nv => {
-            const info = [nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || String(nv.sku || '').trim() || 'New variant';
+            const info = [nv.model_name, nv.color_name, nv.size_name].map(x => String(x || '').trim()).filter(Boolean).join(' / ') || String(nv.sku || '').trim() || 'New variant';
             lines.push(buildPayload(null, info, nv.quantity, 0, {
+              model_name: String(nv.model_name || '').trim() || null,
               color_name: String(nv.color_name || '').trim() || null,
               size_name: String(nv.size_name || '').trim() || null,
               sku: String(nv.sku || '').trim() || null,
+              barcode: String(nv.barcode || '').trim() || null,
               purchase_rate: nv.purchase_rate ? parseFloat(nv.purchase_rate) : (item.purchase_rate ? parseFloat(item.purchase_rate) : null),
               mrp: nv.mrp ? parseFloat(nv.mrp) : (item.mrp ? parseFloat(item.mrp) : null),
               price: nv.price ? parseFloat(nv.price) : null
@@ -2877,7 +2930,7 @@ export default function AdminVendorsPage() {
                         {(item.product_id || variants.length > 0 || (item.new_variants || []).length > 0) && (
                           <div style={{ marginTop: '8px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '8px' }}>
-                              <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>🧮 Variant Stock Update (each variant separately)</span>
+                              <span style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a' }}>Variant Stock Update (each variant separately)</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span style={{ fontSize: '10px', color: '#64748b' }}>Set received qty, purchase rate, MRP &amp; selling price per variant</span>
                                 <button type="button" onClick={() => addNewVariant(index)} style={{ background: '#eff6ff', border: '1px solid #93c5fd', color: '#1d4ed8', borderRadius: '5px', padding: '3px 8px', fontSize: '10px', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -2891,7 +2944,7 @@ export default function AdminVendorsPage() {
                                 const qty = Number(item.variant_quantities?.[vId]) || 0;
                                 const current = Number(v.stock_quantity) || 0;
                                 const projected = current + qty;
-                                const label = [v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`;
+                                const label = [v.model_name, v.color_name, v.size_name].filter(Boolean).join(' / ') || v.sku || `Variant ${v.id}`;
                                 const vRate = item.variant_rates?.[vId] !== undefined ? item.variant_rates[vId] : (v.purchase_price ?? item.purchase_rate ?? '');
                                 const vMrp = item.variant_mrps?.[vId] !== undefined ? item.variant_mrps[vId] : (v.mrp ?? item.mrp ?? '');
                                 const vPrice = item.variant_prices?.[vId] !== undefined ? item.variant_prices[vId] : (v.price ?? v.sale_price ?? '');
@@ -2962,37 +3015,53 @@ export default function AdminVendorsPage() {
                             {(item.new_variants || []).length > 0 && (
                               <div style={{ marginTop: '8px', display: 'grid', gap: '6px' }}>
                                 {(item.new_variants || []).map(nv => (
-                                  <div key={nv.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 55px 75px 75px 75px 26px', gap: '6px', alignItems: 'center', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '6px 8px' }}>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Colour</label>
-                                      <input value={nv.color_name} onChange={(e) => updateNewVariant(index, nv.key, 'color_name', e.target.value)} placeholder="e.g. Red" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                  <div key={nv.key} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '8px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '6px', alignItems: 'end' }}>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Model Name</label>
+                                        <input value={nv.model_name || ''} onChange={(e) => updateNewVariant(index, nv.key, 'model_name', e.target.value)} placeholder="e.g. Model No" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Colour</label>
+                                        <input value={nv.color_name} onChange={(e) => updateNewVariant(index, nv.key, 'color_name', e.target.value)} placeholder="e.g. Red" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Size</label>
+                                        <input value={nv.size_name} onChange={(e) => updateNewVariant(index, nv.key, 'size_name', e.target.value)} placeholder="e.g. M" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>SKU (Opt)</label>
+                                        <input value={nv.sku} onChange={(e) => updateNewVariant(index, nv.key, 'sku', e.target.value)} placeholder="Auto" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
+                                      </div>
                                     </div>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Size</label>
-                                      <input value={nv.size_name} onChange={(e) => updateNewVariant(index, nv.key, 'size_name', e.target.value)} placeholder="e.g. M" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }} />
-                                    </div>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>SKU (Opt)</label>
-                                      <input value={nv.sku} onChange={(e) => updateNewVariant(index, nv.key, 'sku', e.target.value)} placeholder="Auto" style={{ width: '100%', padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
-                                    </div>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Qty</label>
-                                      <input type="number" min="0" value={nv.quantity || ''} onChange={(e) => updateNewVariant(index, nv.key, 'quantity', e.target.value)} placeholder="0" style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }} />
-                                    </div>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#4338ca', marginBottom: '2px', textTransform: 'uppercase' }}>P. Rate (₹)</label>
-                                      <input type="number" min="0" step="0.01" value={nv.purchase_rate || ''} onChange={(e) => updateNewVariant(index, nv.key, 'purchase_rate', e.target.value)} placeholder={item.purchase_rate || '0.00'} style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#3730a3' }} />
-                                    </div>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>MRP (₹)</label>
-                                      <input type="number" min="0" step="0.01" value={nv.mrp || ''} onChange={(e) => updateNewVariant(index, nv.key, 'mrp', e.target.value)} placeholder={item.mrp || '0.00'} style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700 }} />
-                                    </div>
-                                    <div>
-                                      <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#065935', marginBottom: '2px', textTransform: 'uppercase' }}>Selling (₹)</label>
-                                      <input type="number" min="0" step="0.01" value={nv.price || ''} onChange={(e) => updateNewVariant(index, nv.key, 'price', e.target.value)} placeholder="0.00" style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#065935' }} />
-                                    </div>
-                                    <div style={{ paddingTop: '14px' }}>
-                                      <button type="button" onClick={() => removeNewVariant(index, nv.key)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '4px', padding: '5px 0', width: '100%', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 55px 78px 78px 78px 26px', gap: '6px', alignItems: 'end', marginTop: '6px' }}>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#065935', marginBottom: '2px', textTransform: 'uppercase' }}>Barcode (scan / type)</label>
+                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                          <input value={nv.barcode || ''} onChange={(e) => updateNewVariantFields(index, nv.key, { barcode: e.target.value, _detectMsg: '', _detectType: '' })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleDetectNewVariantBarcode(index, nv.key, nv.barcode); } }} placeholder="Scan or type barcode" style={{ flex: 1, minWidth: 0, padding: '5px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace' }} />
+                                          <button type="button" onClick={() => handleDetectNewVariantBarcode(index, nv.key, nv.barcode)} disabled={detectingNewVariantKey === nv.key || !String(nv.barcode || '').trim()} title="Detect product / variant from barcode" style={{ background: detectingNewVariantKey === nv.key ? '#e2e8f0' : '#eef2ff', border: '1px solid #c7d2fe', color: '#3730a3', borderRadius: '4px', padding: '0 8px', fontSize: '12px', fontWeight: 800, cursor: detectingNewVariantKey === nv.key ? 'wait' : 'pointer' }}>{detectingNewVariantKey === nv.key ? '⏳' : '🔍'}</button>
+                                        </div>
+                                        {nv._detectMsg ? <div style={{ marginTop: '2px', fontSize: '9px', fontWeight: 700, color: nv._detectType === 'success' ? '#15803d' : '#1d4ed8' }}>{nv._detectMsg}</div> : null}
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>Qty</label>
+                                        <input type="number" min="0" value={nv.quantity || ''} onChange={(e) => updateNewVariant(index, nv.key, 'quantity', e.target.value)} placeholder="0" style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', textAlign: 'center', fontWeight: 800 }} />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#4338ca', marginBottom: '2px', textTransform: 'uppercase' }}>P. Rate (₹)</label>
+                                        <input type="number" min="0" step="0.01" value={nv.purchase_rate || ''} onChange={(e) => updateNewVariant(index, nv.key, 'purchase_rate', e.target.value)} placeholder={item.purchase_rate || '0.00'} style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#3730a3' }} />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#92400e', marginBottom: '2px', textTransform: 'uppercase' }}>MRP (₹)</label>
+                                        <input type="number" min="0" step="0.01" value={nv.mrp || ''} onChange={(e) => updateNewVariant(index, nv.key, 'mrp', e.target.value)} placeholder={item.mrp || '0.00'} style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700 }} />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '9px', fontWeight: 800, color: '#065935', marginBottom: '2px', textTransform: 'uppercase' }}>Selling (₹)</label>
+                                        <input type="number" min="0" step="0.01" value={nv.price || ''} onChange={(e) => updateNewVariant(index, nv.key, 'price', e.target.value)} placeholder="0.00" style={{ width: '100%', padding: '5px 4px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px', textAlign: 'right', fontWeight: 700, color: '#065935' }} />
+                                      </div>
+                                      <div style={{ paddingTop: '14px' }}>
+                                        <button type="button" onClick={() => removeNewVariant(index, nv.key)} style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '4px', padding: '5px 0', width: '100%', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>X</button>
+                                      </div>
                                     </div>
                                   </div>
                                 ))}

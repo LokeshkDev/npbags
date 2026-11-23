@@ -2,7 +2,7 @@ const slugify = require('slugify');
 const { query, withTransaction } = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { normalizeScanCode } = require('../utils/purchaseScan');
-const { generateBarcodeSVG, generateProductBarcodes } = require('../utils/barcode');
+const { generateBarcodeSVG, generateProductBarcodes, assignVariantBarcode } = require('../utils/barcode');
 const {
   isLegacyFullyAppliedBill,
   isBillFullyStockApplied,
@@ -229,9 +229,10 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
 
   // A purchase bill can introduce a brand-new variant for an existing product.
   // Create (or reuse) the variant row here so the bill line gets a real variant_id.
-  if (!variantId && requestedNewVariant && (requestedNewVariant.color_name || requestedNewVariant.size_name || requestedNewVariant.sku)) {
+  if (!variantId && requestedNewVariant && (requestedNewVariant.color_name || requestedNewVariant.size_name || requestedNewVariant.sku || requestedNewVariant.model_name || requestedNewVariant.barcode)) {
     const colorName = String(requestedNewVariant.color_name || '').trim() || 'Standard';
     const sizeName = String(requestedNewVariant.size_name || '').trim() || 'Standard';
+    const modelName = String(requestedNewVariant.model_name || '').trim() || null;
     const colorHex = String(requestedNewVariant.color_hex || '').trim() || '#000000';
     const existingVariantRows = await tx.query(
       `SELECT * FROM product_variants
@@ -241,6 +242,9 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     );
     if (existingVariantRows.length > 0) {
       variantId = existingVariantRows[0].id;
+      if (modelName) {
+        await tx.query('UPDATE product_variants SET model_name = ? WHERE id = ?', [modelName, variantId]);
+      }
     } else {
       const requestedSku = String(requestedNewVariant.sku || '').trim();
       const generatedSku = `NP-${product.id}-${slugify(`${colorName}-${sizeName}`, { lower: false, strict: true }) || Date.now()}`;
@@ -249,10 +253,11 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
         ? parseFloat(requestedNewVariant.purchase_rate)
         : (item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null);
       const insertVariant = await tx.query(
-        `INSERT INTO product_variants (product_id, color_name, color_hex, size_name, stock_quantity, purchase_price, sku, mrp, price, sale_price)
-         VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, sku, mrp, price, sale_price)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
         [
           product.id,
+          modelName,
           colorName,
           colorHex,
           sizeName,
@@ -265,7 +270,22 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
       );
       variantId = insertVariant.insertId;
     }
-    variantInfo = variantInfo || [colorName, sizeName].join(' / ');
+    variantInfo = variantInfo || [modelName, colorName, sizeName].filter(Boolean).join(' / ');
+  }
+
+  const requestedBarcode = String(
+    (requestedNewVariant && (requestedNewVariant.barcode || requestedNewVariant.scanned_barcode)) || ''
+  ).trim();
+  if (variantId && requestedBarcode) {
+    try {
+      await assignVariantBarcode(tx, product.id, variantId, {
+        size: (item.variant_size || item.size_name || (requestedNewVariant && requestedNewVariant.size_name) || '') || null,
+        color: (item.variant_color || item.color_name || (requestedNewVariant && requestedNewVariant.color_name) || '') || null,
+        barcode: requestedBarcode
+      }, userId || null);
+    } catch (barcodeError) {
+      console.warn('[PurchaseBill] Could not assign variant barcode:', barcodeError.message);
+    }
   }
 
   if (variantId) {
@@ -275,7 +295,7 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     );
     if (variants.length === 0) throw httpError(`Selected variant does not belong to ${product.name}`, 400);
     const variant = variants[0];
-    variantInfo = variantInfo || [variant.color_name, variant.size_name].filter(Boolean).join(' / ');
+    variantInfo = variantInfo || [variant.model_name, variant.color_name, variant.size_name].filter(Boolean).join(' / ');
 
     // Update variant purchase rate, MRP and selling price if specified on this bill item
     const vPurchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null;

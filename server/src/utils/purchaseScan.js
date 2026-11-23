@@ -176,7 +176,8 @@ function buildPurchaseItemFromScan(product = {}, variant = null, barcode = '') {
     product_id: p.id,
     product_name: p.name,
     variant_id: v && v.id ? String(v.id) : '',
-    variant_info: v ? [v.color_name, v.size_name].filter(Boolean).join(' / ') : '',
+    variant_info: v ? [v.model_name, v.color_name, v.size_name].filter(Boolean).join(' / ') : '',
+    model_name: v ? (v.model_name || null) : null,
     purchase_rate: rateSource !== '' && rateSource !== null && rateSource !== undefined ? String(rateSource) : '',
     mrp: p.mrp !== null && p.mrp !== undefined ? String(p.mrp) : '',
     gst_type: p.gst_type || DEFAULT_GST_TYPE,
@@ -196,6 +197,7 @@ function buildFoundResult(row, matchType, code, source, payload, barcode) {
     ? {
       id: row.matched_variant_id,
       sku: row.matched_variant_sku || null,
+      model_name: row.matched_model_name || null,
       color_name: row.matched_color_name || null,
       size_name: row.matched_size_name || null,
       stock_quantity: parseInt(row.matched_variant_stock, 10) || 0,
@@ -227,6 +229,7 @@ function buildFoundResult(row, matchType, code, source, payload, barcode) {
     gst_rate: row.gst_rate ?? DEFAULT_GST_RATE,
     hsn_code: row.hsn_code || DEFAULT_HSN_CODE,
     stock: parseInt(row.stock, 10) || 0,
+    model_name: variant ? (variant.model_name || null) : null,
     variant,
     item
   };
@@ -258,6 +261,7 @@ async function resolveProductByScan(queryFn, rawCode) {
             COALESCE(pv.price, p.price) AS price,
             COALESCE(pv.sale_price, p.sale_price) AS sale_price,
             pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
+            pv.model_name AS matched_model_name,
             pv.color_name AS matched_color_name, pv.size_name AS matched_size_name,
             pv.stock_quantity AS matched_variant_stock,
             pv.purchase_price AS matched_variant_purchase_price
@@ -281,6 +285,7 @@ async function resolveProductByScan(queryFn, rawCode) {
             COALESCE(pv.price, p.price) AS price,
             COALESCE(pv.sale_price, p.sale_price) AS sale_price,
             pv.id AS matched_variant_id, pv.sku AS matched_variant_sku,
+            pv.model_name AS matched_model_name,
             pv.color_name AS matched_color_name, pv.size_name AS matched_size_name,
             pv.stock_quantity AS matched_variant_stock,
             pv.purchase_price AS matched_variant_purchase_price
