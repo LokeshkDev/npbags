@@ -234,27 +234,48 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     const sizeName = String(requestedNewVariant.size_name || '').trim() || 'Standard';
     const modelName = String(requestedNewVariant.model_name || '').trim() || null;
     const colorHex = String(requestedNewVariant.color_hex || '').trim() || '#000000';
-    const existingVariantRows = await tx.query(
-      `SELECT * FROM product_variants
-       WHERE product_id = ? AND LOWER(color_name) = LOWER(?) AND LOWER(size_name) = LOWER(?)
-       LIMIT 1`,
-      [product.id, colorName, sizeName]
-    );
-    if (existingVariantRows.length > 0) {
-      variantId = existingVariantRows[0].id;
-      if (modelName) {
+
+    // Only reuse if a variant with the exact SAME model_name exists, or an empty-model variant with matching color+size.
+    // NEVER overwrite an existing variant that has a different model_name!
+    let existingMatch = null;
+    if (modelName) {
+      const matchByModel = await tx.query(
+        'SELECT * FROM product_variants WHERE product_id = ? AND LOWER(model_name) = LOWER(?) LIMIT 1',
+        [product.id, modelName]
+      );
+      if (matchByModel.length > 0) existingMatch = matchByModel[0];
+    }
+    if (!existingMatch) {
+      const matchByColorSize = await tx.query(
+        `SELECT * FROM product_variants
+         WHERE product_id = ? AND LOWER(color_name) = LOWER(?) AND LOWER(size_name) = LOWER(?)
+           AND (model_name IS NULL OR TRIM(model_name) = '')
+         LIMIT 1`,
+        [product.id, colorName, sizeName]
+      );
+      if (matchByColorSize.length > 0) existingMatch = matchByColorSize[0];
+    }
+
+    if (existingMatch) {
+      variantId = existingMatch.id;
+      if (modelName && (!existingMatch.model_name || !existingMatch.model_name.trim())) {
         await tx.query('UPDATE product_variants SET model_name = ? WHERE id = ?', [modelName, variantId]);
       }
     } else {
+      // DO NOT OVERRIDE! Create brand new entry in product_variants for this product
       const requestedSku = String(requestedNewVariant.sku || '').trim();
-      const generatedSku = `NP-${product.id}-${slugify(`${colorName}-${sizeName}`, { lower: false, strict: true }) || Date.now()}`;
+      const generatedSku = `NP-${product.id}-${slugify(`${modelName || colorName}-${sizeName}`, { lower: false, strict: true }) || Date.now()}`;
       const newSku = (requestedSku || generatedSku).slice(0, 64);
       const vPurchaseRate = requestedNewVariant.purchase_rate !== undefined && requestedNewVariant.purchase_rate !== null && requestedNewVariant.purchase_rate !== ''
         ? parseFloat(requestedNewVariant.purchase_rate)
         : (item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null);
+      const vPurchaseRateAlias = String(
+        (requestedNewVariant && (requestedNewVariant.rate_alias || requestedNewVariant.purchase_rate_alias)) ||
+        item.purchase_rate_alias || ''
+      ).trim() || null;
       const insertVariant = await tx.query(
-        `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, sku, mrp, price, sale_price)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, purchase_rate_alias, sku, mrp, price, sale_price)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
         [
           product.id,
           modelName,
@@ -262,6 +283,7 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
           colorHex,
           sizeName,
           vPurchaseRate,
+          vPurchaseRateAlias,
           newSku,
           requestedNewVariant.mrp ? parseFloat(requestedNewVariant.mrp) : (item.mrp ? parseFloat(item.mrp) : null),
           requestedNewVariant.price ? parseFloat(requestedNewVariant.price) : (item.price ? parseFloat(item.price) : null),
@@ -289,6 +311,11 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
   }
 
   const itemModelName = String(item.model_name || (requestedNewVariant && requestedNewVariant.model_name) || '').trim() || null;
+  const itemRateAlias = String(
+    (requestedNewVariant && (requestedNewVariant.rate_alias || requestedNewVariant.purchase_rate_alias)) ||
+    item.purchase_rate_alias ||
+    ''
+  ).trim() || null;
 
   if (variantId) {
     const variants = await tx.query(
@@ -297,52 +324,122 @@ async function resolveProductForItem(tx, item, vendorId, userId) {
     );
     if (variants.length === 0) throw httpError(`Selected variant does not belong to ${product.name}`, 400);
     const variant = variants[0];
-    const finalModelName = itemModelName || variant.model_name || null;
-    variantInfo = variantInfo || [finalModelName, variant.color_name, variant.size_name].filter(Boolean).join(' / ');
 
-    // Update variant purchase rate, MRP, selling price, and model_name if specified
     const vPurchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : null;
     const vMrp = item.mrp !== undefined && item.mrp !== null && item.mrp !== '' ? parseFloat(item.mrp) : null;
     const vPrice = item.price !== undefined && item.price !== null && item.price !== '' ? parseFloat(item.price) : null;
     const vSalePrice = item.sale_price !== undefined && item.sale_price !== null && item.sale_price !== '' ? parseFloat(item.sale_price) : vPrice;
-    await tx.query(
-      `UPDATE product_variants
-       SET model_name = COALESCE(?, model_name),
-           purchase_price = COALESCE(?, purchase_price),
-           mrp = COALESCE(?, mrp),
-           price = COALESCE(?, price),
-           sale_price = COALESCE(?, sale_price)
-       WHERE id = ?`,
-      [itemModelName, vPurchaseRate, vMrp, vPrice, vSalePrice, variantId]
-    );
-  } else if (itemModelName) {
-    // If no variantId explicitly passed, save model_name to original product's variants
-    const existingVariants = await tx.query(
-      'SELECT id, model_name FROM product_variants WHERE product_id = ? ORDER BY id ASC',
-      [product.id]
-    );
-    if (existingVariants.length > 0) {
-      await tx.query('UPDATE product_variants SET model_name = ? WHERE id = ?', [itemModelName, existingVariants[0].id]);
-      if (existingVariants.length === 1) {
-        variantId = existingVariants[0].id;
+
+    // If itemModelName is given and the existing variant already has a DIFFERENT model_name, DO NOT OVERRIDE!
+    if (itemModelName && variant.model_name && variant.model_name.trim().toLowerCase() !== itemModelName.toLowerCase()) {
+      // Check if another variant with this model_name already exists for this product
+      const existingModelVar = await tx.query(
+        'SELECT * FROM product_variants WHERE product_id = ? AND LOWER(model_name) = LOWER(?) LIMIT 1',
+        [product.id, itemModelName]
+      );
+      if (existingModelVar.length > 0) {
+        variantId = existingModelVar[0].id;
+        if (itemRateAlias || vPurchaseRate || vMrp || vPrice) {
+          await tx.query(
+            `UPDATE product_variants
+             SET purchase_rate_alias = COALESCE(?, purchase_rate_alias),
+                 purchase_price = COALESCE(?, purchase_price),
+                 mrp = COALESCE(?, mrp),
+                 price = COALESCE(?, price),
+                 sale_price = COALESCE(?, sale_price)
+             WHERE id = ?`,
+            [itemRateAlias, vPurchaseRate, vMrp, vPrice, vSalePrice, variantId]
+          );
+        }
+      } else {
+        // Create new variant entry in product_variants!
+        const newSku = `NP-${product.id}-${slugify(itemModelName, { lower: false, strict: true }) || Date.now()}`.slice(0, 64);
+        const ins = await tx.query(
+          `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, purchase_rate_alias, sku, mrp, price, sale_price)
+           VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+          [
+            product.id,
+            itemModelName,
+            variant.color_name || 'Standard',
+            variant.color_hex || '#000000',
+            variant.size_name || 'Standard',
+            vPurchaseRate,
+            itemRateAlias,
+            newSku,
+            vMrp,
+            vPrice,
+            vSalePrice
+          ]
+        );
+        variantId = ins.insertId;
       }
     } else {
-      const ins = await tx.query(
-        `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, sku, mrp, price, sale_price)
-         VALUES (?, ?, 'Standard', '#000000', 'Standard', ?, ?, ?, ?, ?, ?)`,
-        [
-          product.id,
-          itemModelName,
-          parseInt(product.stock, 10) || 0,
-          product.purchase_price,
-          `NP-${product.id}-STD`,
-          product.mrp,
-          product.price,
-          product.sale_price || product.price
-        ]
+      // Matches or was empty: update prices, model_name, and rate alias
+      await tx.query(
+        `UPDATE product_variants
+         SET model_name = COALESCE(?, model_name),
+             purchase_price = COALESCE(?, purchase_price),
+             purchase_rate_alias = COALESCE(?, purchase_rate_alias),
+             mrp = COALESCE(?, mrp),
+             price = COALESCE(?, price),
+             sale_price = COALESCE(?, sale_price)
+         WHERE id = ?`,
+        [itemModelName, vPurchaseRate, itemRateAlias, vMrp, vPrice, vSalePrice, variantId]
       );
-      variantId = ins.insertId;
     }
+    const finalModelName = itemModelName || variant.model_name || null;
+    variantInfo = variantInfo || [finalModelName, variant.color_name, variant.size_name].filter(Boolean).join(' / ');
+  } else if (itemModelName) {
+    // Check if any variant for this product already has this model_name
+    const existingModelVars = await tx.query(
+      'SELECT * FROM product_variants WHERE product_id = ? AND LOWER(model_name) = LOWER(?) LIMIT 1',
+      [product.id, itemModelName]
+    );
+    if (existingModelVars.length > 0) {
+      variantId = existingModelVars[0].id;
+      if (itemRateAlias) {
+        await tx.query('UPDATE product_variants SET purchase_rate_alias = COALESCE(?, purchase_rate_alias) WHERE id = ?', [itemRateAlias, variantId]);
+      }
+    } else {
+      // Check if product only has 1 variant and its model_name is blank
+      const allVariants = await tx.query(
+        'SELECT * FROM product_variants WHERE product_id = ? ORDER BY id ASC',
+        [product.id]
+      );
+      if (allVariants.length === 1 && (!allVariants[0].model_name || !allVariants[0].model_name.trim())) {
+        await tx.query('UPDATE product_variants SET model_name = ?, purchase_rate_alias = COALESCE(?, purchase_rate_alias) WHERE id = ?', [itemModelName, itemRateAlias, allVariants[0].id]);
+        variantId = allVariants[0].id;
+      } else {
+        // DO NOT OVERRIDE existing variants! Make a new entry in product_variants!
+        const vPurchaseRate = item.purchase_rate !== undefined && item.purchase_rate !== null && item.purchase_rate !== '' ? parseFloat(item.purchase_rate) : (product.purchase_price || null);
+        const vMrp = item.mrp !== undefined && item.mrp !== null && item.mrp !== '' ? parseFloat(item.mrp) : (product.mrp || null);
+        const vPrice = item.price !== undefined && item.price !== null && item.price !== '' ? parseFloat(item.price) : (product.price || null);
+        const vSalePrice = item.sale_price !== undefined && item.sale_price !== null && item.sale_price !== '' ? parseFloat(item.sale_price) : vPrice;
+        const newSku = `NP-${product.id}-${slugify(itemModelName, { lower: false, strict: true }) || Date.now()}`.slice(0, 64);
+        const ins = await tx.query(
+          `INSERT INTO product_variants (product_id, model_name, color_name, color_hex, size_name, stock_quantity, purchase_price, purchase_rate_alias, sku, mrp, price, sale_price)
+           VALUES (?, ?, 'Standard', '#000000', 'Standard', 0, ?, ?, ?, ?, ?, ?)`,
+          [
+            product.id,
+            itemModelName,
+            vPurchaseRate,
+            itemRateAlias,
+            newSku,
+            vMrp,
+            vPrice,
+            vSalePrice
+          ]
+        );
+        variantId = ins.insertId;
+      }
+    }
+  }
+
+  // Also update products.purchase_rate_alias if given
+  if (itemRateAlias) {
+    try {
+      await tx.query('UPDATE products SET purchase_rate_alias = COALESCE(?, purchase_rate_alias) WHERE id = ?', [itemRateAlias, product.id]);
+    } catch (_) {}
   }
 
   // Also update products.barcode_short_name to match model_name if empty
@@ -609,7 +706,9 @@ async function getPurchaseBillBarcodes(req, res, next) {
     const items = await query(
       `SELECT pbi.id AS bill_item_id, pbi.product_id, pbi.variant_id, pbi.product_name,
               pbi.variant_info, COALESCE(pbi.model_name, pv.model_name) AS model_name,
-              pbi.quantity, pbi.purchase_rate, pbi.rate_value, pbi.purchase_rate_alias, pbi.mrp,
+              pbi.quantity, pbi.purchase_rate, pbi.rate_value,
+              COALESCE(pbi.purchase_rate_alias, pv.purchase_rate_alias, p.purchase_rate_alias) AS purchase_rate_alias,
+              pbi.mrp,
               pbi.price AS item_price, pbi.sale_price AS item_sale_price,
               p.name AS catalog_name, p.price, p.sale_price, p.mrp AS catalog_mrp,
               p.purchase_price, p.purchased_rate, p.category_id,
@@ -947,6 +1046,7 @@ async function getPurchaseBillById(req, res, next) {
 
     const items = await query(
       `SELECT pbi.*, p.slug AS product_slug, p.mrp, p.purchase_price, p.purchased_rate,
+              COALESCE(pbi.purchase_rate_alias, pv.purchase_rate_alias, p.purchase_rate_alias) AS purchase_rate_alias,
               p.stock AS product_stock,
               COALESCE(pv.stock_quantity, p.stock, 0) AS current_stock,
               COALESCE(pbi.model_name, pv.model_name) AS model_name,
@@ -1295,17 +1395,20 @@ async function updatePurchaseBill(req, res, next) {
           ...lineCosting
         });
 
-        if (purchaseRate || rateValue) {
+        if (purchaseRate || rateValue || item.purchase_rate_alias) {
           const currentRateRows = await tx.query('SELECT purchased_rate FROM products WHERE id = ?', [resolved.product_id]);
           const oldRate = currentRateRows[0]?.purchased_rate ?? null;
           await tx.query(
             `UPDATE products
              SET purchased_rate = COALESCE(?, purchased_rate),
+                 purchase_rate_alias = COALESCE(?, purchase_rate_alias),
                  purchase_price = CASE WHEN ? > 0 THEN ? ELSE purchase_price END
              WHERE id = ?`,
-            [purchaseRate || null, rateValue, rateValue, resolved.product_id]
+            [purchaseRate || null, item.purchase_rate_alias || null, rateValue, rateValue, resolved.product_id]
           );
-          await recordPurchaseRateHistory(tx, resolved.product_id, oldRate, purchaseRate || rateValue, userId);
+          if (purchaseRate || rateValue) {
+            await recordPurchaseRateHistory(tx, resolved.product_id, oldRate, purchaseRate || rateValue, userId);
+          }
         }
 
         if (manufacturingDate || expiryDate) {

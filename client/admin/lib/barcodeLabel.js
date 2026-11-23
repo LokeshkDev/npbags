@@ -258,29 +258,24 @@ export function renderToySticker(item, options = {}) {
 export function renderNormalSticker(item, options = {}) {
   const label = getLabelDetails(item, options);
 
-  // Variant / Model name for the right column parallel to barcode number
-  const rawVariant = firstNonEmpty(
-    item?.model_name && (item?.color_name || item?.size_name)
-      ? `${item.model_name} ${[item.color_name, item.size_name].filter(Boolean).join(' ')}`
-      : null,
-    item?.model_name,
-    item?.variant_info,
-    [item?.color_name, item?.size_name].filter(Boolean).join(' '),
-    item?.sku,
-    item?.variant_name,
-    label.hasArrivalCode ? label.arrivalCode : ''
+  // Arrival Code (Purchase rate alias / code) parallel to barcode number in right column
+  const rawArrivalCode = firstNonEmpty(
+    label.arrivalCode,
+    item?.purchase_rate_alias,
+    item?.rate_alias,
+    item?.alias,
+    options?.arrivalCode,
+    ''
   );
-  const variantText = rawVariant && !/^(standard|default|none|n\/?a|—|-)$/i.test(String(rawVariant).trim())
-    ? String(rawVariant).trim()
-    : (label.hasArrivalCode ? label.arrivalCode : '');
+  const arrivalCodeText = rawArrivalCode ? String(rawArrivalCode).trim() : '';
 
-  const rightColHtml = variantText
-    ? `<span class="variant-text" title="${variantText}">${variantText.length > 20 ? variantText.slice(0, 20) : variantText}</span>`
+  const rightColHtml = arrivalCodeText
+    ? `<span class="variant-text" title="${arrivalCodeText}">${arrivalCodeText.length > 20 ? arrivalCodeText.slice(0, 20) : arrivalCodeText}</span>`
     : '<span class="variant-text"></span>';
 
-  const svgHtml = getCleanBarcodeSVG(item, { height: 22, quietZone: 10 });
+  const svgHtml = getCleanBarcodeSVG(item, { height: 20, quietZone: 0 });
 
-  const sizeBadgeHtml = (label.isFootwear && label.size && !variantText.includes(label.size))
+  const sizeBadgeHtml = (label.isFootwear && label.size && !arrivalCodeText.includes(label.size))
     ? `<span class="size-badge">SZ: ${label.size}</span>`
     : '';
   const priceDisplayHtml = `<span class="mrp-label">MRP </span>&#8377;${label.mrp}${sizeBadgeHtml}`;
@@ -292,10 +287,12 @@ export function renderNormalSticker(item, options = {}) {
   return `
     <div class="barcode-sticker">
       ${productNameHtml}
-      <div class="barcode-svg-container">${svgHtml}</div>
-      <div class="info-row">
-        <span class="code-text">${item.barcode || 'NO BARCODE'}</span>
-        ${rightColHtml}
+      <div class="barcode-bars-block">
+        <div class="barcode-svg-container">${svgHtml}</div>
+        <div class="info-row">
+          <span class="code-text">${item.barcode || 'NO BARCODE'}</span>
+          ${rightColHtml}
+        </div>
       </div>
       <div class="mrp-text">${priceDisplayHtml}</div>
     </div>
@@ -601,14 +598,25 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     padding: 0 0.5mm;
     margin-bottom: 0.2mm;
   }
+  .barcode-bars-block {
+    width: 29mm;
+    margin: 0 auto;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+  }
   .barcode-svg-container {
-    width: 32mm;
+    width: 100%;
     height: 7.2mm;
     display: flex;
     align-items: center;
     justify-content: center;
     background: #ffffff !important;
     overflow: hidden;
+    margin: 0;
+    padding: 0;
   }
   .barcode-svg-container svg {
     width: 100% !important;
@@ -627,26 +635,31 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     justify-content: space-between;
     align-items: center;
     gap: 1mm;
-    padding: 0 0.5mm;
+    padding: 0;
     line-height: 1;
-    margin-top: 0.2mm;
+    margin-top: 0.3mm;
+    box-sizing: border-box;
   }
   .code-text {
     font-size: 5.8pt;
     font-weight: 700;
     font-family: monospace;
-    letter-spacing: 0.2px;
+    letter-spacing: -0.1px;
+    text-align: left;
     max-width: 50%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: #000000 !important;
+    padding: 0;
+    margin: 0;
+    line-height: 1;
   }
   .variant-text {
-    font-size: 5.8pt;
-    font-weight: 800;
+    font-size: 4.8pt;
+    font-weight: 400;
     font-family: Arial, Helvetica, sans-serif;
-    letter-spacing: 0.1px;
+    letter-spacing: 0;
     line-height: 1;
     max-width: 50%;
     text-align: right;
@@ -654,6 +667,9 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
     text-overflow: clip;
     white-space: nowrap;
     color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    padding: 0;
+    margin: 0;
   }
   .mrp-text {
     width: 100%;

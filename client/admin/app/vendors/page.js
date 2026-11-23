@@ -624,6 +624,88 @@ export default function AdminVendorsPage() {
     try {
       const detail = await getAdminPurchaseBillById(id);
       setEditingBill(detail);
+
+      // On the Edit Bill screen: combine multiple variant/model lines of the same
+      // catalog product into ONE unified product card, while keeping individual
+      // lines in the bill database intact.
+      const groupedMap = new Map();
+      for (const item of (detail.items || [])) {
+        const groupKey = item.product_id ? `prod-${item.product_id}` : `item-${item.id}`;
+
+        if (!groupedMap.has(groupKey)) {
+          const vIdStr = item.variant_id ? String(item.variant_id) : '';
+          const alias = item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : '';
+          const modelName = item.model_name || item.variant_model_name || '';
+          groupedMap.set(groupKey, {
+            key: `edit-${item.id}`,
+            product_id: item.product_id || '',
+            product_name: item.product_name || '',
+            variant_id: '',
+            variant_info: item.variant_info || '',
+            model_name: modelName,
+            current_stock: item.current_stock !== undefined ? Number(item.current_stock) : null,
+            product_stock: item.product_stock !== undefined ? Number(item.product_stock) : null,
+            variant_stock_quantity: item.variant_stock_quantity !== undefined ? Number(item.variant_stock_quantity) : null,
+            variant_quantities: {},
+            variant_model_names: {},
+            variant_rates: {},
+            variant_mrps: {},
+            variant_prices: {},
+            variant_rate_aliases: {},
+            variant_stock_applied: {},
+            new_variants: [],
+            quantity: 0,
+            purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
+            purchase_rate_alias: alias,
+            mrp: item.mrp !== null && item.mrp !== undefined ? String(item.mrp) : '',
+            price: item.price !== null && item.price !== undefined ? String(item.price) : '',
+            sale_price: item.sale_price !== null && item.sale_price !== undefined ? String(item.sale_price) : '',
+            gst_type: item.gst_type || 'exclusive',
+            gst_rate: item.gst_rate !== null && item.gst_rate !== undefined ? String(item.gst_rate) : '18',
+            discount_type: item.discount_type === 'percent' ? 'percent' : 'flat',
+            discount_value: item.discount_value !== null && item.discount_value !== undefined && Number(item.discount_value) !== 0 ? String(item.discount_value) : '',
+            manufacturing_date: toDateInput(item.manufacturing_date),
+            expiry_date: toDateInput(item.expiry_date),
+            barcode: item.barcode || '',
+            stock_applied_qty: 0,
+            stock_scan_applied: 0
+          });
+        }
+
+        const group = groupedMap.get(groupKey);
+        const itemQty = Number(item.quantity) || 0;
+        group.quantity += itemQty;
+        const applied = Math.max(0, Number(item.stock_applied_qty) || 0);
+        group.stock_applied_qty += applied;
+
+        if (item.variant_id) {
+          const vIdStr = String(item.variant_id);
+          const alias = item.purchase_rate_alias ? String(item.purchase_rate_alias).trim() : '';
+          const modelName = item.model_name || item.variant_model_name || '';
+
+          group.variant_quantities[vIdStr] = (group.variant_quantities[vIdStr] || 0) + itemQty;
+          group.variant_stock_applied[vIdStr] = (group.variant_stock_applied[vIdStr] || 0) + applied;
+          if (modelName) {
+            group.variant_model_names[vIdStr] = modelName;
+          }
+          if (item.purchase_rate || item.purchased_rate || item.rate_value) {
+            group.variant_rates[vIdStr] = String(item.purchase_rate || item.purchased_rate || item.rate_value);
+          }
+          if (item.mrp) {
+            group.variant_mrps[vIdStr] = String(item.mrp);
+          }
+          if (item.price || item.sale_price) {
+            group.variant_prices[vIdStr] = String(item.price || item.sale_price);
+          }
+          if (alias) {
+            group.variant_rate_aliases[vIdStr] = alias;
+          }
+        }
+        if (item.purchase_rate_alias && !group.purchase_rate_alias) {
+          group.purchase_rate_alias = String(item.purchase_rate_alias).trim();
+        }
+      }
+
       setBillForm({
         vendor_id: detail.vendor_id ? String(detail.vendor_id) : '',
         branch_id: detail.branch_id || 1,
@@ -634,38 +716,7 @@ export default function AdminVendorsPage() {
         payment_method: 'Cash',
         notes: detail.notes || '',
         confirm: detail.status === 'confirmed',
-        items: (detail.items || []).map(item => ({
-          key: `edit-${item.id}`,
-          product_id: item.product_id || '',
-          product_name: item.product_name || '',
-          variant_id: item.variant_id ? String(item.variant_id) : '',
-          variant_info: item.variant_info || '',
-          model_name: item.model_name || item.variant_model_name || '',
-          current_stock: item.current_stock !== undefined ? Number(item.current_stock) : null,
-          product_stock: item.product_stock !== undefined ? Number(item.product_stock) : null,
-          variant_stock_quantity: item.variant_stock_quantity !== undefined ? Number(item.variant_stock_quantity) : null,
-          variant_quantities: item.variant_id ? { [String(item.variant_id)]: Number(item.quantity) || 1 } : {},
-          variant_model_names: item.variant_id && (item.model_name || item.variant_model_name) ? { [String(item.variant_id)]: String(item.model_name || item.variant_model_name) } : {},
-          variant_rates: item.variant_id && (item.purchase_rate || item.purchased_rate || item.rate_value) ? { [String(item.variant_id)]: String(item.purchase_rate || item.purchased_rate || item.rate_value) } : {},
-          variant_mrps: item.variant_id && item.mrp ? { [String(item.variant_id)]: String(item.mrp) } : {},
-          variant_prices: item.variant_id && (item.price || item.sale_price) ? { [String(item.variant_id)]: String(item.price || item.sale_price) } : {},
-          variant_rate_aliases: item.variant_id && item.purchase_rate_alias ? { [String(item.variant_id)]: String(item.purchase_rate_alias) } : {},
-          quantity: Number(item.quantity) || 1,
-          purchase_rate: item.purchase_rate || (item.purchased_rate || (item.rate_value !== null && item.rate_value !== undefined ? String(item.rate_value) : '')),
-          purchase_rate_alias: item.purchase_rate_alias || '',
-          mrp: item.mrp !== null && item.mrp !== undefined ? String(item.mrp) : '',
-          price: item.price !== null && item.price !== undefined ? String(item.price) : '',
-          sale_price: item.sale_price !== null && item.sale_price !== undefined ? String(item.sale_price) : '',
-          gst_type: item.gst_type || 'exclusive',
-          gst_rate: item.gst_rate !== null && item.gst_rate !== undefined ? String(item.gst_rate) : '18',
-          discount_type: item.discount_type === 'percent' ? 'percent' : 'flat',
-          discount_value: item.discount_value !== null && item.discount_value !== undefined && Number(item.discount_value) !== 0 ? String(item.discount_value) : '',
-          manufacturing_date: toDateInput(item.manufacturing_date),
-          expiry_date: toDateInput(item.expiry_date),
-          barcode: item.barcode || '',
-          stock_applied_qty: Math.max(0, Number(item.stock_applied_qty) || 0),
-          stock_scan_applied: 0
-        }))
+        items: Array.from(groupedMap.values())
       });
       setIsBillModalOpen(true);
     } catch (err) {
@@ -1422,9 +1473,9 @@ export default function AdminVendorsPage() {
           const lines = variantEntries.map(([vid, qty]) => {
             const v = productVariants.find(x => String(x.id) === String(vid));
             const info = v ? [v.model_name, v.color_name, v.size_name].filter(Boolean).join(' / ') : null;
-            const applied = String(item.variant_id || '') === String(vid)
-              ? Math.max(0, Number(item.stock_applied_qty) || 0)
-              : 0;
+            const applied = item.variant_stock_applied?.[String(vid)] !== undefined
+              ? Number(item.variant_stock_applied[String(vid)]) || 0
+              : (String(item.variant_id || '') === String(vid) ? Math.max(0, Number(item.stock_applied_qty) || 0) : 0);
             const varRate = item.variant_rates?.[vid] !== undefined && item.variant_rates[vid] !== ''
               ? item.variant_rates[vid]
               : (v?.purchase_price || item.purchase_rate);
@@ -1467,6 +1518,7 @@ export default function AdminVendorsPage() {
               purchase_rate: item.variant_rates?.[String(item.variant_id)] || item.purchase_rate,
               mrp: item.variant_mrps?.[String(item.variant_id)] || item.mrp,
               price: item.variant_prices?.[String(item.variant_id)],
+              purchase_rate_alias: item.variant_rate_aliases?.[String(item.variant_id)] || item.purchase_rate_alias || '',
               model_name: item.variant_model_names?.[String(item.variant_id)] || item.model_name
             })];
           }
@@ -1474,7 +1526,10 @@ export default function AdminVendorsPage() {
           return [];
         }
 
-        return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty, null, { model_name: item.model_name })];
+        return [buildPayload(item.variant_id, item.variant_info, item.quantity, item.stock_applied_qty, null, {
+          purchase_rate_alias: item.purchase_rate_alias || '',
+          model_name: item.model_name
+        })];
       })
     };
     if (payload.items.length === 0) {
@@ -2926,7 +2981,7 @@ export default function AdminVendorsPage() {
                               >
                                 📦 Stock: {currentStock} on hand
                               </span>
-                              {item.model_name && (
+                              {item.model_name && variants.length === 0 && (
                                 <span style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '1px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 800 }}>
                                   Model: {item.model_name}
                                 </span>
@@ -3154,8 +3209,14 @@ export default function AdminVendorsPage() {
                                       <label style={{ fontSize: '9px', fontWeight: 800, color: '#4338ca', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Rate Alias (Arrival Code)</label>
                                       <input
                                         type="text"
-                                        value={item.variant_rate_aliases?.[vId] ?? (item.purchase_rate_alias || v.purchase_rate_alias || '')}
-                                        onChange={(e) => setVariantField(index, 'variant_rate_aliases', vId, e.target.value)}
+                                        value={item.variant_rate_aliases?.[vId] !== undefined ? item.variant_rate_aliases[vId] : (v.purchase_rate_alias || (String(item.variant_id) === vId ? item.purchase_rate_alias : '') || '')}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setVariantField(index, 'variant_rate_aliases', vId, val);
+                                          if (String(item.variant_id) === vId || !item.variant_id) {
+                                            updateBillItem(index, { purchase_rate_alias: val });
+                                          }
+                                        }}
                                         placeholder="e.g. ARR-01 / NA-25"
                                         style={{ flex: 1, minWidth: 0, padding: '4px 6px', borderRadius: '4px', border: '1px solid #c7d2fe', fontSize: '11px', fontWeight: 700, color: '#3730a3' }}
                                         title={`Rate alias printed on barcode stickers for ${label}`}
@@ -3404,7 +3465,13 @@ export default function AdminVendorsPage() {
                               <input
                                 type="text"
                                 value={item.purchase_rate_alias || ''}
-                                onChange={(e) => updateBillItem(index, { purchase_rate_alias: e.target.value })}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updateBillItem(index, { purchase_rate_alias: val });
+                                  if (item.variant_id) {
+                                    setVariantField(index, 'variant_rate_aliases', String(item.variant_id), val);
+                                  }
+                                }}
                                 placeholder="e.g. ARR-01 / NA-25"
                                 title="Printed on barcode stickers instead of revealing purchase rate"
                                 style={{ width: '100%', padding: '6px 7px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '11.5px', fontWeight: 700 }}
@@ -3823,27 +3890,6 @@ export default function AdminVendorsPage() {
                       />
                     </div>
                   )}
-                  <button
-                    type="button"
-                    disabled={generatingBarcodes}
-                    onClick={() => handleGenerateBarcodesForBill()}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #16a34a',
-                      background: generatingBarcodes ? '#f0fdf4' : '#16a34a',
-                      color: generatingBarcodes ? '#15803d' : '#fff',
-                      fontWeight: 800,
-                      fontSize: '11.5px',
-                      cursor: generatingBarcodes ? 'not-allowed' : 'pointer'
-                    }}
-                    title="Generate or regenerate unique barcodes for each variant across all products in this bill"
-                  >
-                    {generatingBarcodes ? '⏳ Generating...' : '⚡ Generate / Regenerate All Barcodes'}
-                  </button>
                   <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 800, color: '#0f172a' }}>
                     Total labels: {barcodePrintTotal}
                   </span>
@@ -3856,6 +3902,7 @@ export default function AdminVendorsPage() {
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Product</th>
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Variant</th>
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Barcode</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Rate Alias (Arrival Code)</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
                         <th style={{ padding: '8px 10px', textAlign: 'right' }}>P. Rate</th>
                         <th style={{ padding: '8px 10px', textAlign: 'right' }}>MRP</th>
@@ -3869,29 +3916,7 @@ export default function AdminVendorsPage() {
                           <td style={{ padding: '7px 10px', color: '#64748b' }}>{item.variant_info || '—'}</td>
                           <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 700 }}>
                             {item.barcode ? (
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ color: '#065935' }}>{item.barcode}</span>
-                                {item.product_id && (
-                                  <button
-                                    type="button"
-                                    disabled={generatingBarcodes}
-                                    onClick={() => handleGenerateBarcodesForBill(item.product_id, item.variant_id)}
-                                    style={{
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      border: '1px solid #cbd5e1',
-                                      background: '#f8fafc',
-                                      color: '#475569',
-                                      fontWeight: 700,
-                                      fontSize: '10px',
-                                      cursor: generatingBarcodes ? 'not-allowed' : 'pointer'
-                                    }}
-                                    title="Regenerate a brand new unique barcode for this item"
-                                  >
-                                    🔄 Regenerate
-                                  </button>
-                                )}
-                              </div>
+                              <span style={{ color: '#065935' }}>{item.barcode}</span>
                             ) : (
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <span style={{ color: '#b91c1c' }}>NOT GENERATED</span>
@@ -3916,6 +3941,15 @@ export default function AdminVendorsPage() {
                                   </button>
                                 )}
                               </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontWeight: 800 }}>
+                            {item.purchase_rate_alias || item.rate_alias ? (
+                              <span style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '2px 7px', borderRadius: '4px', fontSize: '11px' }}>
+                                {item.purchase_rate_alias || item.rate_alias}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontWeight: 400 }}>—</span>
                             )}
                           </td>
                           <td style={{ padding: '7px 10px', textAlign: 'center' }}>{item.quantity || 1}</td>

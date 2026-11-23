@@ -106,6 +106,7 @@ function findVariantMatch(product, query) {
     const score = Math.max(
       scoreSearchValue(variant.barcode, query, 190),
       scoreSearchValue(variant.sku, query, 170),
+      scoreSearchValue(variant.model_name, query, 50),
       scoreSearchValue(variant.color_name, query, 40),
       scoreSearchValue(variant.size_name, query, 40)
     );
@@ -132,6 +133,7 @@ function scoreProductMatch(product, query) {
     ? Math.max(
         scoreSearchValue(matchedVariant.barcode, query, 190),
         scoreSearchValue(matchedVariant.sku, query, 170),
+        scoreSearchValue(matchedVariant.model_name, query, 50),
         scoreSearchValue(matchedVariant.color_name, query, 40),
         scoreSearchValue(matchedVariant.size_name, query, 40)
       )
@@ -257,6 +259,7 @@ function normalizeVariant(variant) {
     ...variant,
     id: variant.id,
     sku: variant.sku || null,
+    model_name: variant.model_name || variant.model || variant.variant_model_name || null,
     size: variant.size_name !== undefined ? variant.size_name : (variant.size || null),
     color: variant.color_name !== undefined ? variant.color_name : (variant.color || null),
     barcode: variant.barcode || null,
@@ -267,7 +270,13 @@ function normalizeVariant(variant) {
 
 function variantLabel(variant) {
   if (!variant) return '';
-  const parts = [variant.color_name || variant.color, variant.size_name || variant.size].filter(Boolean);
+  const model = variant.model_name || variant.model || variant.variant_model_name;
+  const color = variant.color_name || variant.color;
+  // User requested: show the correct model name of respective variant instead of colorname
+  const preferredName = (model && String(model).trim()) || (color && String(color).trim()) || '';
+  const size = variant.size_name || variant.size;
+  const isGenericSize = size && /^(standard|one\s*size|free\s*size|default|none|n\/?a)$/i.test(String(size).trim());
+  const parts = [preferredName, !isGenericSize ? size : null].filter(Boolean);
   return parts.join(' / ') || variant.sku || (variant.id ? `Variant #${variant.id}` : '');
 }
 
@@ -3492,7 +3501,9 @@ export function POSBillingModal() {
                           <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
                           <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span style={{ fontWeight: 700, color: '#065935' }}>{item.barcode}</span>
-                            {catalogVariants.length > 1 && item.variant?.color && <span>Color: {item.variant.color}</span>}
+                            {catalogVariants.length > 1 && (item.variant?.model_name || item.variant?.color) && (
+                              <span>{item.variant?.model_name ? `Model: ${item.variant.model_name}` : `Color: ${item.variant.color}`}</span>
+                            )}
                             {catalogVariants.length > 1 && item.variant?.size && <span>Size: {item.variant.size}</span>}
                             {lineStock !== undefined && lineStock !== null && (
                               <span
@@ -4050,7 +4061,7 @@ export function POSBillingModal() {
                                     >
                                       <div>
                                         <div style={{ fontWeight: 800, fontSize: '12.5px', color: '#0f172a' }}>
-                                          {p.name} {(!isSingleVariant && v) ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                                          {p.name} {(!isSingleVariant && v) ? `— ${v.model_name || v.color_name || ''} ${v.size_name || ''}` : ''}
                                         </div>
                                         <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
                                           <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span> · Stock {displayStock}
@@ -4847,7 +4858,7 @@ export function POSBillingModal() {
                     >
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
-                          {p.name} {(!isSingleVariant && v) ? `— ${v.color_name || ''} ${v.size_name || ''}` : ''}
+                          {p.name} {(!isSingleVariant && v) ? `— ${v.model_name || v.color_name || ''} ${v.size_name || ''}` : ''}
                         </div>
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                           <span style={{ fontWeight: 800, color: '#065935' }}>{bc}</span>

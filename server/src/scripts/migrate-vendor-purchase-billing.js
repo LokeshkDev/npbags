@@ -28,6 +28,16 @@ async function migrate() {
     await query('ALTER TABLE products ADD COLUMN purchased_rate VARCHAR(64) NULL AFTER purchase_price');
   }
 
+  if (!(await columnExists('products', 'purchase_rate_alias'))) {
+    console.log('Adding products.purchase_rate_alias...');
+    await query('ALTER TABLE products ADD COLUMN purchase_rate_alias VARCHAR(64) NULL AFTER purchased_rate');
+  }
+
+  if (!(await columnExists('product_variants', 'purchase_rate_alias'))) {
+    console.log('Adding product_variants.purchase_rate_alias...');
+    await query('ALTER TABLE product_variants ADD COLUMN purchase_rate_alias VARCHAR(64) NULL AFTER purchase_price');
+  }
+
   if (!(await columnExists('products', 'brand'))) {
     console.log('Adding products.brand...');
     await query('ALTER TABLE products ADD COLUMN brand VARCHAR(128) NULL AFTER name');
