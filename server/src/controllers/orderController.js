@@ -932,6 +932,7 @@ async function createPOSOrder(req, res, next) {
     if (branch_id) {
       for (const item of taxSummary.items) {
         const pId = item.product_id || item.id;
+        const vId = item.variant_id || null;
         if (pId) {
           try {
             await query(
@@ -940,6 +941,14 @@ async function createPOSOrder(req, res, next) {
                WHERE branch_id = ? AND product_id = ?`,
               [Number(item.quantity) || 1, branch_id, String(pId)]
             );
+            if (vId) {
+              await query(
+                `UPDATE branch_variant_stocks
+                 SET stock = GREATEST(0, stock - ?)
+                 WHERE branch_id = ? AND variant_id = ?`,
+                [Number(item.quantity) || 1, branch_id, vId]
+              );
+            }
           } catch (e) {
             console.warn('[POS] Branch stock deduction warning:', e.message);
           }

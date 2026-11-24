@@ -26,6 +26,7 @@ export function Sidebar() {
     { key: 'pos', label: 'POS Billing Counter', href: '/pos', icon: 'pos' },
     { key: 'barcodes', label: 'Barcode Lookup', href: '/barcodes', icon: 'barcode' },
     { key: 'inventory', label: 'Stock & Inventory', href: '/inventory', icon: 'package' },
+    { key: 'branch_push', label: 'Branch Push Products', href: '/branch-push', icon: 'transfer' },
     { key: 'salespersons', label: 'Sales Staff & Reports', href: '/salespersons', icon: 'user' },
     { key: 'vendors', label: 'Vendors & Suppliers', href: '/vendors', icon: 'vendor' },
     { key: 'audit_logs', label: 'Audit & Activity Logs', href: '/audit-logs', icon: 'history' },

@@ -16,11 +16,17 @@ const {
   pushProductsToBranch,
   pushCategoryToBranch,
   updateBranchProductStock,
-  pushStockToMainBranch
+  pushStockToMainBranch,
+  getBranchTransferCatalog,
+  transferBranchStock
 } = require('../controllers/branchController');
 
 // All branch management routes require authentication + administrative privileges
 router.use(authenticate, requireAdmin);
+
+// Branch push / transfer catalog & execution endpoints (Must be before /:id)
+router.get('/transfer-catalog', getBranchTransferCatalog);
+router.post('/transfer-stock', transferBranchStock);
 
 // Middleware: allow Super Admin OR Branch Admin assigned to the target branch
 const allowSuperAdminOrBranchAdmin = (req, res, next) => {

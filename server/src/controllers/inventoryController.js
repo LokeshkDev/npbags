@@ -56,28 +56,36 @@ async function getInventoryTransactions(req, res, next) {
 // Admin: Get live variant stock summary across all products
 async function getVariantStockSummary(req, res, next) {
   try {
-    const { low_stock_only, search, barcode } = req.query;
+    const { low_stock_only, search, barcode, category_id } = req.query;
 
     let sql = `
-      SELECT pv.*, p.name AS product_name, p.slug AS product_slug, p.price, p.sale_price,
+      SELECT pv.*, p.name AS product_name, p.slug AS product_slug, p.price, p.sale_price, p.category_id,
+             COALESCE(p.stock, 0) AS main_product_stock,
+             c.name AS category_name,
              COALESCE(p.low_stock_threshold, 5) AS threshold,
              (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
       FROM product_variants pv
       JOIN products p ON pv.product_id = p.id
+      LEFT JOIN categories c ON p.category_id = c.id
       WHERE 1=1
     `;
     const params = [];
 
+    if (category_id && category_id !== 'all') {
+      sql += ` AND p.category_id = ?`;
+      params.push(category_id);
+    }
+
     if (search && search.trim()) {
       sql += ` AND (
-        p.name LIKE ? OR pv.sku LIKE ? OR pv.color_name LIKE ? OR pv.size_name LIKE ?
+        p.name LIKE ? OR pv.sku LIKE ? OR pv.model_name LIKE ? OR pv.color_name LIKE ? OR pv.size_name LIKE ? OR pv.purchase_rate_alias LIKE ?
         OR EXISTS (
           SELECT 1 FROM product_barcodes pb
           WHERE pb.product_id = pv.product_id AND pb.status = 'active' AND pb.barcode LIKE ?
         )
       )`;
       const q = `%${search.trim()}%`;
-      params.push(q, q, q, q, q);
+      params.push(q, q, q, q, q, q, q);
     }
 
     if (barcode && barcode.trim()) {
@@ -95,7 +103,7 @@ async function getVariantStockSummary(req, res, next) {
       sql += ` AND pv.stock_quantity <= COALESCE(p.low_stock_threshold, 5)`;
     }
 
-    sql += ` ORDER BY pv.stock_quantity ASC, p.name ASC`;
+    sql += ` ORDER BY p.name ASC, pv.stock_quantity ASC`;
 
     const rows = await query(sql, params);
     return sendSuccess(res, rows);

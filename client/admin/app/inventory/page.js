@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
 import { useAdminAuth } from '../../lib/auth';
@@ -12,6 +12,7 @@ import {
   getAdminBranchStocks,
   updateAdminBranchProductStock,
   pushAdminStockToMainBranch,
+  getAdminCategories,
   lookupBarcode
 } from '../../lib/api';
 
@@ -29,12 +30,63 @@ export default function AdminInventoryPage() {
   const [editingBranchStockVal, setEditingBranchStockVal] = useState('');
   const [branchSearch, setBranchSearch] = useState('');
   const [variants, setVariants] = useState([]);
+  const [expandedProductIds, setExpandedProductIds] = useState(new Set());
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Group variants by main product for accordion display
+  const groupedProducts = useMemo(() => {
+    const map = new Map();
+    for (const v of variants) {
+      const pId = v.product_id || `prod_${v.product_name}`;
+      if (!map.has(pId)) {
+        map.set(pId, {
+          id: pId,
+          name: v.product_name || 'Unnamed Product',
+          category_name: v.category_name || '',
+          barcode: v.barcode || '',
+          variants: [],
+          total_stock: 0,
+          low_stock_count: 0
+        });
+      }
+      const grp = map.get(pId);
+      grp.variants.push(v);
+      const qty = Number(v.stock_quantity) || 0;
+      grp.total_stock += qty;
+      if (qty <= (v.threshold || 5)) {
+        grp.low_stock_count += 1;
+      }
+    }
+    return Array.from(map.values());
+  }, [variants]);
+
+  // Accordion toggle helpers
+  const toggleProductAccordion = (productId) => {
+    setExpandedProductIds(prev => {
+      const next = new Set(prev);
+      if (next.has(productId)) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      return next;
+    });
+  };
+
+  const expandAllProducts = () => {
+    setExpandedProductIds(new Set(groupedProducts.map(p => p.id)));
+  };
+
+  const collapseAllProducts = () => {
+    setExpandedProductIds(new Set());
+  };
 
   // Filters
   const [search, setSearch] = useState('');
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   // Stock Adjust Modal
   const [adjustModalItem, setAdjustModalItem] = useState(null);
@@ -55,11 +107,16 @@ export default function AdminInventoryPage() {
       search: overrides.search !== undefined ? overrides.search : search,
       low_stock_only: lowStockOnly
     };
+    const cat = overrides.category_id !== undefined ? overrides.category_id : selectedCategory;
+    if (cat && cat !== 'all') params.category_id = cat;
     if (overrides.barcode) params.barcode = overrides.barcode;
     setLoading(true);
     getAdminVariantStock(params)
       .then(res => {
-        if (Array.isArray(res)) setVariants(res);
+        if (Array.isArray(res)) {
+          setVariants(res);
+          setExpandedProductIds(new Set(res.map(v => v.product_id || `prod_${v.product_name}`)));
+        }
       })
       .catch(err => console.error('Failed to load stock:', err))
       .finally(() => setLoading(false));
@@ -76,6 +133,16 @@ export default function AdminInventoryPage() {
       .catch(err => console.error('Failed to load audit transactions:', err))
       .finally(() => setLoading(false));
   };
+
+  // Load categories
+  useEffect(() => {
+    getAdminCategories()
+      .then(res => {
+        const list = Array.isArray(res) ? res : (res?.categories || []);
+        setCategories(list);
+      })
+      .catch(err => console.warn('Failed to load categories:', err));
+  }, []);
 
   // Load available branches
   useEffect(() => {
@@ -274,109 +341,294 @@ export default function AdminInventoryPage() {
         <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
           {/* Filter Bar */}
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                placeholder="Filter by product, SKU, or color..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{ width: '280px', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-              />
-              <button
-                type="submit"
-                style={{ background: '#065935', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-              >
-                Search
-              </button>
-            </form>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Filter by product, model name, barcode, SKU..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ width: '280px', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+                <button
+                  type="submit"
+                  style={{ background: '#065935', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Search
+                </button>
+              </form>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={lowStockOnly}
-                onChange={(e) => setLowStockOnly(e.target.checked)}
-              />
-              <span>⚠️ Show Low Stock Only (≤ Threshold)</span>
-            </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>Category:</span>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => {
+                    const cat = e.target.value;
+                    setSelectedCategory(cat);
+                    loadStock({ category_id: cat });
+                  }}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12.5px',
+                    background: '#fff',
+                    fontWeight: 600,
+                    color: '#1e293b'
+                  }}
+                >
+                  <option value="all">All Categories</option>
+                  {categories.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={expandAllProducts}
+                title="Expand all product variant accordions"
+                style={{
+                  padding: '7px 11px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#334155',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                ▾ Expand All
+              </button>
+              <button
+                type="button"
+                onClick={collapseAllProducts}
+                title="Collapse all product variant accordions"
+                style={{
+                  padding: '7px 11px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#334155',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                ▸ Collapse All
+              </button>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', fontWeight: 600, cursor: 'pointer', marginLeft: '6px' }}>
+                <input
+                  type="checkbox"
+                  checked={lowStockOnly}
+                  onChange={(e) => setLowStockOnly(e.target.checked)}
+                />
+                <span>⚠️ Show Low Stock Only (≤ Threshold)</span>
+              </label>
+            </div>
           </div>
 
           {loading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#64748b' }}>Loading variant stock levels...</div>
-          ) : variants.length === 0 ? (
+          ) : groupedProducts.length === 0 ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>No product variants found.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: '11.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <th style={{ padding: '12px 18px' }}>Product</th>
-                  <th style={{ padding: '12px 14px' }}>Color / Size</th>
-                  <th style={{ padding: '12px 14px' }}>SKU</th>
-                  <th style={{ padding: '12px 14px' }}>Barcode</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>Price</th>
-                  <th style={{ padding: '12px 18px', textAlign: 'center' }}>Stock Status</th>
-                  <th style={{ padding: '12px 18px', textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {variants.map((v) => {
-                  const isLow = v.stock_quantity <= (v.threshold || 5);
-                  return (
-                    <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '14px 18px', fontWeight: 700, color: '#0f172a' }}>
-                        {v.product_name}
-                      </td>
-                      <td style={{ padding: '14px 14px', color: '#334155' }}>
-                        <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: v.color_hex || '#000', marginRight: '6px' }} />
-                        {v.color_name} {v.size_name ? `· ${v.size_name}` : ''}
-                      </td>
-                      <td style={{ padding: '14px 14px', fontFamily: 'monospace', color: '#64748b', fontSize: '12px' }}>
-                        {v.sku || '—'}
-                      </td>
-                      <td style={{ padding: '14px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#065935' }}>
-                        {v.barcode || '—'}
-                      </td>
-                      <td style={{ padding: '14px 14px', textAlign: 'right', fontWeight: 600 }}>
-                        ₹{Number(v.sale_price > 0 ? v.sale_price : v.price).toLocaleString('en-IN')}
-                      </td>
-                      <td style={{ padding: '14px 18px', textAlign: 'center' }}>
-                        <span
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: '#f8fafc' }}>
+              {groupedProducts.map((product) => {
+                const isExpanded = expandedProductIds.has(product.id);
+                const hasLowStock = product.low_stock_count > 0;
+
+                return (
+                  <div
+                    key={product.id}
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '12px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    {/* PRODUCT HEADER BAR (ACCORDION TOGGLE) */}
+                    <div
+                      onClick={() => toggleProductAccordion(product.id)}
+                      style={{
+                        padding: '14px 18px',
+                        background: isExpanded ? '#f8fafc' : '#ffffff',
+                        borderBottom: isExpanded ? '1px solid #e2e8f0' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'background 0.15s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {/* CHEVRON */}
+                        <div
                           style={{
-                            background: isLow ? '#fef2f2' : '#f0fdf4',
-                            color: isLow ? '#b91c1c' : '#15803d',
-                            padding: '3px 10px',
-                            borderRadius: '12px',
-                            fontWeight: 700,
-                            fontSize: '12px'
-                          }}
-                        >
-                          {v.stock_quantity} units {isLow ? '⚠️ LOW' : '✓ OK'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '14px 18px', textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAdjustModalItem(v);
-                            setNewStockVal(String(v.stock_quantity));
-                          }}
-                          style={{
-                            background: '#ffffff',
-                            border: '1px solid #cbd5e1',
+                            width: '28px',
+                            height: '28px',
                             borderRadius: '6px',
-                            padding: '6px 12px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            cursor: 'pointer'
+                            border: '1px solid #cbd5e1',
+                            background: isExpanded ? '#065935' : '#f8fafc',
+                            color: isExpanded ? '#ffffff' : '#475569',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            flexShrink: 0,
+                            transition: 'all 0.15s ease'
                           }}
+                          title={isExpanded ? 'Collapse variants' : 'Expand variants'}
                         >
-                          Adjust Stock
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          {isExpanded ? '▼' : '▶'}
+                        </div>
+
+                        <div style={{ width: '38px', height: '38px', borderRadius: '7px', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+                          🛍️
+                        </div>
+
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>{product.name}</span>
+                            {product.category_name && (
+                              <span style={{ background: '#f1f5f9', color: '#475569', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
+                                {product.category_name}
+                              </span>
+                            )}
+                            <span style={{ background: '#ecfdf5', color: '#065935', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
+                              {product.variants.length} model/variant(s)
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                            Total Product Stock: <strong style={{ color: '#0f172a' }}>{product.total_stock} unit(s)</strong>
+                            {hasLowStock && (
+                              <span style={{ color: '#dc2626', fontWeight: 700, marginLeft: '10px' }}>
+                                ⚠️ {product.low_stock_count} variant(s) low in stock
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* TOTAL STOCK BADGE */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          background: hasLowStock ? '#fef2f2' : '#f0fdf4',
+                          border: `1px solid ${hasLowStock ? '#fecaca' : '#bbf7d0'}`,
+                          borderRadius: '8px',
+                          padding: '6px 14px',
+                          textAlign: 'right'
+                        }}>
+                          <div style={{ fontSize: '10.5px', fontWeight: 800, color: hasLowStock ? '#991b1b' : '#166534', textTransform: 'uppercase' }}>
+                            {hasLowStock ? 'Low Stock Alert' : 'Total on Hand'}
+                          </div>
+                          <div style={{ fontSize: '14px', fontWeight: 900, color: hasLowStock ? '#dc2626' : '#15803d' }}>
+                            {product.total_stock} unit(s)
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* VARIANTS / MODELS ACCORDION BODY */}
+                    {isExpanded && (
+                      <div style={{ padding: '0', overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                          <thead>
+                            <tr style={{ background: '#ffffff', borderBottom: '1px solid #f1f5f9', color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              <th style={{ padding: '10px 18px' }}>Model / Variant Name</th>
+                              <th style={{ padding: '10px 14px' }}>Barcode</th>
+                              <th style={{ padding: '10px 14px' }}>SKU</th>
+                              <th style={{ padding: '10px 14px' }}>Rate Alias (Arrival Code)</th>
+                              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Price</th>
+                              <th style={{ padding: '10px 18px', textAlign: 'center' }}>Stock on Hand</th>
+                              <th style={{ padding: '10px 18px', textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {product.variants.map((v, vIdx) => {
+                              const isLow = v.stock_quantity <= (v.threshold || 5);
+                              return (
+                                <tr key={v.id} style={{ borderTop: vIdx > 0 ? '1px solid #f8fafc' : 'none', background: vIdx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                                  <td style={{ padding: '12px 18px', fontWeight: 800, color: '#0f172a' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      {v.color_hex && (
+                                        <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: v.color_hex, border: '1px solid #cbd5e1' }} />
+                                      )}
+                                      <span>{v.model_name || v.color_name || `Model #${vIdx + 1}`}</span>
+                                      {((v.model_name && v.color_name && v.color_name !== v.model_name) || (v.size_name && !/standard|one size/i.test(v.size_name))) && (
+                                        <span style={{ background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '3px', fontSize: '10.5px' }}>
+                                          {[v.model_name && v.color_name !== v.model_name ? v.color_name : null, v.size_name && !/standard|one size/i.test(v.size_name) ? `SZ: ${v.size_name}` : null].filter(Boolean).join(' · ')}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontWeight: 800, color: '#065935' }}>
+                                    {v.barcode || '—'}
+                                  </td>
+                                  <td style={{ padding: '12px 14px', fontFamily: 'monospace', color: '#64748b' }}>
+                                    {v.sku || '—'}
+                                  </td>
+                                  <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#1e293b' }}>
+                                    {v.purchase_rate_alias || '—'}
+                                  </td>
+                                  <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 600 }}>
+                                    ₹{Number(v.sale_price > 0 ? v.sale_price : v.price).toLocaleString('en-IN')}
+                                  </td>
+                                  <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                                    <span
+                                      style={{
+                                        background: isLow ? '#fef2f2' : '#f0fdf4',
+                                        color: isLow ? '#b91c1c' : '#15803d',
+                                        padding: '3px 10px',
+                                        borderRadius: '12px',
+                                        fontWeight: 800,
+                                        fontSize: '11.5px'
+                                      }}
+                                    >
+                                      {v.stock_quantity} units {isLow ? '⚠️ LOW' : '✓ OK'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '12px 18px', textAlign: 'right' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAdjustModalItem(v);
+                                        setNewStockVal(String(v.stock_quantity));
+                                      }}
+                                      style={{
+                                        background: '#ffffff',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '6px',
+                                        padding: '6px 12px',
+                                        fontSize: '12px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      Adjust Stock
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -748,7 +1000,7 @@ export default function AdminInventoryPage() {
               Adjust Stock Quantity
             </h3>
             <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>
-              {adjustModalItem.product_name} ({adjustModalItem.color_name} {adjustModalItem.size_name || ''})
+              {adjustModalItem.product_name} ({adjustModalItem.model_name || adjustModalItem.color_name} {adjustModalItem.size_name || ''})
             </p>
 
             <div style={{ marginBottom: '14px' }}>

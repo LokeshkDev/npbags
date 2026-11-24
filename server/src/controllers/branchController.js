@@ -483,6 +483,22 @@ async function updateBranchProductStock(req, res, next) {
       ]);
     }
 
+    if (Array.isArray(req.body.variants)) {
+      for (const v of req.body.variants) {
+        if (v.id && v.branch_stock !== undefined) {
+          await query(`
+            INSERT INTO branch_variant_stocks (branch_id, product_id, variant_id, stock)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE stock = VALUES(stock)
+          `, [id, productId, v.id, parseInt(v.branch_stock, 10) || 0]);
+        }
+      }
+      const sumBvs = await query('SELECT COALESCE(SUM(stock), 0) AS total FROM branch_variant_stocks WHERE branch_id = ? AND product_id = ?', [id, productId]);
+      if (sumBvs[0]?.total > 0 || req.body.variants.length > 0) {
+        await query('UPDATE branch_stocks SET stock = ? WHERE branch_id = ? AND product_id = ?', [sumBvs[0]?.total || 0, id, productId]);
+      }
+    }
+
     return sendSuccess(res, null, 'Branch product stock updated');
   } catch (error) {
     next(error);
@@ -579,6 +595,260 @@ async function pushStockToMainBranch(req, res, next) {
   }
 }
 
+// 14. Get complete catalog with main stock, branch stocks, and variant/model names for Branch Push page
+async function getBranchTransferCatalog(req, res, next) {
+  try {
+    const branchId = parseInt(req.query.branch_id, 10) || 3;
+    const { search, category_id, stock_filter } = req.query;
+
+    let sql = `
+      SELECT p.id, p.name, p.slug, p.price, p.sale_price, p.mrp, p.category_id, p.barcode_short_name,
+             COALESCE(p.stock, 0) AS main_stock,
+             c.name AS category_name,
+             COALESCE(bs.stock, 0) AS branch_stock,
+             COALESCE(bs.is_active, 1) AS is_branch_active,
+             (SELECT barcode FROM product_barcodes WHERE product_id = p.id AND status = 'active' ORDER BY is_primary DESC, id ASC LIMIT 1) AS barcode,
+             (SELECT image_url FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1) AS image
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN branch_stocks bs ON bs.product_id = p.id AND bs.branch_id = ?
+      WHERE COALESCE(p.is_active, 1) = 1
+    `;
+    const params = [branchId];
+
+    if (category_id && category_id !== 'all') {
+      sql += ` AND p.category_id = ?`;
+      params.push(category_id);
+    }
+
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      sql += ` AND (
+        p.name LIKE ? OR p.barcode_short_name LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM product_barcodes pb
+          WHERE pb.product_id = p.id AND pb.status = 'active' AND pb.barcode LIKE ?
+        )
+        OR EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = p.id AND (pv.model_name LIKE ? OR pv.sku LIKE ? OR pv.color_name LIKE ?)
+        )
+      )`;
+      params.push(q, q, q, q, q, q);
+    }
+
+    sql += ` ORDER BY p.name ASC`;
+
+    const products = await query(sql, params);
+    if (products.length === 0) {
+      return sendSuccess(res, { products: [], total: 0 });
+    }
+
+    const productIds = products.map(p => p.id);
+    const placeholders = productIds.map(() => '?').join(',');
+
+    // Fetch all variants for these products
+    const variants = await query(`
+      SELECT pv.id, pv.product_id, pv.color_name, pv.color_hex, pv.model_name, pv.size_name,
+             COALESCE(pv.stock_quantity, 0) AS main_stock,
+             pv.purchase_price, pv.purchase_rate_alias, pv.price, pv.sale_price, pv.mrp, pv.sku,
+             COALESCE(bvs.stock, 0) AS branch_stock,
+             (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
+      FROM product_variants pv
+      LEFT JOIN branch_variant_stocks bvs ON bvs.variant_id = pv.id AND bvs.branch_id = ?
+      WHERE pv.product_id IN (${placeholders})
+      ORDER BY pv.id ASC
+    `, [branchId, ...productIds]);
+
+    const variantMap = new Map();
+    for (const v of variants) {
+      if (!variantMap.has(v.product_id)) {
+        variantMap.set(v.product_id, []);
+      }
+      variantMap.get(v.product_id).push(v);
+    }
+
+    let result = products.map(p => {
+      const pVariants = variantMap.get(p.id) || [];
+      const sumVariantBranchStock = pVariants.reduce((sum, v) => sum + (Number(v.branch_stock) || 0), 0);
+      const branchStock = sumVariantBranchStock > 0 ? sumVariantBranchStock : (Number(p.branch_stock) || 0);
+      return {
+        ...p,
+        branch_stock: branchStock,
+        variants: pVariants
+      };
+    });
+
+    // Optional stock filtering
+    if (stock_filter === 'source_available') {
+      result = result.filter(p => p.main_stock > 0 || p.variants.some(v => v.main_stock > 0));
+    } else if (stock_filter === 'branch_has_stock') {
+      result = result.filter(p => p.branch_stock > 0 || p.variants.some(v => v.branch_stock > 0));
+    } else if (stock_filter === 'branch_low') {
+      result = result.filter(p => p.branch_stock <= 5);
+    } else if (stock_filter === 'branch_out') {
+      result = result.filter(p => p.branch_stock === 0);
+    }
+
+    return sendSuccess(res, { products: result, total: result.length });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// 15. Unified Branch Stock Transfer (Main ➔ Branch and Branch ➔ Main) with variant/model support
+async function transferBranchStock(req, res, next) {
+  try {
+    const fromBranchId = parseInt(req.body.from_branch_id, 10);
+    const toBranchId = parseInt(req.body.to_branch_id, 10);
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+
+    if (!fromBranchId || !toBranchId || fromBranchId === toBranchId) {
+      return sendError(res, 'Valid distinct source and destination branches are required', 400);
+    }
+    if (items.length === 0) {
+      return sendError(res, 'At least one item is required to transfer', 400);
+    }
+
+    const branches = await query('SELECT id, name, code FROM branches WHERE id IN (?, ?)', [fromBranchId, toBranchId]);
+    const fromBranch = branches.find(b => b.id === fromBranchId) || { id: fromBranchId, name: fromBranchId === 1 ? 'Main Store' : `Branch #${fromBranchId}` };
+    const toBranch = branches.find(b => b.id === toBranchId) || { id: toBranchId, name: toBranchId === 1 ? 'Main Store' : `Branch #${toBranchId}` };
+
+    let totalTransferred = 0;
+    const transferSummary = [];
+
+    for (const item of items) {
+      const pId = item.product_id;
+      const vId = item.variant_id ? Number(item.variant_id) : null;
+      const qty = parseInt(item.quantity, 10);
+
+      if (!pId || !qty || qty <= 0) continue;
+
+      const prodRows = await query('SELECT id, name, COALESCE(stock, 0) AS stock FROM products WHERE id = ?', [pId]);
+      if (prodRows.length === 0) continue;
+      const product = prodRows[0];
+
+      let variant = null;
+      if (vId) {
+        const vRows = await query('SELECT id, model_name, sku, COALESCE(stock_quantity, 0) AS stock FROM product_variants WHERE id = ?', [vId]);
+        if (vRows.length > 0) variant = vRows[0];
+      }
+
+      // Check available stock at source
+      if (fromBranchId === 1) {
+        // Source is Main Store
+        const availableStock = variant ? variant.stock : product.stock;
+        if (availableStock < qty) {
+          return sendError(res, `Cannot transfer ${qty} unit(s) of "${product.name}${variant?.model_name ? ` (${variant.model_name})` : ''}". Main Store only has ${availableStock} available.`, 400);
+        }
+
+        // Decrement Main Store stock
+        if (vId) {
+          await query('UPDATE product_variants SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?', [qty, vId]);
+          const sumRow = await query('SELECT SUM(stock_quantity) as total FROM product_variants WHERE product_id = ?', [pId]);
+          await query('UPDATE products SET stock = ? WHERE id = ?', [sumRow[0]?.total || 0, pId]);
+        } else {
+          await query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [qty, pId]);
+        }
+
+        // Increment Target Branch stock
+        await query(`
+          INSERT INTO branch_stocks (branch_id, product_id, stock, low_stock_threshold, is_active)
+          VALUES (?, ?, ?, 5, 1)
+          ON DUPLICATE KEY UPDATE stock = stock + VALUES(stock), is_active = 1
+        `, [toBranchId, pId, qty]);
+
+        if (vId) {
+          await query(`
+            INSERT INTO branch_variant_stocks (branch_id, product_id, variant_id, stock)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE stock = stock + VALUES(stock)
+          `, [toBranchId, pId, vId, qty]);
+        }
+      } else {
+        // Source is Regional Branch (e.g. Manali)
+        if (vId) {
+          const bvsRows = await query('SELECT stock FROM branch_variant_stocks WHERE branch_id = ? AND variant_id = ?', [fromBranchId, vId]);
+          const currentBvs = bvsRows.length > 0 ? bvsRows[0].stock : 0;
+          if (currentBvs < qty) {
+            return sendError(res, `Cannot transfer ${qty} unit(s) of "${product.name}${variant?.model_name ? ` (${variant.model_name})` : ''}". Branch only has ${currentBvs} unit(s) available.`, 400);
+          }
+          await query('UPDATE branch_variant_stocks SET stock = GREATEST(0, stock - ?) WHERE branch_id = ? AND variant_id = ?', [qty, fromBranchId, vId]);
+          await query('UPDATE branch_stocks SET stock = GREATEST(0, stock - ?) WHERE branch_id = ? AND product_id = ?', [qty, fromBranchId, pId]);
+        } else {
+          const bsRows = await query('SELECT stock FROM branch_stocks WHERE branch_id = ? AND product_id = ?', [fromBranchId, pId]);
+          const currentBs = bsRows.length > 0 ? bsRows[0].stock : 0;
+          if (currentBs < qty) {
+            return sendError(res, `Cannot transfer ${qty} unit(s) of "${product.name}". Branch only has ${currentBs} unit(s) available.`, 400);
+          }
+          await query('UPDATE branch_stocks SET stock = GREATEST(0, stock - ?) WHERE branch_id = ? AND product_id = ?', [qty, fromBranchId, pId]);
+        }
+
+        // Increment Target Branch
+        if (toBranchId === 1) {
+          if (vId) {
+            await query('UPDATE product_variants SET stock_quantity = stock_quantity + ? WHERE id = ?', [qty, vId]);
+            const sumRow = await query('SELECT SUM(stock_quantity) as total FROM product_variants WHERE product_id = ?', [pId]);
+            await query('UPDATE products SET stock = ? WHERE id = ?', [sumRow[0]?.total || 0, pId]);
+          } else {
+            await query('UPDATE products SET stock = stock + ? WHERE id = ?', [qty, pId]);
+          }
+        } else {
+          await query(`
+            INSERT INTO branch_stocks (branch_id, product_id, stock, low_stock_threshold, is_active)
+            VALUES (?, ?, ?, 5, 1)
+            ON DUPLICATE KEY UPDATE stock = stock + VALUES(stock), is_active = 1
+          `, [toBranchId, pId, qty]);
+
+          if (vId) {
+            await query(`
+              INSERT INTO branch_variant_stocks (branch_id, product_id, variant_id, stock)
+              VALUES (?, ?, ?, ?)
+              ON DUPLICATE KEY UPDATE stock = stock + VALUES(stock)
+            `, [toBranchId, pId, vId, qty]);
+          }
+        }
+      }
+
+      // Record transaction
+      try {
+        await query(`
+          INSERT INTO inventory_transactions (
+            product_id, variant_sku, type, change_qty, balance_after, reference, notes, source, user_id
+          )
+          VALUES (?, ?, 'Branch Transfer', ?, 0, ?, ?, 'branch_push', ?)
+        `, [
+          pId,
+          variant?.sku || variant?.model_name || 'DEFAULT',
+          qty,
+          `${fromBranch.name} -> ${toBranch.name}`,
+          `Transferred ${qty} unit(s) of ${product.name}${variant?.model_name ? ` (${variant.model_name})` : ''} from ${fromBranch.name} to ${toBranch.name}`,
+          req.user?.id || null
+        ]);
+      } catch (tErr) {
+        console.warn('Transfer transaction log skipped:', tErr.message);
+      }
+
+      totalTransferred += qty;
+      transferSummary.push({
+        product_id: pId,
+        product_name: product.name,
+        variant_id: vId,
+        model_name: variant?.model_name || null,
+        transferred_qty: qty
+      });
+    }
+
+    return sendSuccess(res, {
+      total_items: transferSummary.length,
+      total_units: totalTransferred,
+      items: transferSummary
+    }, `Successfully transferred ${totalTransferred} unit(s) from ${fromBranch.name} to ${toBranch.name}!`);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getAllBranches,
   getBranchById,
@@ -593,6 +863,8 @@ module.exports = {
   pushProductsToBranch,
   pushCategoryToBranch,
   updateBranchProductStock,
-  pushStockToMainBranch
+  pushStockToMainBranch,
+  getBranchTransferCatalog,
+  transferBranchStock
 };
 

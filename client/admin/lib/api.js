@@ -772,6 +772,23 @@ export async function pushAdminStockToMainBranch(branchId, productId, data) {
   });
 }
 
+export async function getAdminBranchTransferCatalog(params = {}) {
+  const query = new URLSearchParams();
+  if (params.branch_id) query.set('branch_id', params.branch_id);
+  if (params.search) query.set('search', params.search);
+  if (params.category_id && params.category_id !== 'all') query.set('category_id', params.category_id);
+  if (params.stock_filter) query.set('stock_filter', params.stock_filter);
+  const qs = query.toString();
+  return adminFetch(`/admin/branches/transfer-catalog${qs ? `?${qs}` : ''}`);
+}
+
+export async function transferAdminBranchStock(payload) {
+  return adminFetch('/admin/branches/transfer-stock', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
 
 
 

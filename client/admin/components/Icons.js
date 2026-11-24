@@ -235,6 +235,14 @@ export function Icon({ name, className = '', size = 20, strokeWidth = 2.2, fill 
         <rect x="6" y="14" width="12" height="8" />
       </>
     ),
+    transfer: (
+      <>
+        <polyline points="17 1 21 5 17 9" />
+        <path d="M3 5h18" />
+        <polyline points="7 23 3 19 7 15" />
+        <path d="M21 19H3" />
+      </>
+    ),
     refresh: (
       <>
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />

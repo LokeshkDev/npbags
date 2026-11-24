@@ -413,11 +413,33 @@ async function getProductByIdentifier(req, res, next, { includeOffline = false }
 
     // Variants
     const variants = await query(
-      `SELECT id, color_name, color_hex, model_name, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url
+      `SELECT id, color_name, color_hex, model_name, size_name, stock_quantity, purchase_price, price, sale_price, mrp, sku, image_url, purchase_rate_alias
        FROM product_variants
        WHERE product_id = ?`,
       [product.id]
     );
+
+    // Attach allocated branch stocks for each variant
+    try {
+      const bvsRows = await query(
+        `SELECT bvs.variant_id, bvs.branch_id, bvs.stock, b.name AS branch_name, b.code AS branch_code
+         FROM branch_variant_stocks bvs
+         JOIN branches b ON bvs.branch_id = b.id
+         WHERE bvs.product_id = ?`,
+        [product.id]
+      );
+      const bvsMap = new Map();
+      for (const row of bvsRows) {
+        if (!bvsMap.has(row.variant_id)) bvsMap.set(row.variant_id, []);
+        bvsMap.get(row.variant_id).push(row);
+      }
+      variants.forEach(v => {
+        v.branch_stocks = bvsMap.get(v.id) || [];
+      });
+    } catch (_) {
+      variants.forEach(v => { v.branch_stocks = []; });
+    }
+
     product.variants = variants;
 
     // Fallback primary_image from variants if product_images has no rows
@@ -754,6 +776,21 @@ async function createProduct(req, res, next) {
         }
       }
 
+      // Save initial branch stock for this variant if branch_id provided
+      if (req.body.branch_id && v.branch_stock !== undefined && v.branch_stock !== '') {
+        try {
+          const bId = parseInt(req.body.branch_id, 10);
+          const vBStock = parseInt(v.branch_stock, 10) || 0;
+          await query(`
+            INSERT INTO branch_variant_stocks (branch_id, product_id, variant_id, stock)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE stock = VALUES(stock)
+          `, [bId, id, variantResult.insertId, vBStock]);
+        } catch (bvErr) {
+          console.warn('[Product Create] Could not save branch variant stock:', bvErr.message);
+        }
+      }
+
       // If variant has an image_url, ensure it is also linked in product_images with color_name
       if (v.image_url && v.image_url.trim()) {
         const cleanUrl = v.image_url.trim();
@@ -808,9 +845,10 @@ async function createProduct(req, res, next) {
     if (req.body.branch_id) {
       try {
         const bId = parseInt(req.body.branch_id, 10);
-        const bStock = req.body.branch_stock !== undefined && req.body.branch_stock !== ''
-          ? parseInt(req.body.branch_stock, 10)
-          : 0;
+        const sumBvs = await query('SELECT COALESCE(SUM(stock), 0) AS total FROM branch_variant_stocks WHERE branch_id = ? AND product_id = ?', [bId, id]);
+        const bStock = (sumBvs[0]?.total > 0 || (parsedVariants && parsedVariants.length > 0))
+          ? (sumBvs[0]?.total || 0)
+          : (req.body.branch_stock !== undefined && req.body.branch_stock !== '' ? parseInt(req.body.branch_stock, 10) : 0);
         const bActive = req.body.is_branch_active !== undefined
           ? (req.body.is_branch_active === '1' || req.body.is_branch_active === 1 || req.body.is_branch_active === true || req.body.is_branch_active === 'true' ? 1 : 0)
           : 0;
@@ -1100,6 +1138,7 @@ async function updateProduct(req, res, next) {
       }
       if (Array.isArray(parsedVariants)) {
         await query(`DELETE FROM product_variants WHERE product_id = ?`, [id]);
+        await query(`DELETE FROM branch_variant_stocks WHERE product_id = ?`, [id]);
         for (const v of parsedVariants) {
           const normalizedSize = (v.size_name && v.size_name.trim() && v.size_name.trim().toLowerCase() !== 'standard' && v.size_name.trim().toLowerCase() !== 'one size') ? v.size_name.trim() : null;
           const vPrice = v.price !== undefined && v.price !== null && v.price !== '' ? parseFloat(v.price) : (price ? parseFloat(price) : null);
@@ -1141,6 +1180,38 @@ async function updateProduct(req, res, next) {
             }
           }
 
+          // Restore other branch variant stocks if present
+          if (Array.isArray(v.branch_stocks)) {
+            for (const bs of v.branch_stocks) {
+              if (String(bs.branch_id) !== String(req.body.branch_id)) {
+                try {
+                  await query(`
+                    INSERT INTO branch_variant_stocks (branch_id, product_id, variant_id, stock)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE stock = VALUES(stock)
+                  `, [parseInt(bs.branch_id, 10), id, variantResult.insertId, parseInt(bs.stock, 10) || 0]);
+                } catch (bErr) {
+                  // ignore
+                }
+              }
+            }
+          }
+
+          // Save / update branch stock for this variant if branch_id provided
+          if (req.body.branch_id && v.branch_stock !== undefined && v.branch_stock !== '') {
+            try {
+              const bId = parseInt(req.body.branch_id, 10);
+              const vBStock = parseInt(v.branch_stock, 10) || 0;
+              await query(`
+                INSERT INTO branch_variant_stocks (branch_id, product_id, variant_id, stock)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE stock = VALUES(stock)
+              `, [bId, id, variantResult.insertId, vBStock]);
+            } catch (bvErr) {
+              console.warn('[Product Update] Could not save branch variant stock:', bvErr.message);
+            }
+          }
+
           // If variant has an image_url, ensure it is also linked in product_images with color_name
           if (v.image_url && v.image_url.trim()) {
             const cleanUrl = v.image_url.trim();
@@ -1171,9 +1242,10 @@ async function updateProduct(req, res, next) {
     if (req.body.branch_id) {
       try {
         const bId = parseInt(req.body.branch_id, 10);
-        const bStock = req.body.branch_stock !== undefined && req.body.branch_stock !== ''
-          ? parseInt(req.body.branch_stock, 10)
-          : null;
+        const sumBvs = await query('SELECT COALESCE(SUM(stock), 0) AS total FROM branch_variant_stocks WHERE branch_id = ? AND product_id = ?', [bId, id]);
+        const bStock = (sumBvs[0]?.total > 0 || (parsedVariants && parsedVariants.length > 0))
+          ? (sumBvs[0]?.total || 0)
+          : (req.body.branch_stock !== undefined && req.body.branch_stock !== '' ? parseInt(req.body.branch_stock, 10) : null);
         const bActive = req.body.is_branch_active !== undefined
           ? (req.body.is_branch_active === '1' || req.body.is_branch_active === 1 || req.body.is_branch_active === true || req.body.is_branch_active === 'true' ? 1 : 0)
           : null;

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
@@ -427,6 +427,10 @@ export default function AdminProductsPage() {
       .catch(err => console.warn('Failed to load branches:', err));
   }, []);
 
+  const selectedBranchObj = useMemo(() => {
+    return branches.find(b => String(b.id) === String(selectedBranchId)) || { id: 3, name: 'Manali Branch', code: 'MANALI' };
+  }, [branches, selectedBranchId]);
+
   const handleBranchSelectChange = (branchId) => {
     setSelectedBranchId(branchId);
     if (editingProduct) {
@@ -453,6 +457,15 @@ export default function AdminProductsPage() {
             setIsBranchActive(false);
           });
       }
+
+      // Update variant branch stocks for newly selected branch
+      setVariants(prev => prev.map(v => {
+        const bStockObj = Array.isArray(v.branch_stocks) ? v.branch_stocks.find(bs => String(bs.branch_id) === String(branchId)) : null;
+        return {
+          ...v,
+          branch_stock: bStockObj ? bStockObj.stock : 0
+        };
+      }));
     }
   };
 
@@ -462,7 +475,8 @@ export default function AdminProductsPage() {
     try {
       await updateAdminBranchProductStock(selectedBranchId, editingProduct.id, {
         stock: parseInt(branchStockQty, 10) || 0,
-        is_active: isBranchActive ? 1 : 0
+        is_active: isBranchActive ? 1 : 0,
+        variants: variants.map(v => ({ id: v.id, branch_stock: parseInt(v.branch_stock, 10) || 0 }))
       });
       setEditingProduct(prev => {
         if (!prev) return null;
@@ -479,6 +493,12 @@ export default function AdminProductsPage() {
         });
         return { ...prev, branch_stocks: updated };
       });
+      setVariants(prev => prev.map(v => {
+        const existingStocks = Array.isArray(v.branch_stocks) ? v.branch_stocks : [];
+        const filtered = existingStocks.filter(bs => String(bs.branch_id) !== String(selectedBranchId));
+        filtered.push({ branch_id: Number(selectedBranchId), stock: parseInt(v.branch_stock, 10) || 0 });
+        return { ...v, branch_stocks: filtered };
+      }));
       alert(`✅ Branch stock & visibility updated for ${branches.find(b => String(b.id) === String(selectedBranchId))?.name || 'branch'}! (Active in branch: ${isBranchActive ? 'Yes' : 'No'})`);
       loadData();
     } catch (err) {
@@ -549,6 +569,7 @@ export default function AdminProductsPage() {
         model_name: '',
         size_name: '',
         stock_quantity: 0,
+        branch_stock: 0,
         image_url: '',
         sku: '',
         barcode: extraDefaults.barcode || '',
@@ -701,21 +722,26 @@ export default function AdminProductsPage() {
 
     // Populate variants
     if (Array.isArray(p.variants) && p.variants.length > 0) {
-      setVariants(p.variants.map(v => ({
-        id: v.id,
-        color_name: v.color_name || 'Standard',
-        color_hex: v.color_hex || '#111827',
-        model_name: v.model_name || '',
-        size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
-        stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 0,
-        sku: v.sku || '',
-        image_url: v.image_url || '',
-        barcode: v.barcode || '',
-        purchase_price: v.purchase_price !== null && v.purchase_price !== undefined ? String(v.purchase_price) : (p.purchased_rate || p.purchase_price ? String(p.purchased_rate || p.purchase_price) : ''),
-        mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (p.mrp ? String(p.mrp) : ''),
-        price: v.price !== null && v.price !== undefined ? String(v.price) : (p.price ? String(p.price) : ''),
-        sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (p.sale_price ? String(p.sale_price) : '')
-      })));
+      setVariants(p.variants.map(v => {
+        const bStockObj = Array.isArray(v.branch_stocks) ? v.branch_stocks.find(bs => String(bs.branch_id) === String(targetBranchId)) : null;
+        return {
+          id: v.id,
+          color_name: v.color_name || 'Standard',
+          color_hex: v.color_hex || '#111827',
+          model_name: v.model_name || '',
+          size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
+          stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 0,
+          branch_stock: bStockObj ? (bStockObj.stock ?? 0) : (v.branch_stock !== undefined ? v.branch_stock : 0),
+          branch_stocks: v.branch_stocks || [],
+          sku: v.sku || '',
+          image_url: v.image_url || '',
+          barcode: v.barcode || '',
+          purchase_price: v.purchase_price !== null && v.purchase_price !== undefined ? String(v.purchase_price) : (p.purchased_rate || p.purchase_price ? String(p.purchased_rate || p.purchase_price) : ''),
+          mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (p.mrp ? String(p.mrp) : ''),
+          price: v.price !== null && v.price !== undefined ? String(v.price) : (p.price ? String(p.price) : ''),
+          sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (p.sale_price ? String(p.sale_price) : '')
+        };
+      }));
     } else if (Array.isArray(p.colors) && p.colors.length > 0) {
       setVariants(p.colors.map(c => ({
         color_name: c.name || 'Standard',
@@ -723,6 +749,8 @@ export default function AdminProductsPage() {
         model_name: c.model_name || '',
         size_name: '',
         stock_quantity: c.stock_quantity !== undefined ? c.stock_quantity : 0,
+        branch_stock: 0,
+        branch_stocks: [],
         sku: '',
         image_url: c.img || '',
         barcode: '',
@@ -739,6 +767,8 @@ export default function AdminProductsPage() {
           model_name: '',
           size_name: '',
           stock_quantity: 0,
+          branch_stock: 0,
+          branch_stocks: [],
           image_url: '',
           sku: '',
           barcode: '',
@@ -780,21 +810,26 @@ export default function AdminProductsPage() {
           setProductImages(detailed.images_detailed);
         }
         if (Array.isArray(detailed.variants) && detailed.variants.length > 0) {
-          setVariants(detailed.variants.map(v => ({
-            id: v.id,
-            color_name: v.color_name || 'Standard',
-            color_hex: v.color_hex || '#111827',
-            model_name: v.model_name || '',
-            size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
-            stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 0,
-            sku: v.sku || '',
-            image_url: v.image_url || '',
-            barcode: v.barcode || '',
-            purchase_price: v.purchase_price !== null && v.purchase_price !== undefined ? String(v.purchase_price) : (detailed.purchased_rate || detailed.purchase_price ? String(detailed.purchased_rate || detailed.purchase_price) : ''),
-            mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (detailed.mrp ? String(detailed.mrp) : ''),
-            price: v.price !== null && v.price !== undefined ? String(v.price) : (detailed.price ? String(detailed.price) : ''),
-            sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (detailed.sale_price ? String(detailed.sale_price) : '')
-          })));
+          setVariants(detailed.variants.map(v => {
+            const bStockObj = Array.isArray(v.branch_stocks) ? v.branch_stocks.find(bs => String(bs.branch_id) === String(targetBranchId)) : null;
+            return {
+              id: v.id,
+              color_name: v.color_name || 'Standard',
+              color_hex: v.color_hex || '#111827',
+              model_name: v.model_name || '',
+              size_name: (v.size_name && v.size_name.toLowerCase() !== 'standard' && v.size_name.toLowerCase() !== 'one size') ? v.size_name : '',
+              stock_quantity: v.stock_quantity !== undefined ? v.stock_quantity : 0,
+              branch_stock: bStockObj ? (bStockObj.stock ?? 0) : 0,
+              branch_stocks: v.branch_stocks || [],
+              sku: v.sku || '',
+              image_url: v.image_url || '',
+              barcode: v.barcode || '',
+              purchase_price: v.purchase_price !== null && v.purchase_price !== undefined ? String(v.purchase_price) : (detailed.purchased_rate || detailed.purchase_price ? String(detailed.purchased_rate || detailed.purchase_price) : ''),
+              mrp: v.mrp !== null && v.mrp !== undefined ? String(v.mrp) : (detailed.mrp ? String(detailed.mrp) : ''),
+              price: v.price !== null && v.price !== undefined ? String(v.price) : (detailed.price ? String(detailed.price) : ''),
+              sale_price: v.sale_price !== null && v.sale_price !== undefined ? String(v.sale_price) : (detailed.sale_price ? String(detailed.sale_price) : '')
+            };
+          }));
         }
         if (Array.isArray(detailed.branch_stocks)) {
           const bStock = detailed.branch_stocks.find(bs => String(bs.branch_id) === String(targetBranchId));
@@ -802,8 +837,12 @@ export default function AdminProductsPage() {
             setBranchStockQty(String(bStock.stock ?? 0));
             setIsBranchActive(Number(bStock.is_active) === 1);
           } else {
-            setBranchStockQty('0');
-            setIsBranchActive(false);
+            const vSum = Array.isArray(detailed.variants) ? detailed.variants.reduce((acc, cur) => {
+              const bs = Array.isArray(cur.branch_stocks) ? cur.branch_stocks.find(b => String(b.branch_id) === String(targetBranchId)) : null;
+              return acc + (bs ? (bs.stock || 0) : 0);
+            }, 0) : 0;
+            setBranchStockQty(String(vSum));
+            setIsBranchActive(vSum > 0);
           }
         }
         setFormData(prev => {
@@ -950,6 +989,8 @@ export default function AdminProductsPage() {
         model_name: '',
         size_name: '',
         stock_quantity: 0,
+        branch_stock: 0,
+        branch_stocks: [],
         image_url: '',
         sku: '',
         barcode: '',
@@ -966,13 +1007,20 @@ export default function AdminProductsPage() {
       alert('A product must have at least one color/stock variant.');
       return;
     }
-    setVariants(variants.filter((_, i) => i !== index));
+    const updated = variants.filter((_, i) => i !== index);
+    setVariants(updated);
+    const totalBranch = updated.reduce((sum, v) => sum + (parseInt(v.branch_stock, 10) || 0), 0);
+    setBranchStockQty(String(totalBranch));
   };
 
   const handleVariantChange = (index, field, value) => {
     const updated = [...variants];
     updated[index][field] = value;
     setVariants(updated);
+    if (field === 'branch_stock') {
+      const totalBranch = updated.reduce((sum, v) => sum + (parseInt(v.branch_stock, 10) || 0), 0);
+      setBranchStockQty(String(totalBranch));
+    }
   };
 
   const handleDetectVariantBarcode = async (index, codeToDetect) => {
@@ -2668,7 +2716,13 @@ export default function AdminProductsPage() {
                         type="number"
                         min="0"
                         value={branchStockQty}
-                        onChange={(e) => setBranchStockQty(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setBranchStockQty(val);
+                          if (variants.length === 1) {
+                            setVariants(prev => prev.map((v, i) => i === 0 ? { ...v, branch_stock: parseInt(val, 10) || 0 } : v));
+                          }
+                        }}
                         placeholder="0"
                         style={{
                           width: '110px',
@@ -3063,7 +3117,7 @@ export default function AdminProductsPage() {
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '1.1fr 1fr 85px 0.9fr 85px 1.5fr auto',
+                      gridTemplateColumns: isSuperAdmin ? '1.1fr 1fr 75px 0.85fr 75px 85px 1.4fr auto' : '1.1fr 1fr 85px 0.9fr 85px 1.5fr auto',
                       gap: '10px',
                       alignItems: 'center'
                     }}
@@ -3126,7 +3180,7 @@ export default function AdminProductsPage() {
 
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
-                        Stock (Qty)
+                        Main Stock
                       </label>
                       <input
                         type="number"
@@ -3136,8 +3190,34 @@ export default function AdminProductsPage() {
                         style={{ height: '36px', fontSize: '13px', fontWeight: 700 }}
                         value={v.stock_quantity}
                         onChange={(e) => handleVariantChange(idx, 'stock_quantity', parseInt(e.target.value, 10) || 0)}
+                        title="Main Store stock on hand"
                       />
                     </div>
+
+                    {isSuperAdmin && (
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: 700, color: '#7c3aed', display: 'block', marginBottom: '3px' }}>
+                          {selectedBranchObj?.name ? `${selectedBranchObj.name.split(' ')[0]} Qty` : 'Branch Qty'}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          className="form-control"
+                          placeholder="0"
+                          style={{
+                            height: '36px',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            borderColor: '#8b5cf6',
+                            background: '#f5f3ff',
+                            color: '#5b21b6'
+                          }}
+                          value={v.branch_stock !== undefined ? v.branch_stock : 0}
+                          onChange={(e) => handleVariantChange(idx, 'branch_stock', parseInt(e.target.value, 10) || 0)}
+                          title={`Stock in ${selectedBranchObj?.name || 'Selected Branch'}`}
+                        />
+                      </div>
+                    )}
 
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
