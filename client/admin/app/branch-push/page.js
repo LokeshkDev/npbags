@@ -719,16 +719,51 @@ export default function BranchPushPage() {
                               return (
                                 <tr key={v.id} style={{ borderTop: vIdx > 0 ? '1px solid #f8fafc' : 'none', background: vIdx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
                                   <td style={{ padding: '12px 18px', fontWeight: 800, color: '#0f172a' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      {v.color_hex && (
-                                        <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: v.color_hex, border: '1px solid #cbd5e1', display: 'inline-block' }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      {(v.effective_image || v.image_url || product.image) ? (
+                                        <img
+                                          src={v.effective_image || v.image_url || product.image}
+                                          alt={v.model_name || v.color_name || 'Variant'}
+                                          style={{
+                                            width: '32px',
+                                            height: '32px',
+                                            borderRadius: '6px',
+                                            objectFit: 'cover',
+                                            border: '1px solid #e2e8f0',
+                                            flexShrink: 0
+                                          }}
+                                        />
+                                      ) : (
+                                        <div style={{
+                                          width: '32px',
+                                          height: '32px',
+                                          borderRadius: '6px',
+                                          background: '#f1f5f9',
+                                          border: '1px solid #e2e8f0',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: '11px',
+                                          fontWeight: 800,
+                                          color: '#64748b',
+                                          flexShrink: 0
+                                        }}>
+                                          {(v.model_name || v.color_name || 'V')[0]?.toUpperCase()}
+                                        </div>
                                       )}
-                                      <span>{v.model_name || v.color_name || `Model #${vIdx + 1}`}</span>
-                                      {v.size_name && !/standard|one size/i.test(v.size_name) && (
-                                        <span style={{ background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '3px', fontSize: '10.5px' }}>
-                                          SZ: {v.size_name}
-                                        </span>
-                                      )}
+                                      <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          {v.color_hex && (
+                                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: v.color_hex, border: '1px solid #cbd5e1', display: 'inline-block' }} />
+                                          )}
+                                          <span>{v.model_name || v.color_name || `Model #${vIdx + 1}`}</span>
+                                        </div>
+                                        {v.size_name && !/standard|one size/i.test(v.size_name) && (
+                                          <span style={{ background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '3px', fontSize: '10.5px', marginTop: '2px', display: 'inline-block' }}>
+                                            SZ: {v.size_name}
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </td>
                                   <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#065935' }}>
@@ -855,7 +890,40 @@ export default function BranchPushPage() {
                               return (
                                 <tr>
                                   <td style={{ padding: '12px 18px', fontWeight: 800, color: '#0f172a' }}>
-                                    Standard / Single Product
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      {product.image ? (
+                                        <img
+                                          src={product.image}
+                                          alt={product.name}
+                                          style={{
+                                            width: '32px',
+                                            height: '32px',
+                                            borderRadius: '6px',
+                                            objectFit: 'cover',
+                                            border: '1px solid #e2e8f0',
+                                            flexShrink: 0
+                                          }}
+                                        />
+                                      ) : (
+                                        <div style={{
+                                          width: '32px',
+                                          height: '32px',
+                                          borderRadius: '6px',
+                                          background: '#f1f5f9',
+                                          border: '1px solid #e2e8f0',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: '11px',
+                                          fontWeight: 800,
+                                          color: '#64748b',
+                                          flexShrink: 0
+                                        }}>
+                                          🛍️
+                                        </div>
+                                      )}
+                                      <span>Standard / Single Product</span>
+                                    </div>
                                   </td>
                                   <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#065935' }}>
                                     {product.barcode || '—'}

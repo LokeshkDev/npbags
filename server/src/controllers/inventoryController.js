@@ -60,9 +60,19 @@ async function getVariantStockSummary(req, res, next) {
 
     let sql = `
       SELECT pv.*, p.name AS product_name, p.slug AS product_slug, p.price, p.sale_price, p.category_id,
+             p.brand, p.badge, p.is_active, p.is_online, p.is_featured, p.is_new_arrival, p.is_best_selling,
+             p.created_at AS product_created_at,
              COALESCE(p.stock, 0) AS main_product_stock,
              c.name AS category_name,
              COALESCE(p.low_stock_threshold, 5) AS threshold,
+             COALESCE(
+               NULLIF(pv.image_url, ''),
+               (SELECT pi.image_url FROM product_images pi 
+                WHERE pi.product_id = p.id AND pi.image_url IS NOT NULL AND pi.image_url != ''
+                  AND (pi.color_name = pv.model_name OR pi.color_name = pv.color_name)
+                LIMIT 1)
+             ) AS effective_variant_image,
+             (SELECT image_url FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, id ASC LIMIT 1) AS product_image,
              (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
       FROM product_variants pv
       JOIN products p ON pv.product_id = p.id

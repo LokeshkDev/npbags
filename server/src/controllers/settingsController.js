@@ -177,6 +177,10 @@ async function getDashboardAnalytics(req, res, next) {
 
     if (period === 'today') {
       dateCondition = `o.created_at >= CURDATE() AND o.created_at < CURDATE() + INTERVAL 1 DAY`;
+    } else if (period === 'yesterday') {
+      dateCondition = `o.created_at >= CURDATE() - INTERVAL 1 DAY AND o.created_at < CURDATE()`;
+    } else if (period === 'day_before' || period === 'daybefore') {
+      dateCondition = `o.created_at >= CURDATE() - INTERVAL 2 DAY AND o.created_at < CURDATE() - INTERVAL 1 DAY`;
     } else if (period === 'daily') {
       dateCondition = `o.created_at >= CURDATE() - INTERVAL 1 DAY`;
     } else if (period === 'weekly') {
@@ -239,7 +243,7 @@ async function getDashboardAnalytics(req, res, next) {
 
     // 4. Time Series Chart Data (Dynamic grouping based on period)
     let seriesSql = '';
-    if (period === 'today' || period === 'daily') {
+    if (period === 'today' || period === 'daily' || period === 'yesterday' || period === 'day_before' || period === 'daybefore') {
       seriesSql = `
         SELECT
           DATE_FORMAT(o.created_at, '%h %p') AS label,
@@ -363,7 +367,69 @@ async function getDashboardAnalytics(req, res, next) {
       if (bRows.length > 0) activeBranchInfo = bRows[0];
     }
 
-    // 9. Products Moved / Allocated to Branch with Sold & Remaining Quantities
+    // 9. Products Sold in Selected Timeframe (Aggregated sales, revenue & quantities)
+    let timeframeSoldProducts = [];
+    try {
+      const timeframeSoldSql = `
+        SELECT
+          oi.product_id,
+          oi.product_name,
+          oi.variant_info,
+          COALESCE(
+            (SELECT pv.image_url FROM product_variants pv 
+             WHERE pv.product_id = oi.product_id 
+               AND pv.image_url IS NOT NULL AND pv.image_url != ''
+               AND (
+                 pv.model_name = oi.variant_info 
+                 OR pv.color_name = oi.variant_info 
+                 OR oi.variant_info LIKE CONCAT('%', pv.model_name, '%')
+                 OR oi.variant_info LIKE CONCAT('%', pv.color_name, '%')
+               )
+             LIMIT 1),
+            (SELECT pi.image_url FROM product_images pi 
+             WHERE pi.product_id = oi.product_id 
+               AND pi.image_url IS NOT NULL AND pi.image_url != ''
+               AND (
+                 pi.color_name = oi.variant_info 
+                 OR oi.variant_info LIKE CONCAT('%', pi.color_name, '%')
+               )
+             LIMIT 1),
+            CASE 
+              WHEN MAX(oi.image_url) IS NOT NULL AND MAX(oi.image_url) != '' AND MAX(oi.image_url) NOT LIKE '%brand-logo%' THEN MAX(oi.image_url)
+              ELSE NULL
+            END,
+            (SELECT image_url FROM product_images WHERE product_id = oi.product_id ORDER BY is_primary DESC, id ASC LIMIT 1),
+            MAX(oi.image_url)
+          ) AS image,
+          p.brand,
+          c.name AS category_name,
+          oi.price AS unit_price,
+          SUM(oi.quantity) AS sold_qty,
+          SUM(oi.total) AS total_revenue,
+          COUNT(DISTINCT o.id) AS order_count,
+          MAX(o.created_at) AS last_sold_at,
+          COALESCE(b.name, 'Main Branch') AS branch_name,
+          b.code AS branch_code,
+          COALESCE(
+            (SELECT stock FROM branch_stocks WHERE branch_id = o.branch_id AND product_id = oi.product_id LIMIT 1),
+            (SELECT stock FROM products WHERE id = oi.product_id LIMIT 1),
+            0
+          ) AS remaining_stock
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        LEFT JOIN products p ON oi.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN branches b ON o.branch_id = b.id
+        ${whereClause}
+        GROUP BY oi.product_id, oi.product_name, oi.variant_info, oi.price, p.brand, c.name, b.name, b.code, o.branch_id
+        ORDER BY sold_qty DESC, total_revenue DESC
+      `;
+      timeframeSoldProducts = await query(timeframeSoldSql, dateParams);
+    } catch (e) {
+      console.warn('Could not fetch timeframe sold products:', e.message);
+    }
+
+    // 10. Products Moved / Allocated to Branch with Sold & Remaining Quantities
     let movedProducts = [];
     let todayMovedProducts = [];
     let branchSoldItems = [];
@@ -497,6 +563,7 @@ async function getDashboardAnalytics(req, res, next) {
       period,
       branch_id: effectiveBranchId,
       active_branch: activeBranchInfo,
+      timeframe_sold_products: timeframeSoldProducts,
       moved_products: movedProducts,
       today_moved_products: todayMovedProducts,
       branch_sold_items: branchSoldItems,

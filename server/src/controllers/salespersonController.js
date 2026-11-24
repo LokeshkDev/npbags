@@ -8,6 +8,10 @@ function buildDateCondition(period, startDate, endDate) {
 
   if (period === 'daily' || period === 'today') {
     condition = 'AND DATE(o.created_at) = CURDATE()';
+  } else if (period === 'yesterday') {
+    condition = 'AND DATE(o.created_at) = CURDATE() - INTERVAL 1 DAY';
+  } else if (period === 'day_before' || period === 'daybefore') {
+    condition = 'AND DATE(o.created_at) = CURDATE() - INTERVAL 2 DAY';
   } else if (period === 'weekly') {
     condition = 'AND o.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
   } else if (period === 'yearly') {

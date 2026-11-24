@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from '../../components/Sidebar';
 import { Topbar } from '../../components/Topbar';
+import { Icon } from '../../components/Icons';
 import { useAdminAuth } from '../../lib/auth';
 import {
   getAdminVariantStock,
@@ -13,6 +14,7 @@ import {
   updateAdminBranchProductStock,
   pushAdminStockToMainBranch,
   getAdminCategories,
+  getAdminBrands,
   lookupBarcode
 } from '../../lib/api';
 
@@ -34,8 +36,55 @@ export default function AdminInventoryPage() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Group variants by main product for accordion display
-  const groupedProducts = useMemo(() => {
+  // Filter States matching Products page
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [brandFilter, setBrandFilter] = useState('all');
+  const [stockFilter, setStockFilter] = useState('all');
+  const [badgeFilter, setBadgeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
+  const [categories, setCategories] = useState([]);
+  const [brandsList, setBrandsList] = useState([]);
+
+  // Category hierarchy options
+  const categoryOptions = useMemo(() => {
+    const options = [];
+    const visited = new Set();
+    const walk = (parentId, depth) => {
+      categories
+        .filter(c => (parentId === null ? !c.parent_id : String(c.parent_id) === String(parentId)))
+        .forEach(cat => {
+          if (visited.has(String(cat.id))) return;
+          visited.add(String(cat.id));
+          options.push({ cat, depth });
+          walk(cat.id, depth + 1);
+        });
+    };
+    walk(null, 0);
+    categories.forEach(cat => {
+      if (!visited.has(String(cat.id))) options.push({ cat, depth: 0 });
+    });
+    return options;
+  }, [categories]);
+
+  const getDescendantIds = (parentId) => {
+    const ids = [];
+    const walk = (pId) => {
+      categories
+        .filter(c => String(c.parent_id) === String(pId))
+        .forEach(child => {
+          ids.push(String(child.id));
+          walk(child.id);
+        });
+    };
+    walk(parentId);
+    return ids;
+  };
+
+  // Group all variants by main product for accordion display
+  const allGroupedProducts = useMemo(() => {
     const map = new Map();
     for (const v of variants) {
       const pId = v.product_id || `prod_${v.product_name}`;
@@ -43,8 +92,21 @@ export default function AdminInventoryPage() {
         map.set(pId, {
           id: pId,
           name: v.product_name || 'Unnamed Product',
+          slug: v.product_slug || '',
+          category_id: v.category_id,
           category_name: v.category_name || '',
+          brand: v.brand || '',
+          badge: v.badge || '',
+          is_active: v.is_active !== undefined ? v.is_active : 1,
+          is_online: v.is_online !== undefined ? v.is_online : 1,
+          is_featured: Boolean(v.is_featured),
+          is_new_arrival: Boolean(v.is_new_arrival),
+          is_best_selling: Boolean(v.is_best_selling),
+          price: v.price || 0,
+          sale_price: v.sale_price || null,
           barcode: v.barcode || '',
+          image: v.product_image || '',
+          created_at: v.product_created_at || v.created_at || '',
           variants: [],
           total_stock: 0,
           low_stock_count: 0
@@ -60,6 +122,126 @@ export default function AdminInventoryPage() {
     }
     return Array.from(map.values());
   }, [variants]);
+
+  // Brand dropdown options
+  const brandOptions = useMemo(() => {
+    const set = new Set();
+    brandsList.forEach(b => {
+      const name = String(b.name || '').trim();
+      if (name) set.add(name);
+    });
+    allGroupedProducts.forEach(p => {
+      const b = String(p.brand || '').trim();
+      if (b) set.add(b);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [brandsList, allGroupedProducts]);
+
+  const getCategoryProductCount = (catId) => {
+    const cidStr = String(catId);
+    const allIds = [cidStr, ...getDescendantIds(catId)];
+    return allGroupedProducts.filter(p => allIds.includes(String(p.category_id || ''))).length;
+  };
+
+  const countInStock = useMemo(() => allGroupedProducts.filter(p => p.total_stock > 10).length, [allGroupedProducts]);
+  const countLowStock = useMemo(() => allGroupedProducts.filter(p => p.total_stock > 0 && p.total_stock <= 10).length, [allGroupedProducts]);
+  const countOutOfStock = useMemo(() => allGroupedProducts.filter(p => p.total_stock === 0).length, [allGroupedProducts]);
+  const countActive = useMemo(() => allGroupedProducts.filter(p => Number(p.is_active) === 1 || p.is_active === true).length, [allGroupedProducts]);
+  const countInactive = useMemo(() => allGroupedProducts.filter(p => Number(p.is_active) === 0 || p.is_active === false).length, [allGroupedProducts]);
+  const countOnline = useMemo(() => allGroupedProducts.filter(p => Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined).length, [allGroupedProducts]);
+  const countInStoreOnly = useMemo(() => allGroupedProducts.filter(p => Number(p.is_online) === 0 || p.is_online === false).length, [allGroupedProducts]);
+
+  const hasActiveFilters = Boolean(
+    search.trim() ||
+    categoryFilter !== 'all' ||
+    brandFilter !== 'all' ||
+    stockFilter !== 'all' ||
+    badgeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    channelFilter !== 'all' ||
+    sortBy !== 'newest'
+  );
+
+  const handleClearAllFilters = () => {
+    setSearch('');
+    setCategoryFilter('all');
+    setBrandFilter('all');
+    setStockFilter('all');
+    setBadgeFilter('all');
+    setStatusFilter('all');
+    setChannelFilter('all');
+    setSortBy('newest');
+  };
+
+  // Filtered and Sorted grouped products
+  const groupedProducts = useMemo(() => {
+    return allGroupedProducts.filter(p => {
+      // 1. Search text (matches product title, slug, barcode, brand, category, or child variants)
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const matchesName = p.name && p.name.toLowerCase().includes(q);
+        const matchesSlug = p.slug && p.slug.toLowerCase().includes(q);
+        const matchesCat = p.category_name && p.category_name.toLowerCase().includes(q);
+        const matchesBrand = p.brand && String(p.brand).toLowerCase().includes(q);
+        const matchesBarcode = p.barcode && p.barcode.toLowerCase().includes(q);
+        const matchesAnyVariant = p.variants.some(v =>
+          (v.model_name && v.model_name.toLowerCase().includes(q)) ||
+          (v.color_name && v.color_name.toLowerCase().includes(q)) ||
+          (v.size_name && v.size_name.toLowerCase().includes(q)) ||
+          (v.sku && v.sku.toLowerCase().includes(q)) ||
+          (v.barcode && v.barcode.toLowerCase().includes(q))
+        );
+        if (!matchesName && !matchesSlug && !matchesCat && !matchesBrand && !matchesBarcode && !matchesAnyVariant) return false;
+      }
+
+      // 2. Category Filter (includes descendants)
+      if (categoryFilter !== 'all') {
+        const catIdStr = String(categoryFilter);
+        const allowedCatIds = [catIdStr, ...getDescendantIds(categoryFilter)];
+        if (!allowedCatIds.includes(String(p.category_id || ''))) return false;
+      }
+
+      // 3. Brand Filter
+      if (brandFilter !== 'all') {
+        const brandVal = String(p.brand || '').trim();
+        if (brandFilter === '__none__') {
+          if (brandVal) return false;
+        } else if (brandVal.toLowerCase() !== brandFilter.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 4. Stock Level Filter
+      if (stockFilter === 'in_stock' && p.total_stock <= 10) return false;
+      if (stockFilter === 'low_stock' && (p.total_stock <= 0 || p.total_stock > 10)) return false;
+      if (stockFilter === 'out_of_stock' && p.total_stock > 0) return false;
+
+      // 5. Badge Filter
+      if (badgeFilter === 'featured' && !p.is_featured) return false;
+      if (badgeFilter === 'new_arrival' && !p.is_new_arrival) return false;
+      if (badgeFilter === 'best_selling' && !p.is_best_selling) return false;
+      if (badgeFilter === 'sale' && !(p.sale_price && Number(p.sale_price) < Number(p.price))) return false;
+
+      // 6. Status Filter
+      if (statusFilter === 'active' && !(Number(p.is_active) === 1 || p.is_active === true)) return false;
+      if (statusFilter === 'inactive' && !(Number(p.is_active) === 0 || p.is_active === false)) return false;
+
+      // 7. Channel Filter
+      if (channelFilter === 'online' && (Number(p.is_online) === 0 || p.is_online === false)) return false;
+      if (channelFilter === 'offline' && (Number(p.is_online) === 1 || p.is_online === true || p.is_online === null || p.is_online === undefined)) return false;
+
+      return true;
+    }).sort((a, b) => {
+      if (sortBy === 'price_asc') return (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0);
+      if (sortBy === 'price_desc') return (parseFloat(b.price) || 0) - (parseFloat(a.price) || 0);
+      if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+      if (sortBy === 'stock_asc') return a.total_stock - b.total_stock;
+      if (sortBy === 'stock_desc') return b.total_stock - a.total_stock;
+      // 'newest' default
+      if (a.created_at && b.created_at) return new Date(b.created_at) - new Date(a.created_at);
+      return String(b.id).localeCompare(String(a.id));
+    });
+  }, [allGroupedProducts, search, categoryFilter, brandFilter, stockFilter, badgeFilter, statusFilter, channelFilter, sortBy, categories]);
 
   // Accordion toggle helpers
   const toggleProductAccordion = (productId) => {
@@ -82,12 +264,6 @@ export default function AdminInventoryPage() {
     setExpandedProductIds(new Set());
   };
 
-  // Filters
-  const [search, setSearch] = useState('');
-  const [lowStockOnly, setLowStockOnly] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('all');
-
   // Stock Adjust Modal
   const [adjustModalItem, setAdjustModalItem] = useState(null);
   const [newStockVal, setNewStockVal] = useState('');
@@ -103,12 +279,7 @@ export default function AdminInventoryPage() {
 
   // Load variant stock
   const loadStock = (overrides = {}) => {
-    const params = {
-      search: overrides.search !== undefined ? overrides.search : search,
-      low_stock_only: lowStockOnly
-    };
-    const cat = overrides.category_id !== undefined ? overrides.category_id : selectedCategory;
-    if (cat && cat !== 'all') params.category_id = cat;
+    const params = {};
     if (overrides.barcode) params.barcode = overrides.barcode;
     setLoading(true);
     getAdminVariantStock(params)
@@ -134,7 +305,7 @@ export default function AdminInventoryPage() {
       .finally(() => setLoading(false));
   };
 
-  // Load categories
+  // Load categories & brands
   useEffect(() => {
     getAdminCategories()
       .then(res => {
@@ -142,6 +313,13 @@ export default function AdminInventoryPage() {
         setCategories(list);
       })
       .catch(err => console.warn('Failed to load categories:', err));
+
+    getAdminBrands()
+      .then(res => {
+        const list = Array.isArray(res) ? res : (res?.brands || []);
+        setBrandsList(list);
+      })
+      .catch(err => console.warn('Failed to load brands:', err));
   }, []);
 
   // Load available branches
@@ -185,7 +363,7 @@ export default function AdminInventoryPage() {
     } else if (activeTab === 'branch_stock') {
       loadBranchStocksData(selectedBranchId);
     }
-  }, [activeTab, lowStockOnly, selectedBranchId]);
+  }, [activeTab, selectedBranchId]);
 
   const handleSaveBranchStock = async (productId) => {
     const newStock = parseInt(editingBranchStockVal, 10);
@@ -339,66 +517,214 @@ export default function AdminInventoryPage() {
       {/* TAB 1: Live Variant Stock */}
       {activeTab === 'stock' && (
         <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-          {/* Filter Bar */}
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px' }}>
+          {/* Filter Bar Matching Products Page */}
+          <div
+            style={{
+              padding: '14px 20px',
+              borderBottom: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '10px',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', flex: '1 1 auto' }}>
+              {/* Search title, slug, SKU, category, barcode... */}
+              <div style={{ position: 'relative', minWidth: '220px', flex: '1 1 200px' }}>
                 <input
                   type="text"
-                  placeholder="Filter by product, model name, barcode, SKU..."
+                  placeholder="Search title, slug, SKU, category..."
+                  className="form-control"
+                  style={{
+                    paddingLeft: '34px',
+                    fontSize: '13px',
+                    height: '38px',
+                    background: '#ffffff',
+                    width: '100%',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1'
+                  }}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={{ width: '280px', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
                 />
-                <button
-                  type="submit"
-                  style={{ background: '#065935', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  Search
-                </button>
-              </form>
+                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>
+                  <Icon name="search" size={15} />
+                </span>
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '13px' }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>Category:</span>
+              {/* 📁 Filter by Category: All */}
+              <div>
                 <select
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    const cat = e.target.value;
-                    setSelectedCategory(cat);
-                    loadStock({ category_id: cat });
-                  }}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '12.5px',
-                    background: '#fff',
-                    fontWeight: 600,
-                    color: '#1e293b'
-                  }}
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
                 >
-                  <option value="all">All Categories</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                  <option value="all">📁 Filter by Category: All ({allGroupedProducts.length})</option>
+                  {categoryOptions.map(({ cat, depth }) => (
+                    <option
+                      key={cat.id}
+                      value={cat.id}
+                      style={
+                        depth === 0
+                          ? { fontWeight: 700, background: '#f1f5f9' }
+                          : depth === 1
+                          ? { fontWeight: 400, background: '#e0f2fe' }
+                          : { fontWeight: 400, fontStyle: 'italic', background: '#f3e8ff' }
+                      }
+                    >
+                      {depth === 0 ? '📂 ' : `${'\u00A0\u00A0'.repeat(depth)}↳ `}{cat.name} ({getCategoryProductCount(cat.id)})
+                    </option>
                   ))}
                 </select>
               </div>
+
+              {/* 🏷️ Filter by Brand: All */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={brandFilter}
+                  onChange={(e) => setBrandFilter(e.target.value)}
+                >
+                  <option value="all">🏷️ Filter by Brand: All ({brandOptions.length})</option>
+                  <option value="__none__">No Brand</option>
+                  {brandOptions.map(b => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 📦 Stock: All Statuses */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={stockFilter}
+                  onChange={(e) => setStockFilter(e.target.value)}
+                >
+                  <option value="all">📦 Stock: All Statuses</option>
+                  <option value="in_stock">✅ In Stock &gt; 10 ({countInStock})</option>
+                  <option value="low_stock">⚠️ Low Stock 1-10 ({countLowStock})</option>
+                  <option value="out_of_stock">❌ Out of Stock ({countOutOfStock})</option>
+                </select>
+              </div>
+
+              {/* 🏷️ Badge: All Items */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={badgeFilter}
+                  onChange={(e) => setBadgeFilter(e.target.value)}
+                >
+                  <option value="all">🏷️ Badge: All Items</option>
+                  <option value="featured">🌟 Featured Only</option>
+                  <option value="new_arrival">✨ New Arrivals</option>
+                  <option value="best_selling">🔥 Best Sellers</option>
+                  <option value="sale">🏷️ On Sale (Discounted)</option>
+                </select>
+              </div>
+
+              {/* Status: All */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="all">Status: All ({allGroupedProducts.length})</option>
+                  <option value="active">● Active ({countActive})</option>
+                  <option value="inactive">○ Inactive ({countInactive})</option>
+                </select>
+              </div>
+
+              {/* Channel: All Channels */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={channelFilter}
+                  onChange={(e) => setChannelFilter(e.target.value)}
+                >
+                  <option value="all">Channel: All Channels</option>
+                  <option value="online">🌐 Online Store ({countOnline})</option>
+                  <option value="offline">🔒 In-Store Only ({countInStoreOnly})</option>
+                </select>
+              </div>
+
+              {/* ↕️ Sort: Newest Added */}
+              <div>
+                <select
+                  className="form-control"
+                  style={{ fontSize: '13px', height: '38px', background: '#ffffff', cursor: 'pointer', padding: '0 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                >
+                  <option value="newest">↕️ Sort: Newest Added</option>
+                  <option value="price_asc">Price: Low → High</option>
+                  <option value="price_desc">Price: High → Low</option>
+                  <option value="name_asc">Product Name: A → Z</option>
+                  <option value="stock_asc">Stock: Low → High</option>
+                  <option value="stock_desc">Stock: High → Low</option>
+                </select>
+              </div>
+
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  style={{
+                    height: '38px',
+                    padding: '0 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #ef4444',
+                    background: '#fef2f2',
+                    color: '#dc2626',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  ✕ Clear Filters
+                </button>
+              )}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Accordion Controls (Expand All / Collapse All) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={expandAllProducts}
                 title="Expand all product variant accordions"
                 style={{
-                  padding: '7px 11px',
+                  height: '38px',
+                  padding: '0 12px',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
                   background: '#ffffff',
                   color: '#334155',
                   fontSize: '12px',
                   fontWeight: 700,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}
               >
                 ▾ Expand All
@@ -408,36 +734,65 @@ export default function AdminInventoryPage() {
                 onClick={collapseAllProducts}
                 title="Collapse all product variant accordions"
                 style={{
-                  padding: '7px 11px',
+                  height: '38px',
+                  padding: '0 12px',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
                   background: '#ffffff',
                   color: '#334155',
                   fontSize: '12px',
                   fontWeight: 700,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}
               >
                 ▸ Collapse All
               </button>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', fontWeight: 600, cursor: 'pointer', marginLeft: '6px' }}>
-                <input
-                  type="checkbox"
-                  checked={lowStockOnly}
-                  onChange={(e) => setLowStockOnly(e.target.checked)}
-                />
-                <span>⚠️ Show Low Stock Only (≤ Threshold)</span>
-              </label>
             </div>
           </div>
 
           {loading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#64748b' }}>Loading variant stock levels...</div>
           ) : groupedProducts.length === 0 ? (
-            <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>No product variants found.</div>
+            <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>🔍</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>No products match your current filters.</div>
+              <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>Try selecting different filter options or clearing all filters.</div>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  style={{
+                    background: '#065935',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 18px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear All Filters
+                </button>
+              )}
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: '#f8fafc' }}>
+              {hasActiveFilters && (
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '8px', padding: '0 4px' }}>
+                  <span>Showing {groupedProducts.length} of {allGroupedProducts.length} products</span>
+                  <button
+                    type="button"
+                    onClick={handleClearAllFilters}
+                    style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline', padding: 0 }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              )}
               {groupedProducts.map((product) => {
                 const isExpanded = expandedProductIds.has(product.id);
                 const hasLowStock = product.low_stock_count > 0;
@@ -493,9 +848,17 @@ export default function AdminInventoryPage() {
                           {isExpanded ? '▼' : '▶'}
                         </div>
 
-                        <div style={{ width: '38px', height: '38px', borderRadius: '7px', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
-                          🛍️
-                        </div>
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.name}
+                            style={{ width: '40px', height: '40px', borderRadius: '7px', objectFit: 'cover', border: '1px solid #cbd5e1', flexShrink: 0 }}
+                          />
+                        ) : (
+                          <div style={{ width: '40px', height: '40px', borderRadius: '7px', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>
+                            🛍️
+                          </div>
+                        )}
 
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -560,16 +923,51 @@ export default function AdminInventoryPage() {
                               return (
                                 <tr key={v.id} style={{ borderTop: vIdx > 0 ? '1px solid #f8fafc' : 'none', background: vIdx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
                                   <td style={{ padding: '12px 18px', fontWeight: 800, color: '#0f172a' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      {v.color_hex && (
-                                        <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: v.color_hex, border: '1px solid #cbd5e1' }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      {(v.effective_variant_image || v.image_url || product.image) ? (
+                                        <img
+                                          src={v.effective_variant_image || v.image_url || product.image}
+                                          alt={v.model_name || v.color_name || 'Variant'}
+                                          style={{
+                                            width: '32px',
+                                            height: '32px',
+                                            borderRadius: '6px',
+                                            objectFit: 'cover',
+                                            border: '1px solid #e2e8f0',
+                                            flexShrink: 0
+                                          }}
+                                        />
+                                      ) : (
+                                        <div style={{
+                                          width: '32px',
+                                          height: '32px',
+                                          borderRadius: '6px',
+                                          background: '#f1f5f9',
+                                          border: '1px solid #e2e8f0',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: '11px',
+                                          fontWeight: 800,
+                                          color: '#64748b',
+                                          flexShrink: 0
+                                        }}>
+                                          {(v.model_name || v.color_name || 'V')[0]?.toUpperCase()}
+                                        </div>
                                       )}
-                                      <span>{v.model_name || v.color_name || `Model #${vIdx + 1}`}</span>
-                                      {((v.model_name && v.color_name && v.color_name !== v.model_name) || (v.size_name && !/standard|one size/i.test(v.size_name))) && (
-                                        <span style={{ background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '3px', fontSize: '10.5px' }}>
-                                          {[v.model_name && v.color_name !== v.model_name ? v.color_name : null, v.size_name && !/standard|one size/i.test(v.size_name) ? `SZ: ${v.size_name}` : null].filter(Boolean).join(' · ')}
-                                        </span>
-                                      )}
+                                      <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          {v.color_hex && (
+                                            <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: v.color_hex, border: '1px solid #cbd5e1' }} />
+                                          )}
+                                          <span>{v.model_name || v.color_name || `Model #${vIdx + 1}`}</span>
+                                        </div>
+                                        {((v.model_name && v.color_name && v.color_name !== v.model_name) || (v.size_name && !/standard|one size/i.test(v.size_name))) && (
+                                          <span style={{ background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '3px', fontSize: '10.5px', marginTop: '2px', display: 'inline-block' }}>
+                                            {[v.model_name && v.color_name !== v.model_name ? v.color_name : null, v.size_name && !/standard|one size/i.test(v.size_name) ? `SZ: ${v.size_name}` : null].filter(Boolean).join(' · ')}
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </td>
                                   <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontWeight: 800, color: '#065935' }}>

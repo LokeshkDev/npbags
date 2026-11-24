@@ -31,7 +31,8 @@ export default function AdminDashboardPage() {
   const [chartMetric, setChartMetric] = useState('revenue'); // 'revenue' | 'orders'
   const [loading, setLoading] = useState(true);
   const [hoveredPoint, setHoveredPoint] = useState(null);
-  const [movedViewMode, setMovedViewMode] = useState('today'); // 'today' | 'all'
+  const [soldProductsSearch, setSoldProductsSearch] = useState('');
+  const [soldProductsSort, setSoldProductsSort] = useState('qty_desc'); // 'qty_desc' | 'revenue_desc' | 'name_asc'
 
   // Aging alerts state (Products in stock > 60 days)
   const [agingData, setAgingData] = useState({
@@ -82,6 +83,7 @@ export default function AdminDashboardPage() {
       out_of_stock_count: 0
     },
     recent_feed: [],
+    timeframe_sold_products: [],
     moved_products: [],
     today_moved_products: [],
     branch_sold_items: [],
@@ -124,6 +126,7 @@ export default function AdminDashboardPage() {
             chart_series: Array.isArray(res.chart_series) ? res.chart_series : [],
             payment_methods: Array.isArray(res.payment_methods) ? res.payment_methods : [],
             top_products: Array.isArray(res.top_products) ? res.top_products : [],
+            timeframe_sold_products: Array.isArray(res.timeframe_sold_products) ? res.timeframe_sold_products : [],
             recent_feed: Array.isArray(res.recent_feed) ? res.recent_feed : [],
             moved_products: Array.isArray(res.moved_products) ? res.moved_products : [],
             today_moved_products: Array.isArray(res.today_moved_products) ? res.today_moved_products : [],
@@ -181,77 +184,54 @@ export default function AdminDashboardPage() {
     return () => window.removeEventListener('np_order_updated', handleOrderSync);
   }, [fetchAnalytics, fetchAgingAlerts]);
 
-  // Branch Product Stock & Visibility Maintenance
-  const handleToggleBranchVisibility = async (p) => {
-    const bId = p.branch_id || (data.active_branch ? data.active_branch.id : (selectedBranchId !== 'all' ? selectedBranchId : null));
-    if (!bId) {
-      alert('Please select a specific branch from the dropdown above to manage branch visibility.');
-      return;
-    }
-    try {
-      const newStatus = p.is_active === 0 ? 1 : 0;
-      await updateAdminBranchProductStock(bId, p.product_id, { is_active: newStatus });
-      fetchAnalytics();
-    } catch (err) {
-      alert(`Could not toggle visibility: ${err.message || 'Server error'}`);
+  const getPeriodLabel = () => {
+    switch (period) {
+      case 'today': return "Today's Register";
+      case 'yesterday': return 'Yesterday';
+      case 'day_before': return 'Day Before';
+      case 'weekly': return 'Last 7 Days';
+      case 'monthly': return 'This Month (30d)';
+      case 'yearly': return 'Yearly (2026)';
+      case 'custom': return startDate && endDate ? `${startDate} to ${endDate}` : 'Custom Range';
+      default: return period;
     }
   };
 
-  const handleUpdateBranchQty = async (p) => {
-    const bId = p.branch_id || (data.active_branch ? data.active_branch.id : (selectedBranchId !== 'all' ? selectedBranchId : null));
-    if (!bId) {
-      alert('Please select a specific branch from the dropdown above to update branch stock.');
-      return;
-    }
-    const currentQty = p.remaining_qty ?? p.stock ?? 0;
-    const input = window.prompt(`Update branch stock quantity for "${p.product_name}":`, String(currentQty));
-    if (input === null) return;
-    const newQty = parseInt(input, 10);
-    if (Number.isNaN(newQty) || newQty < 0) {
-      alert('Please enter a valid non-negative number for stock.');
-      return;
-    }
-    try {
-      await updateAdminBranchProductStock(bId, p.product_id, { stock: newQty });
-      fetchAnalytics();
-    } catch (err) {
-      alert(`Could not update stock: ${err.message || 'Server error'}`);
-    }
-  };
+  const rawSoldProducts = useMemo(() => {
+    return Array.isArray(data?.timeframe_sold_products) ? data.timeframe_sold_products : [];
+  }, [data?.timeframe_sold_products]);
 
-  const handlePushToMain = async (p) => {
-    const bId = p.branch_id || (data.active_branch ? data.active_branch.id : (selectedBranchId !== 'all' ? selectedBranchId : null));
-    if (!bId) {
-      alert('Please select a specific branch from the dropdown above to transfer stock.');
-      return;
+  const filteredSoldProducts = useMemo(() => {
+    let list = rawSoldProducts;
+    if (soldProductsSearch.trim()) {
+      const q = soldProductsSearch.toLowerCase();
+      list = list.filter(item =>
+        (item.product_name && item.product_name.toLowerCase().includes(q)) ||
+        (item.variant_info && item.variant_info.toLowerCase().includes(q)) ||
+        (item.category_name && item.category_name.toLowerCase().includes(q)) ||
+        (item.brand && String(item.brand).toLowerCase().includes(q)) ||
+        (item.product_id && String(item.product_id).toLowerCase().includes(q)) ||
+        (item.branch_name && item.branch_name.toLowerCase().includes(q))
+      );
     }
-    const branchStock = p.remaining_qty ?? p.stock ?? 0;
-    if (branchStock <= 0) {
-      alert(`Branch has 0 units of "${p.product_name}". Nothing to push to Main Branch.`);
-      return;
-    }
-    const input = window.prompt(
-      `Push "${p.product_name}" to Main Branch (Head Warehouse).\n\nAvailable in Branch: ${branchStock} units\nMain Store Stock: ${p.main_branch_stock ?? 0} units\n\nEnter number of units to transfer:`,
-      '1'
-    );
-    if (!input) return;
-    const qty = parseInt(input, 10);
-    if (!qty || qty <= 0) {
-      alert('Please enter a valid positive quantity.');
-      return;
-    }
-    if (qty > branchStock) {
-      alert(`Cannot transfer ${qty} units. Branch only has ${branchStock} units.`);
-      return;
-    }
-    try {
-      const res = await pushAdminStockToMainBranch(bId, p.product_id, { quantity: qty });
-      alert(res?.message || `✓ Transferred ${qty} unit(s) of "${p.product_name}" to Main Branch!`);
-      fetchAnalytics();
-    } catch (err) {
-      alert(`Could not transfer stock: ${err.message || 'Server error'}`);
-    }
-  };
+    return [...list].sort((a, b) => {
+      if (soldProductsSort === 'revenue_desc') {
+        return (parseFloat(b.total_revenue) || 0) - (parseFloat(a.total_revenue) || 0);
+      }
+      if (soldProductsSort === 'name_asc') {
+        return (a.product_name || '').localeCompare(b.product_name || '');
+      }
+      return (parseInt(b.sold_qty, 10) || 0) - (parseInt(a.sold_qty, 10) || 0);
+    });
+  }, [rawSoldProducts, soldProductsSearch, soldProductsSort]);
+
+  const totalSoldUnits = useMemo(() => {
+    return rawSoldProducts.reduce((sum, item) => sum + (parseInt(item.sold_qty, 10) || 0), 0);
+  }, [rawSoldProducts]);
+
+  const totalSoldRevenue = useMemo(() => {
+    return rawSoldProducts.reduce((sum, item) => sum + (parseFloat(item.total_revenue) || 0), 0);
+  }, [rawSoldProducts]);
 
   // Safe memoized accessors preventing undefined length errors
   const chartSeries = useMemo(() => Array.isArray(data?.chart_series) ? data.chart_series : [], [data?.chart_series]);
@@ -460,7 +440,8 @@ export default function AdminDashboardPage() {
 
               {[
                 { id: 'today', label: "Today's Register" },
-                { id: 'daily', label: 'Daily (24h)' },
+                { id: 'yesterday', label: 'Yesterday' },
+                { id: 'day_before', label: 'Day Before' },
                 { id: 'weekly', label: 'Last 7 Days' },
                 { id: 'monthly', label: 'This Month (30d)' },
                 { id: 'yearly', label: 'Yearly (2026)' },
@@ -1321,419 +1302,237 @@ export default function AdminDashboardPage() {
             )}
           </div>
 
-          {/* 7. BRANCH PRODUCTS MOVED / ALLOCATED INVENTORY & ITEMS SOLD */}
+          {/* 7. LIVE PRODUCTS SOLD IN SELECTED TIMEFRAME */}
           <div style={{ background: '#ffffff', borderRadius: '14px', border: '1.5px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 6px rgba(0,0,0,0.03)', marginBottom: '26px' }}>
             <div style={{ padding: '16px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <h3 style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', margin: 0 }}>
-                    📦 Products Moved to Branch ({data.active_branch ? data.active_branch.name : (selectedBranchId !== 'all' ? 'Branch' : 'All Branches')})
+                  <h3 style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🛒</span> Product Sales: <span style={{ color: '#065935' }}>{getPeriodLabel()}</span>
                   </h3>
-                  <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: movedViewMode === 'today' ? '#ecfdf5' : '#f1f5f9', color: movedViewMode === 'today' ? '#065935' : '#475569', border: '1px solid #cbd5e1' }}>
-                    {movedViewMode === 'today' ? `${todayMovedProducts.length} moved today` : movedViewMode === 'sold' ? `${branchSoldItems.length} sold item(s)` : `${movedProducts.length} allocated item(s)`}
+                  <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: '#ecfdf5', color: '#065935', border: '1px solid #a7f3d0' }}>
+                    {totalSoldUnits} unit(s) sold
                   </span>
-                  <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#065935', background: '#dcfce7', padding: '2px 7px', borderRadius: '4px' }}>
-                    📅 {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                  <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                    {formatCurrency(totalSoldRevenue)} sales
                   </span>
+                  {selectedBranchId !== 'all' && (
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#475569' }}>
+                      📍 {data.active_branch ? data.active_branch.name : 'Branch'}
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
-                  {movedViewMode === 'today'
-                    ? `Stock transfers pushed from Central Store today (${new Date().toLocaleDateString('en-IN')}).`
-                    : movedViewMode === 'sold'
-                    ? `Live record of items sold and remaining branch quantities.`
-                    : `Full allocated inventory breakdown: Total Allocated, Items Sold, and Remaining Stock.`}
+                  Live breakdown of products &amp; variants sold during <strong>{getPeriodLabel()}</strong> across {selectedBranchId === 'all' ? 'all branches & online store' : (data.active_branch?.name || 'this branch')}.
                 </div>
               </div>
 
-              {/* View Mode Toggle: Moved Today vs Allocated vs Sold Items */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'inline-flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <button
-                    type="button"
-                    onClick={() => setMovedViewMode('today')}
+              {/* Search & Sort Controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', minWidth: '220px' }}>
+                  <input
+                    type="text"
+                    value={soldProductsSearch}
+                    onChange={(e) => setSoldProductsSearch(e.target.value)}
+                    placeholder="Search sold items, variants..."
                     style={{
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: movedViewMode === 'today' ? '#065935' : 'transparent',
-                      color: movedViewMode === 'today' ? '#ffffff' : '#475569',
-                      fontSize: '11.5px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      boxShadow: movedViewMode === 'today' ? '0 1px 3px rgba(6, 89, 53, 0.25)' : 'none'
+                      width: '100%',
+                      padding: '7px 12px 7px 30px',
+                      fontSize: '12px',
+                      borderRadius: '8px',
+                      border: '1.5px solid #cbd5e1',
+                      background: '#f8fafc',
+                      outline: 'none'
                     }}
-                  >
-                    🔥 Moved Today ({todayMovedProducts.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMovedViewMode('all')}
-                    style={{
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: movedViewMode === 'all' ? '#065935' : 'transparent',
-                      color: movedViewMode === 'all' ? '#ffffff' : '#475569',
-                      fontSize: '11.5px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      boxShadow: movedViewMode === 'all' ? '0 1px 3px rgba(6, 89, 53, 0.25)' : 'none'
-                    }}
-                  >
-                    📦 Allocated vs Sold vs Remaining ({movedProducts.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMovedViewMode('sold')}
-                    style={{
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: movedViewMode === 'sold' ? '#065935' : 'transparent',
-                      color: movedViewMode === 'sold' ? '#ffffff' : '#475569',
-                      fontSize: '11.5px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      boxShadow: movedViewMode === 'sold' ? '0 1px 3px rgba(6, 89, 53, 0.25)' : 'none'
-                    }}
-                  >
-                    🛒 Items Sold at Branch ({branchSoldItems.length})
-                  </button>
+                  />
+                  <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>
+                    🔍
+                  </span>
                 </div>
 
-                <Link href="/branches" className="admin-btn admin-btn-primary" style={{ fontSize: '11.5px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span>🚀 Push More Products</span>
-                </Link>
+                <select
+                  value={soldProductsSort}
+                  onChange={(e) => setSoldProductsSort(e.target.value)}
+                  style={{
+                    padding: '7px 12px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    border: '1.5px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#334155',
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="qty_desc">Sort: Highest Units Sold</option>
+                  <option value="revenue_desc">Sort: Highest Revenue (₹)</option>
+                  <option value="name_asc">Sort: Product Name (A-Z)</option>
+                </select>
               </div>
             </div>
 
-            {/* Live Branch Inventory KPI Mini Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', padding: '12px 22px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>TOTAL ALLOCATED TO BRANCH</div>
-                <div style={{ fontSize: '18px', fontWeight: 900, color: '#0f172a', marginTop: '2px' }}>
-                  {branchSummary.total_allocated_units} <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>units</span>
+            {/* Mini Summary KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', padding: '14px 22px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#dcfce7', color: '#065935', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>📦</div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Units Sold</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>{totalSoldUnits}</div>
                 </div>
               </div>
-              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#6d28d9' }}>ITEMS SOLD AT BRANCH</div>
-                <div style={{ fontSize: '18px', fontWeight: 900, color: '#7c3aed', marginTop: '2px' }}>
-                  {branchSummary.total_sold_units} <span style={{ fontSize: '11.5px', color: '#6d28d9', fontWeight: 600 }}>units sold</span>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#ecfdf5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>💰</div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Sales Revenue</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#065935' }}>{formatCurrency(totalSoldRevenue)}</div>
                 </div>
               </div>
-              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#065935' }}>REMAINING IN STOCK</div>
-                <div style={{ fontSize: '18px', fontWeight: 900, color: '#065935', marginTop: '2px' }}>
-                  {branchSummary.total_remaining_units} <span style={{ fontSize: '11.5px', color: '#065935', fontWeight: 600 }}>units available</span>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#f1f5f9', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>🏷️</div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Products / Variants</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>{rawSoldProducts.length}</div>
+                </div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>📊</div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Avg / Unit Sold</div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#0284c7' }}>
+                    {totalSoldUnits > 0 ? formatCurrency(Math.round(totalSoldRevenue / totalSoldUnits)) : '₹0'}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* TAB CONTENT A & B: ALLOCATED / MOVED PRODUCTS */}
-            {movedViewMode !== 'sold' ? (
-              <table className="admin-table" style={{ width: '100%', margin: 0, fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800 }}>
-                    <th style={{ padding: '10px 18px' }}>#</th>
-                    <th style={{ padding: '10px 18px' }}>PRODUCT &amp; BARCODE</th>
-                    <th style={{ padding: '10px 18px' }}>CATEGORY</th>
-                    {(!selectedBranchId || selectedBranchId === 'all') && (
-                      <th style={{ padding: '10px 18px' }}>TARGET BRANCH</th>
-                    )}
-                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>MRP / PRICE</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>TOTAL ALLOCATED</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>ITEMS SOLD</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>BRANCH REMAINING</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>BRANCH VISIBILITY</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>MAIN STORE STOCK</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>ACTIONS</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>{movedViewMode === 'today' ? 'TIME MOVED TODAY' : 'LAST UPDATED'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(movedViewMode === 'today' ? todayMovedProducts : movedProducts).length === 0 ? (
-                    <tr>
-                      <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', fontSize: '13px' }}>
-                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>{movedViewMode === 'today' ? '🚚' : '📦'}</div>
-                        <div style={{ fontWeight: 800, color: '#334155' }}>
-                          {movedViewMode === 'today'
-                            ? `No products transferred or moved to this branch today (${new Date().toLocaleDateString('en-IN')}).`
-                            : 'No products pushed or moved to this branch yet.'}
-                        </div>
-                        <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '4px' }}>
-                          Use <strong>Push More Products</strong> above to allocate items from Central Warehouse.
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    (movedViewMode === 'today' ? todayMovedProducts : movedProducts).map((p, idx) => {
-                      const remaining = p.remaining_qty ?? p.stock ?? 0;
-                      const sold = p.sold_qty ?? 0;
-                      const totalAllocated = p.total_allocated ?? (remaining + sold);
-                      const isLow = remaining <= p.low_stock_threshold;
-                      const isOut = remaining <= 0;
-                      const updatedDate = p.updated_at ? new Date(p.updated_at) : null;
-                      const isToday = updatedDate && (new Date().toDateString() === updatedDate.toDateString());
-                      const isBranchVisible = p.is_active !== 0;
-                      const mainStock = p.main_branch_stock ?? 0;
-                      const isMainZero = mainStock === 0;
-
-                      return (
-                        <tr key={p.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '12px 18px', color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
-                          <td style={{ padding: '12px 18px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              {p.image ? (
-                                <img
-                                  src={p.image}
-                                  alt={p.product_name}
-                                  style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '5px', border: '1px solid #e2e8f0' }}
-                                />
-                              ) : (
-                                <div style={{ width: '32px', height: '32px', borderRadius: '5px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px' }}>
-                                  📦
-                                </div>
-                              )}
-                              <div>
-                                <div style={{ fontWeight: 800, color: '#0f172a' }}>{p.product_name}</div>
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                  {p.barcode_short_name || p.product_id}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '12px 18px', color: '#64748b', fontWeight: 600 }}>
-                            {p.category_name || 'General'}
-                          </td>
-                          {(!selectedBranchId || selectedBranchId === 'all') && (
-                            <td style={{ padding: '12px 18px' }}>
-                              <span style={{ fontWeight: 800, color: '#065935', fontSize: '11.5px', background: '#f0fdf4', padding: '3px 8px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
-                                🏢 {p.branch_name || p.branch_code || 'Branch'}
-                              </span>
-                            </td>
-                          )}
-                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
-                            ₹{Number(p.sale_price > 0 ? p.sale_price : p.price || 0).toLocaleString('en-IN')}
-                          </td>
-                          {/* Total Allocated Column */}
-                          <td style={{ padding: '12px 18px', textAlign: 'center', fontWeight: 700, color: '#334155' }}>
-                            {totalAllocated} units
-                          </td>
-                          {/* Items Sold Column */}
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            {sold > 0 ? (
-                              <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: '12px', fontWeight: 800, fontSize: '11.5px', background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }}>
-                                {sold} sold
-                              </span>
-                            ) : (
-                              <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 600 }}>0 sold</span>
-                            )}
-                          </td>
-                          {/* Remaining Qty Column */}
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '3px 10px',
-                                borderRadius: '12px',
-                                fontWeight: 800,
-                                fontSize: '12px',
-                                background: isOut ? '#fef2f2' : isLow ? '#fffbeb' : '#ecfdf5',
-                                color: isOut ? '#dc2626' : isLow ? '#b45309' : '#065935'
-                              }}
-                            >
-                              {remaining} remaining
-                            </span>
-                          </td>
-
-                          {/* Branch Visibility Column */}
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleBranchVisibility(p)}
-                              style={{
-                                padding: '3px 9px',
-                                borderRadius: '16px',
-                                border: isBranchVisible ? '1px solid #86efac' : '1px solid #cbd5e1',
-                                background: isBranchVisible ? '#f0fdf4' : '#f8fafc',
-                                color: isBranchVisible ? '#15803d' : '#64748b',
-                                fontSize: '11px',
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}
-                              title={isBranchVisible ? 'Visible in Branch POS. Click to hide.' : 'Hidden from Branch POS. Click to make visible.'}
-                            >
-                              <span>{isBranchVisible ? '🟢' : '⚪'}</span>
-                              <span>{isBranchVisible ? 'Visible' : 'Hidden'}</span>
-                            </button>
-                          </td>
-
-                          {/* Main Store Stock Column */}
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '3px 8px',
-                                borderRadius: '12px',
-                                fontWeight: 800,
-                                fontSize: '11px',
-                                background: isMainZero ? '#fef2f2' : '#f8fafc',
-                                color: isMainZero ? '#dc2626' : '#334155',
-                                border: isMainZero ? '1.5px solid #fca5a5' : '1px solid #e2e8f0'
-                              }}
-                            >
-                              {isMainZero ? '⚠️ 0 (Out of Stock)' : `${mainStock} units`}
-                            </span>
-                          </td>
-
-                          {/* Actions Column (Qty Edit + Push to Main) */}
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateBranchQty(p)}
-                                style={{
-                                  padding: '4px 8px',
-                                  background: '#ffffff',
-                                  border: '1px solid #cbd5e1',
-                                  borderRadius: '5px',
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  cursor: 'pointer'
-                                }}
-                                title="Update branch stock quantity"
-                              >
-                                ✎ Qty
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handlePushToMain(p)}
-                                style={{
-                                  padding: '4px 9px',
-                                  background: isMainZero ? '#dc2626' : '#0f172a',
-                                  color: '#ffffff',
-                                  border: 'none',
-                                  borderRadius: '5px',
-                                  fontSize: '11px',
-                                  fontWeight: 800,
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  boxShadow: isMainZero ? '0 1px 4px rgba(220, 38, 38, 0.35)' : 'none'
-                                }}
-                                title={isMainZero ? 'Main Store has 0 stock! Click to transfer quantity to Main Branch' : 'Transfer quantity from this branch to Main Store'}
-                              >
-                                <span>🚀 Push to Main</span>
-                              </button>
-                            </div>
-                          </td>
-
-                          <td style={{ padding: '12px 18px', textAlign: 'right', fontSize: '11.5px', color: '#475569' }}>
-                            {isToday ? (
-                              <span style={{ fontWeight: 800, color: '#065935', background: '#dcfce7', padding: '2px 7px', borderRadius: '4px' }}>
-                                Today {updatedDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            ) : (
-                              updatedDate ? updatedDate.toLocaleDateString('en-IN') : 'Recently'
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+            {/* Table or Empty State */}
+            {filteredSoldProducts.length === 0 ? (
+              <div style={{ padding: '45px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>🛒</div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569' }}>
+                  No product sales recorded for {getPeriodLabel()}
+                </div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                  {soldProductsSearch ? 'Try clearing your search query above.' : 'When customer sales are placed in-store via POS or through online checkout, sold products will display here.'}
+                </div>
+              </div>
             ) : (
-              /* TAB CONTENT C: ALL ITEMS SOLD AT BRANCH TABLE */
-              <table className="admin-table" style={{ width: '100%', margin: 0, fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: 800 }}>
-                    <th style={{ padding: '10px 18px' }}>#</th>
-                    <th style={{ padding: '10px 18px' }}>SOLD PRODUCT</th>
-                    {(!selectedBranchId || selectedBranchId === 'all') && (
-                      <th style={{ padding: '10px 18px' }}>BRANCH</th>
-                    )}
-                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>PRICE</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>QUANTITY SOLD</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>TOTAL SALES (₹)</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'center' }}>REMAINING IN STOCK</th>
-                    <th style={{ padding: '10px 18px', textAlign: 'right' }}>LAST ORDER DATE</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {branchSoldItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', fontSize: '13px' }}>
-                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>🛒</div>
-                        <div style={{ fontWeight: 800, color: '#334155' }}>
-                          No sales recorded at this branch yet.
-                        </div>
-                        <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '4px' }}>
-                          Launch POS Billing register to record in-store transactions.
-                        </div>
-                      </td>
+              <div style={{ overflowX: 'auto', maxHeight: '520px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', color: '#475569', fontSize: '11px', fontWeight: 800, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase', letterSpacing: '0.04em', position: 'sticky', top: 0, zIndex: 1 }}>
+                      <th style={{ padding: '11px 16px', width: '40px', textAlign: 'center' }}>#</th>
+                      <th style={{ padding: '11px 16px' }}>Product &amp; Variant</th>
+                      {selectedBranchId === 'all' && (
+                        <th style={{ padding: '11px 16px', textAlign: 'center' }}>Branch</th>
+                      )}
+                      <th style={{ padding: '11px 16px', textAlign: 'right' }}>Unit Price</th>
+                      <th style={{ padding: '11px 16px', textAlign: 'center' }}>Quantity Sold</th>
+                      <th style={{ padding: '11px 16px', textAlign: 'right' }}>Total Revenue</th>
+                      <th style={{ padding: '11px 16px', textAlign: 'center' }}>Remaining Stock</th>
+                      <th style={{ padding: '11px 16px', textAlign: 'right' }}>Orders &amp; Last Sale</th>
                     </tr>
-                  ) : (
-                    branchSoldItems.map((item, sIdx) => {
-                      const lastSoldDate = item.last_sold_at ? new Date(item.last_sold_at) : null;
+                  </thead>
+                  <tbody>
+                    {filteredSoldProducts.map((item, idx) => {
+                      const lastSaleDate = item.last_sold_at ? new Date(item.last_sold_at) : null;
                       return (
-                        <tr key={`${item.product_id}-${sIdx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '12px 18px', color: '#94a3b8', fontWeight: 600 }}>{sIdx + 1}</td>
-                          <td style={{ padding: '12px 18px' }}>
+                        <tr
+                          key={`${item.product_id}-${item.variant_info || 'def'}-${item.branch_code || 'all'}-${idx}`}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: idx % 2 === 0 ? '#ffffff' : '#fafafa',
+                            transition: 'background 0.15s ease'
+                          }}
+                        >
+                          <td style={{ padding: '12px 16px', textAlign: 'center', color: '#94a3b8', fontWeight: 700, fontSize: '11px' }}>
+                            {idx + 1}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               {item.image ? (
                                 <img
                                   src={item.image}
                                   alt={item.product_name}
-                                  style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '5px', border: '1px solid #e2e8f0' }}
+                                  style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0', flexShrink: 0 }}
                                 />
                               ) : (
-                                <div style={{ width: '32px', height: '32px', borderRadius: '5px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px' }}>
-                                  🛍️
+                                <div style={{ width: '38px', height: '38px', borderRadius: '6px', background: '#f1f5f9', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', color: '#64748b', fontWeight: 800, flexShrink: 0 }}>
+                                  {(item.product_name || 'P')[0]?.toUpperCase()}
                                 </div>
                               )}
-                              <div>
-                                <div style={{ fontWeight: 800, color: '#0f172a' }}>{item.product_name}</div>
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>ID: {item.product_id}</div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '320px' }}>
+                                  <Link href={`/products/edit/${item.product_id}`} style={{ color: 'inherit', textDecoration: 'none' }} title={item.product_name}>
+                                    {item.product_name || `Product #${item.product_id}`}
+                                  </Link>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
+                                  {item.variant_info && (
+                                    <span style={{ fontSize: '10.5px', background: '#f1f5f9', color: '#334155', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, border: '1px solid #cbd5e1' }}>
+                                      {item.variant_info}
+                                    </span>
+                                  )}
+                                  {item.category_name && (
+                                    <span style={{ fontSize: '10.5px', color: '#64748b' }}>
+                                      📁 {item.category_name}
+                                    </span>
+                                  )}
+                                  {item.brand && (
+                                    <span style={{ fontSize: '10.5px', color: '#64748b' }}>
+                                      🏷️ {item.brand}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>
-                          {(!selectedBranchId || selectedBranchId === 'all') && (
-                            <td style={{ padding: '12px 18px' }}>
-                              <span style={{ fontWeight: 800, color: '#065935', fontSize: '11.5px', background: '#f0fdf4', padding: '3px 8px', borderRadius: '4px' }}>
-                                🏢 {item.branch_name || item.branch_code || 'Branch'}
+                          {selectedBranchId === 'all' && (
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: item.branch_name ? '#eff6ff' : '#f8fafc', color: item.branch_name ? '#1d4ed8' : '#64748b', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
+                                {item.branch_name || 'Main Store'}
                               </span>
                             </td>
                           )}
-                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
-                            ₹{Number(item.price || 0).toLocaleString('en-IN')}
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>
+                            {formatCurrency(item.unit_price)}
                           </td>
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            <span style={{ padding: '3px 10px', borderRadius: '12px', fontWeight: 900, fontSize: '12px', background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }}>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <span style={{ background: '#ecfdf5', color: '#065935', padding: '4px 10px', borderRadius: '12px', fontWeight: 900, fontSize: '12.5px', display: 'inline-block' }}>
                               {item.sold_qty} sold
                             </span>
                           </td>
-                          <td style={{ padding: '12px 18px', textAlign: 'right', fontWeight: 900, color: '#065935' }}>
-                            ₹{Number(item.total_revenue || 0).toLocaleString('en-IN')}
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900, color: '#065935', fontSize: '13.5px' }}>
+                            {formatCurrency(item.total_revenue)}
                           </td>
-                          <td style={{ padding: '12px 18px', textAlign: 'center' }}>
-                            <span style={{ padding: '3px 10px', borderRadius: '12px', fontWeight: 800, fontSize: '12px', background: (item.remaining_qty || 0) > 0 ? '#ecfdf5' : '#fef2f2', color: (item.remaining_qty || 0) > 0 ? '#065935' : '#dc2626' }}>
-                              {item.remaining_qty || 0} units left
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <span style={{
+                              padding: '3px 8px',
+                              borderRadius: '10px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              background: (item.remaining_stock || 0) > 10 ? '#f0fdf4' : (item.remaining_stock || 0) > 0 ? '#fffbeb' : '#fef2f2',
+                              color: (item.remaining_stock || 0) > 10 ? '#166534' : (item.remaining_stock || 0) > 0 ? '#b45309' : '#dc2626',
+                              border: `1px solid ${(item.remaining_stock || 0) > 10 ? '#bbf7d0' : (item.remaining_stock || 0) > 0 ? '#fde68a' : '#fecaca'}`
+                            }}>
+                              {item.remaining_stock != null ? `${item.remaining_stock} left` : '—'}
                             </span>
                           </td>
-                          <td style={{ padding: '12px 18px', textAlign: 'right', fontSize: '11.5px', color: '#64748b' }}>
-                            {lastSoldDate ? lastSoldDate.toLocaleDateString('en-IN') : 'Recent'}
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '11.5px', color: '#64748b' }}>
+                            <div>
+                              <span style={{ fontWeight: 700, color: '#334155' }}>{item.order_count} bill(s)</span>
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
+                              {lastSaleDate ? lastSaleDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                            </div>
                           </td>
                         </tr>
                       );
-                    })
-                  )}
-                </tbody>
-              </table>
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 

@@ -652,6 +652,14 @@ async function getBranchTransferCatalog(req, res, next) {
       SELECT pv.id, pv.product_id, pv.color_name, pv.color_hex, pv.model_name, pv.size_name,
              COALESCE(pv.stock_quantity, 0) AS main_stock,
              pv.purchase_price, pv.purchase_rate_alias, pv.price, pv.sale_price, pv.mrp, pv.sku,
+             pv.image_url,
+             COALESCE(
+               NULLIF(pv.image_url, ''),
+               (SELECT pi.image_url FROM product_images pi 
+                WHERE pi.product_id = pv.product_id AND pi.image_url IS NOT NULL AND pi.image_url != ''
+                  AND (pi.color_name = pv.model_name OR pi.color_name = pv.color_name)
+                LIMIT 1)
+             ) AS effective_image,
              COALESCE(bvs.stock, 0) AS branch_stock,
              (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
       FROM product_variants pv
