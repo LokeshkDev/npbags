@@ -7,6 +7,7 @@ import { ProductCard } from '../../components/product/ProductCard';
 import { Icon } from '../../components/common/Icons';
 import { useCart } from '../../lib/cart-context';
 import { useQuickView } from '../../lib/quickview-context';
+import { expandProductsByModel } from '../../lib/variant-utils';
 
 const DEFAULT_BANNER_IMG = 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1800&q=85';
 
@@ -86,7 +87,7 @@ function ShopContent() {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
     Promise.allSettled([
-      fetch(`${apiBase}/products`).then(res => res.json()),
+      fetch(`${apiBase}/products?limit=500`).then(res => res.json()),
       fetch(`${apiBase}/categories`).then(res => res.json()),
       fetch(`${apiBase}/banners`).then(res => res.json()),
       fetch(`${apiBase}/cms/sections`).then(res => res.json())
@@ -129,9 +130,9 @@ function ShopContent() {
 
   // Sync params when URL changes
   useEffect(() => {
-    if (searchParams.get('category')) setSelectedCategory(searchParams.get('category'));
+    setSelectedCategory(searchParams.get('category') || 'all');
     if (searchParams.get('filter')) setAvailability(searchParams.get('filter'));
-    if (searchParams.get('search')) setSearch(searchParams.get('search'));
+    setSearch(searchParams.get('search') || '');
   }, [searchParams]);
 
   // Active Category resolution
@@ -196,19 +197,45 @@ function ShopContent() {
     return Array.from(map.values());
   }, [products]);
 
-  // Filtering and sorting with deferred search query
-  const filteredProducts = useMemo(() => {
-    let result = [...products];
+  // Expand products with model_name variants into individual model cards ("Title - Model Name")
+  const expandedProducts = useMemo(() => expandProductsByModel(products), [products]);
 
-    // Search query
+  // Filtering and sorting with deferred search query (case-insensitive)
+  const filteredProducts = useMemo(() => {
+    let result = [...expandedProducts];
+
+    // Search query (strictly case-insensitive across title, model name, brand, category, SKU, barcode)
     if (deferredSearch.trim()) {
       const q = deferredSearch.toLowerCase().trim();
-      result = result.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        (p.tagline && p.tagline.toLowerCase().includes(q)) ||
-        (p.cat && p.cat.toLowerCase().includes(q)) ||
-        (p.category_name && p.category_name.toLowerCase().includes(q))
-      );
+      result = result.filter(p => {
+        const matchFields = [
+          p.name,
+          p._baseProductName,
+          p._modelLabel,
+          p.slug,
+          p.brand,
+          p.tagline,
+          p.description,
+          p.cat,
+          p.category_name,
+          p.barcode,
+          p.barcode_short_name,
+          p._preselectedVariant?.model_name,
+          p._preselectedVariant?.color_name,
+          p._preselectedVariant?.sku
+        ];
+        if (matchFields.some(val => val && String(val).toLowerCase().includes(q))) {
+          return true;
+        }
+        if (!p._preselectedVariant && Array.isArray(p.variants)) {
+          return p.variants.some(v =>
+            (v.model_name && String(v.model_name).toLowerCase().includes(q)) ||
+            (v.color_name && String(v.color_name).toLowerCase().includes(q)) ||
+            (v.sku && String(v.sku).toLowerCase().includes(q))
+          );
+        }
+        return false;
+      });
     }
 
     // Category
@@ -260,7 +287,7 @@ function ShopContent() {
     }
 
     return result;
-  }, [products, selectedCategory, priceRange, availability, selectedColor, sortBy, deferredSearch]);
+  }, [expandedProducts, selectedCategory, priceRange, availability, selectedColor, sortBy, deferredSearch]);
 
   const clearAllFilters = () => {
     setSelectedCategory('all');
@@ -550,7 +577,7 @@ function ShopContent() {
                       checked={selectedCategory === 'all'}
                       onChange={() => {
                         setSelectedCategory('all');
-                        setMobileFilterOpen(false);
+                        setFilterOpen(false);
                       }}
                     />
                     <span style={{ fontWeight: 600 }}>All Collections</span>
@@ -580,7 +607,7 @@ function ShopContent() {
                               checked={isMainSelected}
                               onChange={() => {
                                 setSelectedCategory(main.slug || main.name);
-                                setMobileFilterOpen(false);
+                                setFilterOpen(false);
                               }}
                             />
                             <span style={{ fontWeight: 600 }}>{main.name}</span>
@@ -600,7 +627,7 @@ function ShopContent() {
                                   checked={isSubSelected}
                                   onChange={() => {
                                     setSelectedCategory(sub.slug || sub.name);
-                                    setMobileFilterOpen(false);
+                                    setFilterOpen(false);
                                   }}
                                 />
                                 <span style={{ color: 'var(--muted)' }}>↳ {sub.name}</span>
@@ -632,7 +659,7 @@ function ShopContent() {
                     className={`price-chip ${priceRange === chip.value ? 'is-active' : ''}`}
                     onClick={() => {
                       setPriceRange(chip.value);
-                      setMobileFilterOpen(false);
+                      setFilterOpen(false);
                     }}
                   >
                     {chip.label}
@@ -660,7 +687,7 @@ function ShopContent() {
                         checked={availability === item.value}
                         onChange={() => {
                           setAvailability(item.value);
-                          setMobileFilterOpen(false);
+                          setFilterOpen(false);
                         }}
                       />
                       <span>{item.label}</span>
@@ -829,7 +856,7 @@ function ShopContent() {
                   <ProductCard
                     product={p}
                     index={idx}
-                    key={p.id}
+                    key={p._cardKey || p.id}
                     showRating={false}
                     isShop={true}
                     fullImage={true}

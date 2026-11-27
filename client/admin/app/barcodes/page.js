@@ -261,7 +261,7 @@ export default function AdminBarcodesPage() {
                 }}
               >
                 <span>💍</span>
-                <span>Jewellery Tag (80×12mm · 1-Up Dumbbell)</span>
+                <span>Jewellery Tag (50×12mm · 1-Up Dumbbell)</span>
               </button>
             </div>
 
@@ -653,7 +653,7 @@ export default function AdminBarcodesPage() {
                     {selectedBarcodeIds.size} SELECTED
                   </span>
                   <span style={{ fontSize: '13px', color: '#166534', fontWeight: 700 }}>
-                    Ready for batch printing ({stickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm 1-Up' : '🏷️ Normal 35×25mm 3-Up'})
+                    Ready for batch printing ({stickerFormat === 'jewellery_80x12' ? '💍 Jewellery 50×12mm 1-Up' : '🏷️ Normal 35×25mm 3-Up'})
                   </span>
                 </div>
 

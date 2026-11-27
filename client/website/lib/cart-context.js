@@ -52,6 +52,10 @@ export function CartProvider({ children }) {
 
   const addToCart = (product, options = {}) => {
     const qtyToAdd = typeof options === 'number' ? options : (options.qty || 1);
+    const variantId = (typeof options === 'object' && options.variant_id) || null;
+    const modelName = (typeof options === 'object' && options.model_name) || '';
+    const sku = (typeof options === 'object' && options.sku) || '';
+    const variantInfo = (typeof options === 'object' && options.variant_info) || '';
     const size = (typeof options === 'object' && options.size) || (product.sizes && product.sizes[0]) || '';
     const color = (typeof options === 'object' && options.color) || (product.colors && product.colors[0] ? product.colors[0].name : '');
     const image = (typeof options === 'object' && options.image) || product.primary_image || (product.images && product.images[0]) || (product.gallery && product.gallery[0]) || (product.colors && product.colors[0]?.img) || product.image || '';
@@ -61,7 +65,12 @@ export function CartProvider({ children }) {
       : parseFloat(product.price);
 
     const existingIndex = cart.findIndex(
-      item => item.id === product.id && item.size === size && item.color === color
+      item =>
+        item.id === product.id &&
+        (variantId || item.variant_id ? String(item.variant_id || '') === String(variantId || '') : true) &&
+        (item.model_name || '') === modelName &&
+        item.size === size &&
+        item.color === color
     );
 
     let updatedCart;
@@ -77,6 +86,10 @@ export function CartProvider({ children }) {
           name: product.name,
           price,
           originalPrice: parseFloat(product.price),
+          variant_id: variantId,
+          model_name: modelName,
+          sku,
+          variant_info: variantInfo,
           size,
           color,
           image,

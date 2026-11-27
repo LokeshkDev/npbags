@@ -142,7 +142,44 @@ async function buildOrderDraft({
       throw error;
     }
     const prod = prods[0];
-    const itemPrice = prod.sale_price > 0 ? parseFloat(prod.sale_price) : parseFloat(prod.price);
+
+    // Match specific variant if variant_id, sku, model_name, color, or size is supplied
+    let matchedVariant = null;
+    try {
+      const pVariants = await query(
+        `SELECT id, color_name, model_name, size_name, price, sale_price, sku, image_url FROM product_variants WHERE product_id = ?`,
+        [prod.id]
+      );
+      if (pVariants.length > 0) {
+        if (item.variant_id) {
+          matchedVariant = pVariants.find(v => String(v.id) === String(item.variant_id));
+        }
+        if (!matchedVariant && item.sku) {
+          matchedVariant = pVariants.find(v => v.sku && String(v.sku).toLowerCase() === String(item.sku).toLowerCase());
+        }
+        if (!matchedVariant && item.model_name) {
+          matchedVariant = pVariants.find(v => v.model_name && String(v.model_name).trim().toLowerCase() === String(item.model_name).trim().toLowerCase());
+        }
+        if (!matchedVariant && (item.color || item.size)) {
+          matchedVariant = pVariants.find(v => {
+            const cOk = !item.color || String(v.color_name || '').trim().toLowerCase() === String(item.color).trim().toLowerCase();
+            const sOk = !item.size || String(v.size_name || '').trim().toLowerCase() === String(item.size).trim().toLowerCase();
+            return cOk && sOk;
+          });
+        }
+      }
+    } catch (_) {}
+
+    const basePrice = matchedVariant?.price !== null && matchedVariant?.price !== undefined && Number(matchedVariant.price) > 0
+      ? parseFloat(matchedVariant.price)
+      : parseFloat(prod.price);
+    const variantSale = matchedVariant?.sale_price !== null && matchedVariant?.sale_price !== undefined && Number(matchedVariant.sale_price) > 0
+      ? parseFloat(matchedVariant.sale_price)
+      : (prod.sale_price > 0 ? parseFloat(prod.sale_price) : 0);
+    const itemPrice = (variantSale > 0 && variantSale < basePrice)
+      ? variantSale
+      : (matchedVariant?.sale_price > 0 ? parseFloat(matchedVariant.sale_price) : (matchedVariant?.price > 0 ? parseFloat(matchedVariant.price) : (prod.sale_price > 0 ? parseFloat(prod.sale_price) : parseFloat(prod.price))));
+
     const qty = parseInt(item.qty || item.quantity, 10) || 1;
     const itemTotal = itemPrice * qty;
 
@@ -153,11 +190,13 @@ async function buildOrderDraft({
     );
     const dbPrimaryImg = imgs.length > 0 && imgs[0].image_url ? imgs[0].image_url : null;
 
-    // Only preserve item.image if it's a real specific image, not a generic fallback
+    // Prioritize variant image -> valid item image -> DB primary image -> default
     let primaryImg = null;
     const isFallbackImage = item.image && typeof item.image === 'string' &&
       (item.image.includes('best-handbag.png') || item.image.includes('brand-logo.png'));
-    if (item.image && typeof item.image === 'string' && !isFallbackImage && item.image.trim() !== '') {
+    if (matchedVariant?.image_url && String(matchedVariant.image_url).trim() !== '') {
+      primaryImg = String(matchedVariant.image_url).trim();
+    } else if (item.image && typeof item.image === 'string' && !isFallbackImage && item.image.trim() !== '') {
       primaryImg = item.image.trim();
     } else {
       primaryImg = dbPrimaryImg;
@@ -166,11 +205,23 @@ async function buildOrderDraft({
       primaryImg = dbPrimaryImg || DEFAULT_PRODUCT_IMAGE;
     }
 
+    const resolvedModel = matchedVariant?.model_name || item.model_name || null;
+    const resolvedColor = matchedVariant?.color_name || item.color || null;
+    const resolvedSize = matchedVariant?.size_name || item.size || null;
+    const cleanColor = resolvedColor && !/^standard$/i.test(resolvedColor) ? resolvedColor : null;
+    const cleanSize = resolvedSize && !/^(standard|one size)$/i.test(resolvedSize) ? resolvedSize : null;
+    const computedVariantInfo = item.variant_info || [resolvedModel, cleanColor, cleanSize].filter(Boolean).join(' · ') || resolvedColor || null;
+
     subtotal += itemTotal;
     validatedItems.push({
       product_id: prod.id,
       product_name: prod.name,
-      variant_info: item.variant_info || (item.size ? `${item.color || ''} · ${item.size}` : item.color || null),
+      variant_id: matchedVariant?.id || item.variant_id || null,
+      model_name: resolvedModel,
+      color: resolvedColor,
+      size: resolvedSize,
+      sku: matchedVariant?.sku || item.sku || null,
+      variant_info: computedVariantInfo,
       price: itemPrice,
       quantity: qty,
       total: itemTotal,

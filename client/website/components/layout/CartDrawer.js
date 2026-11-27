@@ -77,7 +77,7 @@ export function CartDrawer() {
             <div className="cart-empty">Your bag is waiting for something lovely.</div>
           ) : (
             cart.map((item, i) => (
-              <div className="cart-line" key={`${item.id}-${item.size}-${item.color}-${i}`}>
+              <div className="cart-line" key={`${item.id}-${item.variant_id || item.model_name || ''}-${item.size}-${item.color}-${i}`}>
                 <img
                   src={item.image || '/assets/brand-logo.png'}
                   alt={item.name}
@@ -87,7 +87,10 @@ export function CartDrawer() {
                 <div>
                   <strong>{item.name}</strong>
                   <small>
-                    ₹{item.price.toFixed(2)} {item.size ? `· ${item.size}` : ''}
+                    ₹{item.price.toFixed(2)}{' '}
+                    {(item.variant_info || item.model_name)
+                      ? `· ${item.variant_info || item.model_name}`
+                      : (item.size ? `· ${item.size}` : '')}
                   </small>
                   <div className="cart-line-actions">
                     <button

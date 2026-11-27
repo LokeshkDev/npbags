@@ -6,6 +6,13 @@ import { useRouter } from 'next/navigation';
 import { Icon } from '../../../components/common/Icons';
 import { useCart } from '../../../lib/cart-context';
 import { useWishlist } from '../../../lib/wishlist-context';
+import {
+  hasProductModelVariants,
+  resolveVariantImage,
+  getVariantDisplayLabel,
+  getVariantSubLabel,
+  getVariantPricing
+} from '../../../lib/variant-utils';
 
 export default function ProductDetailPage({ params }) {
   const router = useRouter();
@@ -15,6 +22,7 @@ export default function ProductDetailPage({ params }) {
 
   const [product, setProduct] = useState(null);
   const [activeImage, setActiveImage] = useState('');
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
   const [qty, setQty] = useState(1);
@@ -47,13 +55,36 @@ export default function ProductDetailPage({ params }) {
     function setupProduct(p) {
       if (!p) return;
       setProduct(p);
-      const firstColor = p.colors && p.colors[0];
-      const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
-      const defaultImg = p.primary_image || firstColorImg || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '/assets/brand-logo.png';
-      setActiveImage(defaultImg);
-      setSelectedColor(firstColor ? firstColor.name : '');
-      const validSizes = (p.sizes || []).filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size');
-      setSelectedSize(validSizes.length > 0 ? validSizes[0] : '');
+      const hasModels = hasProductModelVariants(p);
+      if (hasModels) {
+        const requestedModel = typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('model')
+          : null;
+        const matchedRequested = requestedModel
+          ? (p.variants || []).find(v =>
+              (v.model_name && String(v.model_name).trim().toLowerCase() === requestedModel.trim().toLowerCase()) ||
+              String(v.id) === String(requestedModel)
+            )
+          : null;
+        const initialVariant =
+          matchedRequested ||
+          (p.variants || []).find(v => (Number(v.stock_quantity) || 0) > 0) ||
+          (p.variants || [])[0];
+        setSelectedVariantId(initialVariant?.id ?? null);
+        setSelectedColor(initialVariant?.color_name || '');
+        const vSize = initialVariant?.size_name ? initialVariant.size_name.trim() : '';
+        setSelectedSize(vSize && !/^(standard|one size)$/i.test(vSize) ? vSize : '');
+        setActiveImage(resolveVariantImage(initialVariant, p));
+      } else {
+        setSelectedVariantId(null);
+        const firstColor = p.colors && p.colors[0];
+        const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
+        const defaultImg = p.primary_image || firstColorImg || (p.gallery && p.gallery[0]) || (p.images && p.images[0]) || '/assets/brand-logo.png';
+        setActiveImage(defaultImg);
+        setSelectedColor(firstColor ? firstColor.name : '');
+        const validSizes = (p.sizes || []).filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size');
+        setSelectedSize(validSizes.length > 0 ? validSizes[0] : '');
+      }
       setQty(1);
 
       // Dynamically update document title and SEO meta tags from admin product data
@@ -239,33 +270,43 @@ export default function ProductDetailPage({ params }) {
     );
   }
 
-  const matchedVariant = (product.variants || []).find(v => {
-    const colorMatch = !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase();
-    const sizeMatch = !selectedSize || String(v.size_name).toLowerCase() === String(selectedSize).toLowerCase();
-    return colorMatch && sizeMatch;
-  }) || (product.variants || []).find(v => !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase());
+  const hasModels = hasProductModelVariants(product);
 
-  const price = matchedVariant?.price !== null && matchedVariant?.price !== undefined
-    ? parseFloat(matchedVariant.price)
-    : (typeof product.price === 'number' ? product.price : parseFloat(product.price || 0));
+  const matchedVariant = hasModels
+    ? (product.variants || []).find(v => String(v.id) === String(selectedVariantId)) || (product.variants || [])[0]
+    : (product.variants || []).find(v => {
+        const colorMatch = !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase();
+        const sizeMatch = !selectedSize || String(v.size_name).toLowerCase() === String(selectedSize).toLowerCase();
+        return colorMatch && sizeMatch;
+      }) || (product.variants || []).find(v => !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase());
 
-  const salePrice = matchedVariant?.sale_price !== null && matchedVariant?.sale_price !== undefined
-    ? parseFloat(matchedVariant.sale_price)
-    : (typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0));
-
-  const mrp = matchedVariant?.mrp !== null && matchedVariant?.mrp !== undefined
-    ? parseFloat(matchedVariant.mrp)
-    : (typeof product.mrp === 'number' ? product.mrp : parseFloat(product.mrp || 0));
-
-  const hasSale = salePrice > 0 && salePrice < price;
-  const currentUnitPrice = hasSale ? salePrice : price;
+  const { price, salePrice, mrp, hasSale, unitPrice: currentUnitPrice } = getVariantPricing(matchedVariant, product);
   const totalPrice = (currentUnitPrice * qty).toFixed(2);
 
   const activeColorObj = (product.colors || []).find(c => c.name === selectedColor) || (product.colors && product.colors[0]);
-  const currentStock = activeColorObj?.stock_quantity !== undefined
-    ? activeColorObj.stock_quantity
-    : (product.variants?.[0]?.stock_quantity !== undefined ? product.variants[0].stock_quantity : 50);
+  const currentStock = matchedVariant?.stock_quantity !== undefined && matchedVariant?.stock_quantity !== null
+    ? Number(matchedVariant.stock_quantity)
+    : (activeColorObj?.stock_quantity !== undefined
+        ? activeColorObj.stock_quantity
+        : (product.variants?.[0]?.stock_quantity !== undefined ? product.variants[0].stock_quantity : 50));
   const isOutOfStock = currentStock <= 0;
+
+  const handleVariantSelect = (variant) => {
+    if (!variant) return;
+    setSelectedVariantId(variant.id);
+    setSelectedColor(variant.color_name || '');
+    const vSize = variant.size_name && variant.size_name.trim();
+    if (vSize && !/^(standard|one size)$/i.test(vSize)) {
+      setSelectedSize(vSize);
+    } else {
+      setSelectedSize('');
+    }
+    const targetImg = resolveVariantImage(variant, product);
+    if (targetImg) {
+      setActiveImage(targetImg);
+    }
+    setQty(1);
+  };
 
   const handleColorChange = (colorObj) => {
     if (!colorObj) return;
@@ -312,15 +353,28 @@ export default function ProductDetailPage({ params }) {
     setActiveImage(imgUrl);
     if (!product) return;
 
+    if (hasModels) {
+      const matchedModelVariant = (product.variants || []).find(
+        v => v.image_url === imgUrl || resolveVariantImage(v, product) === imgUrl
+      );
+      if (matchedModelVariant) {
+        setSelectedVariantId(matchedModelVariant.id);
+        setSelectedColor(matchedModelVariant.color_name || '');
+        const vSize = matchedModelVariant.size_name && matchedModelVariant.size_name.trim();
+        setSelectedSize(vSize && !/^(standard|one size)$/i.test(vSize) ? vSize : '');
+        return;
+      }
+    }
+
     // Auto-select corresponding color if this thumbnail belongs to a color variant
     const matchedColor = (product.colors || []).find(c => (c.img === imgUrl || c.image_url === imgUrl));
     if (matchedColor && matchedColor.name) {
       setSelectedColor(matchedColor.name);
       return;
     }
-    const matchedVariant = (product.variants || []).find(v => v.image_url === imgUrl);
-    if (matchedVariant && matchedVariant.color_name) {
-      setSelectedColor(matchedVariant.color_name);
+    const matchedVariantByImg = (product.variants || []).find(v => v.image_url === imgUrl);
+    if (matchedVariantByImg && matchedVariantByImg.color_name) {
+      setSelectedColor(matchedVariantByImg.color_name);
       return;
     }
     const matchedDetail = (product.images_detailed || []).find(img => img.image_url === imgUrl && img.color_name);
@@ -330,27 +384,36 @@ export default function ProductDetailPage({ params }) {
     }
   };
 
+  const buildCartItemOptions = () => {
+    const modelName = matchedVariant?.model_name ? String(matchedVariant.model_name).trim() : '';
+    const subLabel = matchedVariant ? getVariantSubLabel(matchedVariant) : '';
+    const variantInfo = [modelName, subLabel].filter(Boolean).join(' · ')
+      || [selectedColor && !/^standard$/i.test(selectedColor) ? selectedColor : null, selectedSize].filter(Boolean).join(' · ')
+      || selectedColor
+      || '';
+    return {
+      qty,
+      variant_id: matchedVariant?.id || null,
+      model_name: modelName,
+      sku: matchedVariant?.sku || '',
+      variant_info: variantInfo,
+      size: selectedSize,
+      color: selectedColor,
+      image: activeImage
+    };
+  };
+
   const handleAddToCart = () => {
     addToCart(
       { ...product, price, sale_price: salePrice, mrp },
-      {
-        qty,
-        size: selectedSize,
-        color: selectedColor,
-        image: activeImage
-      }
+      buildCartItemOptions()
     );
   };
 
   const handleBuyNow = () => {
     addToCart(
       { ...product, price, sale_price: salePrice, mrp },
-      {
-        qty,
-        size: selectedSize,
-        color: selectedColor,
-        image: activeImage
-      }
+      buildCartItemOptions()
     );
     router.push('/checkout');
   };
@@ -507,47 +570,99 @@ export default function ProductDetailPage({ params }) {
 
             <p className="pdp-description">{product.description || product.tagline || ''}</p>
 
-            {/* Colors */}
-            {product.colors && product.colors.length > 0 && (
+            {/* Model Number Variants (with respective image cards) */}
+            {hasModels ? (
               <div className="pdp-option-block">
                 <div className="pdp-option-title">
-                  Colour: <span>{selectedColor}</span>
+                  Model / Variant:{' '}
+                  <span>
+                    {getVariantDisplayLabel(matchedVariant)}
+                    {getVariantSubLabel(matchedVariant) ? ` · ${getVariantSubLabel(matchedVariant)}` : ''}
+                  </span>
                 </div>
-                <div className="pdp-color-swatches">
-                  {product.colors.map((c, i) => (
-                    <button
-                      key={c.name || i}
-                      type="button"
-                      className={`pdp-swatch ${selectedColor === c.name ? 'is-active' : ''}`}
-                      style={{ backgroundColor: c.hex }}
-                      onClick={() => handleColorChange(c)}
-                      aria-label={c.name}
-                      title={c.name}
-                    />
-                  ))}
+                <div className="pdp-model-grid">
+                  {(product.variants || []).map((v, vIdx) => {
+                    const isSelected = String(v.id) === String(matchedVariant?.id);
+                    const vImg = resolveVariantImage(v, product);
+                    const vLabel = getVariantDisplayLabel(v, vIdx);
+                    const vSub = getVariantSubLabel(v);
+                    const vStock = Number(v.stock_quantity ?? 0);
+                    const vPricing = getVariantPricing(v, product);
+                    return (
+                      <button
+                        key={v.id || vIdx}
+                        type="button"
+                        className={`pdp-model-card ${isSelected ? 'is-active' : ''} ${vStock <= 0 ? 'is-oos' : ''}`}
+                        onClick={() => handleVariantSelect(v)}
+                        aria-pressed={isSelected}
+                        title={`${vLabel}${vSub ? ` (${vSub})` : ''} — ₹${vPricing.unitPrice.toFixed(0)}`}
+                      >
+                        <div className="pdp-model-card__media">
+                          <img
+                            src={vImg}
+                            alt={vLabel}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = '/assets/brand-logo.png';
+                            }}
+                          />
+                          {vStock <= 0 && <span className="pdp-model-card__oos-tag">Out of stock</span>}
+                        </div>
+                        <div className="pdp-model-card__body">
+                          <span className="pdp-model-card__name">{vLabel}</span>
+                          {vSub && <span className="pdp-model-card__meta">{vSub}</span>}
+                          <span className="pdp-model-card__price">₹{vPricing.unitPrice.toFixed(0)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            )}
+            ) : (
+              <>
+                {/* Colors */}
+                {product.colors && product.colors.length > 0 && (
+                  <div className="pdp-option-block">
+                    <div className="pdp-option-title">
+                      Colour: <span>{selectedColor}</span>
+                    </div>
+                    <div className="pdp-color-swatches">
+                      {product.colors.map((c, i) => (
+                        <button
+                          key={c.name || i}
+                          type="button"
+                          className={`pdp-swatch ${selectedColor === c.name ? 'is-active' : ''}`}
+                          style={{ backgroundColor: c.hex }}
+                          onClick={() => handleColorChange(c)}
+                          aria-label={c.name}
+                          title={c.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-            {/* Sizes (Hidden if no size is specified in admin) */}
-            {product.sizes && product.sizes.filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size').length > 0 && (
-              <div className="pdp-option-block">
-                <div className="pdp-option-title">
-                  Size / Capacity: <span>{selectedSize}</span>
-                </div>
-                <div className="pdp-size-chips">
-                  {product.sizes.filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size').map((s, i) => (
-                    <button
-                      key={s || i}
-                      type="button"
-                      className={`pdp-size-btn ${selectedSize === s ? 'is-active' : ''}`}
-                      onClick={() => setSelectedSize(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                {/* Sizes (Hidden if no size is specified in admin) */}
+                {product.sizes && product.sizes.filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size').length > 0 && (
+                  <div className="pdp-option-block">
+                    <div className="pdp-option-title">
+                      Size / Capacity: <span>{selectedSize}</span>
+                    </div>
+                    <div className="pdp-size-chips">
+                      {product.sizes.filter(s => s && s.trim() && s.trim().toLowerCase() !== 'standard' && s.trim().toLowerCase() !== 'one size').map((s, i) => (
+                        <button
+                          key={s || i}
+                          type="button"
+                          className={`pdp-size-btn ${selectedSize === s ? 'is-active' : ''}`}
+                          onClick={() => setSelectedSize(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             <div className="pdp-stock-status">
@@ -559,9 +674,9 @@ export default function ProductDetailPage({ params }) {
               ></span>
               <span style={{ color: isOutOfStock ? '#ef4444' : currentStock <= 5 ? '#b45309' : 'inherit' }}>
                 {isOutOfStock
-                  ? 'Out of stock in this colour — Check other colours or back soon'
+                  ? `Out of stock in this ${hasModels ? 'model' : 'colour'} — Check other ${hasModels ? 'models' : 'colours'} or back soon`
                   : currentStock <= 5
-                  ? `Low stock — Only ${currentStock} left in this colour!`
+                  ? `Low stock — Only ${currentStock} left in this ${hasModels ? 'model' : 'colour'}!`
                   : `In stock (${currentStock} available) — Ready for prompt dispatch in 24 hours`}
               </span>
             </div>

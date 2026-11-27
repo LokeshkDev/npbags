@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProductCard } from '../product/ProductCard';
+import { expandProductsByModel } from '../../lib/variant-utils';
 
 export function DepartmentHubContent({
   gender, // 'women', 'men', 'kids'
@@ -83,7 +84,7 @@ export function DepartmentHubContent({
     }
     let isMounted = true;
     setLoadingProds(true);
-    fetch(`${apiBase}/products?category=${selectedCategorySlug}&gender=${gender}`)
+    fetch(`${apiBase}/products?category=${selectedCategorySlug}&gender=${gender}&limit=500`)
       .then(res => res.json())
       .then(json => {
         if (!isMounted) return;
@@ -163,10 +164,10 @@ export function DepartmentHubContent({
     });
   }, [departmentCategoryCards, categorySearch]);
 
-  // Sort products
+  // Sort products (expanded per model when model_name variants exist)
   const sortedProducts = useMemo(() => {
     if (!products || products.length === 0) return [];
-    const list = [...products];
+    const list = expandProductsByModel(products);
     if (sortBy === 'price_asc') {
       return list.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
     }
@@ -428,7 +429,7 @@ export function DepartmentHubContent({
                   <ProductCard
                     product={p}
                     index={idx}
-                    key={p.id}
+                    key={p._cardKey || p.id}
                     showRating={false}
                     isShop={true}
                     fullImage={true}

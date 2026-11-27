@@ -3795,7 +3795,7 @@ export default function AdminVendorsPage() {
                       fontSize: '11px',
                       fontWeight: 800
                     }}>
-                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 80×12mm (1-Up Barcode Tag W/O Folding)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
+                      {barcodeStickerFormat === 'jewellery_80x12' ? '💍 Jewellery 50×12mm (1-Up Barcode Tag W/O Folding)' : '🏷️ Normal 35×25mm (3-in-a-row roll)'}
                     </span>
                   </div>
 
@@ -3832,7 +3832,7 @@ export default function AdminVendorsPage() {
                         cursor: 'pointer'
                       }}
                     >
-                      <div style={{ fontWeight: 800, fontSize: '12px' }}>💍 Jewellery Tag (80×12mm · 1-Up)</div>
+                      <div style={{ fontWeight: 800, fontSize: '12px' }}>💍 Jewellery Tag (50×12mm · 1-Up)</div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                         NT W/O Folding tag with 3mm tail. 1D Barcode, MRP, Barcode & Arrival Code.
                       </div>

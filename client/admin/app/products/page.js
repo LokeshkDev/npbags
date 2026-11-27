@@ -3982,7 +3982,7 @@ export default function AdminProductsPage() {
                     color: barcodeStickerFormat === 'jewellery_80x12' ? '#065935' : '#475569'
                   }}
                 >
-                  💍 Jewellery Tag (80×12mm)
+                  💍 Jewellery Tag (50×12mm)
                 </button>
               </div>
 
@@ -4097,18 +4097,18 @@ export default function AdminProductsPage() {
                       {/* Left: Authentic Sticker Visual Preview */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
                         {barcodeStickerFormat === 'jewellery_80x12' ? (
-                          /* Jewellery 80x12mm Exact Physical Tag Preview */
-                          <div style={{ width: '280px', height: '46px', border: '1px solid #000', borderRadius: '3px', background: '#fff', display: 'flex', alignItems: 'stretch', boxSizing: 'border-box', flexShrink: 0, overflow: 'hidden' }}>
-                            {/* Flap 1 (~38%): Centered 1D Barcode + Arrival Code (if present) */}
-                            <div style={{ width: '38%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
+                          /* Jewellery 50x12mm Exact Physical Tag Preview */
+                          <div style={{ width: '220px', height: '52px', border: '1px solid #000', borderRadius: '3px', background: '#fff', display: 'flex', alignItems: 'stretch', boxSizing: 'border-box', flexShrink: 0, overflow: 'hidden' }}>
+                            {/* Flap 1 (44%): Centered 1D Barcode + Arrival Code (if present) */}
+                            <div style={{ width: '44%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 4px', borderRight: '1px dashed #cbd5e1' }}>
                               {arrivalCode && (
                                 <div style={{ fontSize: '7.5px', fontWeight: 900, color: '#000', textTransform: 'uppercase', marginBottom: '1px' }}>{arrivalCode}</div>
                               )}
                               <div style={{ width: '92%', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: b.svg || '' }} />
                             </div>
 
-                            {/* Flap 2 (~38%): Centered ◄ MRP:XXX + Barcode Number */}
-                            <div style={{ width: '38%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 4px', borderRight: '1px dashed #e2e8f0', textAlign: 'center' }}>
+                            {/* Flap 2 (44%): Centered ◄ MRP:XXX + Barcode Number */}
+                            <div style={{ width: '44%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 4px', borderRight: '1px dashed #e2e8f0', textAlign: 'center' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                                 <span style={{ fontSize: '6px', fontWeight: 900 }}>◄</span>
                                 <span style={{ fontSize: '9px', fontWeight: 900 }}>MRP:{Number(mrpVal).toLocaleString('en-IN')}</span>
@@ -4118,9 +4118,9 @@ export default function AdminProductsPage() {
                               </div>
                             </div>
 
-                            {/* Tail (~24%): 3mm Blank Stem */}
-                            <div style={{ width: '24%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
-                              <span style={{ fontSize: '6px', color: '#94a3b8', fontWeight: 600 }}>tail stem</span>
+                            {/* Tail (12%): Blank Stem */}
+                            <div style={{ width: '12%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
+                              <span style={{ fontSize: '5.5px', color: '#94a3b8', fontWeight: 600 }}>tail</span>
                             </div>
                           </div>
                         ) : (
@@ -4197,7 +4197,7 @@ export default function AdminProductsPage() {
                             {b.sku && ` · SKU: ${b.sku}`}
                           </div>
                           <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>
-                            Specs: {barcodeStickerFormat === 'jewellery_80x12' ? '80×12mm Jewellery Dumbbell Tag' : '35×25mm 3-in-a-row · 4.8mm Top Logo Gap'}
+                            Specs: {barcodeStickerFormat === 'jewellery_80x12' ? '50×12mm Jewellery Dumbbell Tag' : '35×25mm 3-in-a-row · 4.8mm Top Logo Gap'}
                           </div>
                         </div>
                       </div>

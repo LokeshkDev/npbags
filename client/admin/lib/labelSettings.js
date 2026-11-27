@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 /**
- * Shared, persisted settings for the 80×12mm jewellery tag print engine.
+ * Shared, persisted settings for the 50×12mm jewellery tag print engine.
  * Kept in localStorage so every print entry point (Barcodes, Products,
  * Vendors) uses the same calibration.
  */

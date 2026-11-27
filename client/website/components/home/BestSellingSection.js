@@ -1,31 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
-import { useCart } from '../../lib/cart-context';
-import { useWishlist } from '../../lib/wishlist-context';
+import { ProductCard } from '../product/ProductCard';
+import { expandProductsByModel } from '../../lib/variant-utils';
 
 export function BestSellingSection({ products: apiProducts = [] }) {
-  const { addToCart } = useCart();
-  const { isInWishlist, toggleWishlist } = useWishlist();
-
-  const products = (Array.isArray(apiProducts) && apiProducts.length > 0)
-    ? apiProducts.map((p, idx) => {
-        const rawImg = p.primary_image || (p.images && p.images[0]) || p.image || '/assets/brand-logo.png';
-        const ratingVal = p.rating ? Number(p.rating).toFixed(1) : '4.8';
-        return {
-          id: p.id,
-          name: p.name,
-          category_name: p.category_name || 'Accessories',
-          price: p.price,
-          rating: ratingVal,
-          reviews: `(${ratingVal})`,
-          image: rawImg,
-          primary_image: p.primary_image || rawImg,
-          slug: p.slug || p.id
-        };
-      })
-    : [];
+  const products = useMemo(() => {
+    if (!Array.isArray(apiProducts) || apiProducts.length === 0) return [];
+    return expandProductsByModel(apiProducts);
+  }, [apiProducts]);
 
   if (products.length === 0) return null;
 
@@ -46,44 +30,15 @@ export function BestSellingSection({ products: apiProducts = [] }) {
         </div>
 
         <div className="bestsellers-grid">
-          {products.map((product) => {
-            const isFav = isInWishlist(product.id);
-            return (
-              <article key={product.id} className="product-card">
-                <button
-                  type="button"
-                  className={`wishlist-btn ${isFav ? 'is-active' : ''}`}
-                  aria-label="Add to wishlist"
-                  suppressHydrationWarning
-                  onClick={() => toggleWishlist(product)}
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill={isFav ? '#c8102e' : 'none'} stroke={isFav ? '#c8102e' : '#111827'} strokeWidth="1.8">
-                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                  </svg>
-                </button>
-                <div className="product-media">
-                  <img src={product.image} alt={product.name} loading="lazy" />
-                </div>
-                <div className="product-info">
-                  <h3 className="product-title">
-                    <Link href={`/product/${product.slug || product.id}`}>{product.name}</Link>
-                  </h3>
-                  <div className="product-price">₹{Number(product.price).toLocaleString('en-IN')}</div>
-                  <div className="product-rating">
-                    <span className="rating-stars">★★★★★</span>
-                    <span className="rating-reviews">{product.reviews}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="add-cart-btn"
-                    onClick={() => addToCart(product, { qty: 1, image: product.primary_image || product.image })}
-                  >
-                    Add to Cart
-                  </button>
-                </div>
-              </article>
-            );
-          })}
+          {products.map((product, idx) => (
+            <ProductCard
+              key={product._cardKey || product.id}
+              product={product}
+              index={idx}
+              showRating={true}
+              fullImage={true}
+            />
+          ))}
         </div>
       </div>
     </section>

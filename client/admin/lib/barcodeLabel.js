@@ -352,7 +352,7 @@ export function renderJewellerySticker(item, options = {}) {
 export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = {}) {
   const list = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
   const stickerType = options.stickerType || options.type || 'normal_35x25';
-  const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery';
+  const isJewellery = stickerType === 'jewellery_80x12' || stickerType === 'jewellery_50x12' || stickerType === 'jewellery';
   const isToy = stickerType === 'toy';
   const settings = getLabelSettings();
   const rawOffsetY = options.jewelOffsetY !== undefined ? Number(options.jewelOffsetY) : settings.offsetY;
@@ -406,7 +406,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   if (isJewellery) {
     const stickers = stickerCards.join('');
     const totalContinuousHeightMm = (totalStickers * jewelleryPageHeightMm).toFixed(2);
-    const jewelleryPageSize = continuous ? `77.5mm ${totalContinuousHeightMm}mm` : `77.5mm ${jewelleryPageHeightMm}mm`;
+    const jewelleryPageSize = continuous ? `50mm ${totalContinuousHeightMm}mm` : `50mm ${jewelleryPageHeightMm}mm`;
     const listHeight = continuous ? `height:${totalContinuousHeightMm}mm; position:relative;` : '';
 
     return `
@@ -414,7 +414,7 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
 <html>
 <head>
 <meta charset="utf-8">
-<title>${options.title || 'Jewellery Barcode Tags'}</title>
+<title>${options.title || 'Jewellery Barcode Tags (50x12mm)'}</title>
 <style>
   @page {
     size: ${jewelleryPageSize};
@@ -422,22 +422,22 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   }
   @media print {
     @page { size: ${jewelleryPageSize}; margin: 0mm; }
-    html, body { margin:0 !important; padding:0 !important; width:77.5mm !important; }
+    html, body { margin:0 !important; padding:0 !important; width:50mm !important; }
   }
   * { color:#000 !important; -webkit-text-fill-color:#000 !important; box-sizing:border-box; margin:0; padding:0; }
   html, body {
     margin:0 !important; padding:0 !important;
-    width:77.5mm;
+    width:50mm;
     font-family:Arial,Helvetica,sans-serif;
     background:#ffffff;
     -webkit-print-color-adjust:exact !important;
     print-color-adjust:exact !important;
     font-weight:700;
   }
-  .jewel-sticker-list { display: block; width: 77.5mm; padding: 0; margin: 0; ${listHeight} }
+  .jewel-sticker-list { display: block; width: 50mm; padding: 0; margin: 0; ${listHeight} }
   .jewel-sticker-wrapper {
     display:block;
-    width:77.5mm;
+    width:50mm;
     height:${jewelleryPageHeightMm}mm;
     max-height:${jewelleryPageHeightMm}mm;
     overflow:hidden;
@@ -451,29 +451,29 @@ export async function buildStickerPrintHtml(items, copiesPerItem = 1, options = 
   }
   .jewel-sticker {
     display:flex; flex-direction:row; align-items:stretch;
-    width:77.5mm; height:12mm; overflow:hidden; margin:0; padding:0;
+    width:50mm; height:12mm; overflow:hidden; margin:0; padding:0;
   }
   .jewel-flap-1 {
-    flex:0 0 30mm; width:30mm; height:12mm;
+    flex:0 0 22mm; width:22mm; height:12mm;
     display:flex; align-items:center; justify-content:center;
     overflow:hidden; background:#ffffff; border-right:0.3mm solid #ccc;
   }
-  .jewel-barcode-box { width:28mm; height:10mm; display:flex; align-items:center; justify-content:center; }
+  .jewel-barcode-box { width:20.5mm; height:9.5mm; display:flex; align-items:center; justify-content:center; }
   .jewel-barcode-box svg { width:100% !important; height:100% !important; display:block; }
   .jewel-barcode-box svg rect { stroke:none !important; shape-rendering:crispEdges !important; }
   .jewel-flap-2 {
-    flex:0 0 30mm; width:30mm; height:12mm;
+    flex:0 0 22mm; width:22mm; height:12mm;
     display:flex; flex-direction:column; align-items:flex-start; justify-content:center;
-    padding:0 1.5mm; overflow:hidden; background:#ffffff;
+    padding:0 1mm; overflow:hidden; background:#ffffff;
   }
-  .jewel-mrp-row { font-size:9pt; font-weight:900; line-height:1.1; white-space:nowrap; letter-spacing:-0.3px; }
+  .jewel-mrp-row { font-size:7.8pt; font-weight:900; line-height:1.1; white-space:nowrap; letter-spacing:-0.3px; }
   .jewel-info-row {
-    font-size:6pt; font-weight:700; line-height:1.2; white-space:nowrap;
+    font-size:5.2pt; font-weight:700; line-height:1.2; white-space:nowrap;
     overflow:hidden; text-overflow:ellipsis; max-width:100%; margin-top:0.5mm;
-    display:flex; align-items:center; gap:1mm;
+    display:flex; align-items:center; gap:0.8mm;
   }
-  .jewel-name   { font-size:6pt; font-weight:700; }
-  .jewel-arrival{ font-size:5.5pt; font-weight:700; opacity:0.8; }
+  .jewel-name   { font-size:5.2pt; font-weight:700; }
+  .jewel-arrival{ font-size:4.8pt; font-weight:700; opacity:0.8; }
   .jewel-tail-zone { flex:1 1 auto; height:12mm; background:#ffffff; }
 </style>
 </head>
@@ -715,10 +715,10 @@ function renderCalibrationSticker(index, options = {}) {
   const wrapperStyle = continuous ? ` style="top:${(index * pitch).toFixed(3)}mm;"` : '';
   const num = index + 1;
 
-  // Horizontal ruler every 10mm across the 77.5mm width — verifies the print is
-  // not horizontally scaled (0mm must sit on the left edge, 77.5mm on the right).
+  // Horizontal ruler every 10mm across the 50mm width — verifies the print is
+  // not horizontally scaled (0mm must sit on the left edge, 50mm on the right).
   let xTicks = '';
-  for (let mm = 0; mm <= 70; mm += 10) {
+  for (let mm = 0; mm <= 40; mm += 10) {
     xTicks += `<div class="calib-xtick" style="left:${mm}mm;"><span>${mm}</span></div>`;
   }
   // Vertical ruler every 3mm down the 12mm height — verifies the feed/length.
@@ -736,7 +736,7 @@ function renderCalibrationSticker(index, options = {}) {
         <div class="calib-vline"></div>
         <div class="calib-center">
           <div class="calib-num">${num}</div>
-          <div class="calib-sub">80Ã—12mm Â· PITCH ${pitch}mm</div>
+          <div class="calib-sub">50×12mm · PITCH ${pitch}mm</div>
         </div>
       </div>
     </div>
@@ -759,7 +759,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
     .map((_, index) => renderCalibrationSticker(index, { continuous, pitchMm: pitch }))
     .join('');
 
-  const pageSize = continuous ? `77.5mm ${count * pitch}mm` : `77.5mm ${pitch}mm`;
+  const pageSize = continuous ? `50mm ${count * pitch}mm` : `50mm ${pitch}mm`;
   const listClass = `jewel-sticker-list${continuous ? ' jewel-continuous-list' : ''}`;
   const listHeight = continuous ? `height:${count * pitch}mm;` : '';
 
@@ -768,7 +768,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
 <html>
 <head>
 <meta charset="utf-8">
-<title>Jewellery Tag Calibration (77.5x12mm)</title>
+<title>Jewellery Tag Calibration (50x12mm)</title>
 <style>
   @page { size: ${pageSize}; margin: 0mm; }
   @media print { @page { size: ${pageSize}; margin: 0mm; } }
@@ -782,15 +782,15 @@ export function buildJewelleryCalibrationHtml(options = {}) {
   html, body {
     margin: 0 !important;
     padding: 0 !important;
-    width: 77.5mm;
+    width: 50mm;
     font-family: Arial, Helvetica, sans-serif;
     background: #ffffff;
   }
-  .jewel-sticker-list { display: block; width: 77.5mm; padding: 0; margin: 0; ${listHeight} }
+  .jewel-sticker-list { display: block; width: 50mm; padding: 0; margin: 0; ${listHeight} }
   .jewel-sticker-list.jewel-continuous-list { position: relative; }
   .jewel-sticker-wrapper {
     display: block;
-    width: 77.5mm;
+    width: 50mm;
     height: ${pitch}mm;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -815,12 +815,12 @@ export function buildJewelleryCalibrationHtml(options = {}) {
     page-break-after: auto;
     break-after: auto;
   }
-  /* Exact-size 80Ã—12mm calibration tag. The outer frame IS the real die-cut
+  /* Exact-size 50×12mm calibration tag. The outer frame IS the real die-cut
      edge — if it does not fill the physical tag, the printer scale is wrong.
      The rulers measure the print in millimetres on both axes. */
   .calib-sticker {
     position: relative;
-    width: 77.5mm;
+    width: 50mm;
     height: 12mm;
     transform: translate(${offsetX}mm, ${offsetY}mm);
     transform-origin: top left;
@@ -836,7 +836,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
   .calib-xruler {
     position: absolute;
     left: 0; top: 0;
-    width: 77.5mm; height: 4.4mm;
+    width: 50mm; height: 4.4mm;
     border-bottom: 0.2mm solid #000000;
   }
   .calib-xtick {
@@ -892,7 +892,7 @@ export function buildJewelleryCalibrationHtml(options = {}) {
   .calib-sub { font-size: 4.8pt; font-weight: 800; line-height: 1; letter-spacing: 0.2px; }
   .calib-vline {
     position: absolute;
-    left: 40mm; top: 4.4mm; bottom: 0;
+    left: 25mm; top: 4.4mm; bottom: 0;
     border-left: 0.15mm dashed #000000;
     opacity: 0.5;
   }
@@ -936,7 +936,7 @@ export async function printBarcodeLabels(items, copiesPerItem = 1, options = {})
   }
   if (typeof window === 'undefined') return false;
 
-  const isJewellery = options.stickerType === 'jewellery_80x12' || options.stickerType === 'jewellery';
+  const isJewellery = options.stickerType === 'jewellery_80x12' || options.stickerType === 'jewellery_50x12' || options.stickerType === 'jewellery';
   const html = await buildStickerPrintHtml(list, copiesPerItem, options);
   return openAndPrintHtml(html, {
     width: isJewellery ? 700 : 750,

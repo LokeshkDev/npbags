@@ -1,14 +1,18 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ProductCard } from '../product/ProductCard';
+import { expandProductsByModel } from '../../lib/variant-utils';
 
 export function ProductSection({ data, products = [] }) {
   const trackRef = useRef(null);
   const [activeDot, setActiveDot] = useState(0);
 
-  const displayProducts = products.slice(0, data?.maxProducts || 6);
+  const displayProducts = useMemo(
+    () => expandProductsByModel(products).slice(0, data?.maxProducts || 12),
+    [products, data?.maxProducts]
+  );
 
   const scroll = (direction) => {
     if (!trackRef.current) return;
@@ -77,7 +81,7 @@ export function ProductSection({ data, products = [] }) {
             style={{ overflowX: 'auto', scrollBehavior: 'smooth' }}
           >
             {displayProducts.map((p, idx) => (
-              <ProductCard product={p} index={idx} key={p.id} />
+              <ProductCard product={p} index={idx} key={p._cardKey || p.id} />
             ))}
           </div>
 

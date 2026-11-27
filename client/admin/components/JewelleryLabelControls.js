@@ -34,7 +34,7 @@ function StepButton({ active, onClick, children }) {
 }
 
 /**
- * Shared 80×12mm jewellery tag calibration panel.
+ * Shared 50×12mm jewellery tag calibration panel.
  * Used by Barcodes, Products and Vendors so every print entry point shares
  * the same pitch / offset / continuous-strip settings.
  */

@@ -301,6 +301,10 @@ export default function CheckoutPage() {
         },
         items: cart.map(item => ({
           product_id: item.id,
+          variant_id: item.variant_id || null,
+          model_name: item.model_name || null,
+          sku: item.sku || null,
+          variant_info: item.variant_info || null,
           name: item.name,
           price: item.price,
           qty: item.qty,

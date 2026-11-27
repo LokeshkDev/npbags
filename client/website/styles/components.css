@@ -1472,6 +1472,109 @@
   color: #fff;
 }
 
+/* QuickView Model Cards */
+.qv-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+  max-height: 185px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.qv-model-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 8px;
+  border: 1.5px solid #e2ddd5;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.qv-model-card:hover {
+  border-color: var(--brand-green, #065935);
+}
+.qv-model-card.is-active {
+  border-color: var(--brand-green, #065935);
+  background: #f2f9f5;
+  box-shadow: 0 0 0 2px rgba(6, 89, 53, 0.16);
+}
+.qv-model-card.is-oos {
+  opacity: 0.55;
+}
+.qv-model-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 5px;
+  background: #f6f3ef;
+}
+.qv-model-card__name {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ProductCard Compact Model Chips */
+.product-card__models {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.product-card__model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 2px;
+  border-radius: 6px;
+  border: 1px solid #e5e0d8;
+  background: #ffffff;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #374151;
+  cursor: pointer;
+  max-width: 90px;
+  transition: all 0.18s ease;
+}
+.product-card__model-chip:hover {
+  border-color: var(--brand-green, #065935);
+}
+.product-card__model-chip.is-active {
+  border-color: var(--brand-green, #065935);
+  background: #eff7f2;
+  color: var(--brand-green-dark, #065935);
+  box-shadow: 0 0 0 1px rgba(6, 89, 53, 0.25);
+}
+.product-card__model-chip img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.product-card__model-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.product-card__model-more {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--brand-green-dark, #065935);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  text-decoration: none;
+}
+
 /* Quantity + Add */
 .qv-actions-row { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
 .qv-qty {

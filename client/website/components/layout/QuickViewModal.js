@@ -6,6 +6,13 @@ import { Icon } from '../common/Icons';
 import { useQuickView } from '../../lib/quickview-context';
 import { useCart } from '../../lib/cart-context';
 import { useWishlist } from '../../lib/wishlist-context';
+import {
+  hasProductModelVariants,
+  resolveVariantImage,
+  getVariantDisplayLabel,
+  getVariantSubLabel,
+  getVariantPricing
+} from '../../lib/variant-utils';
 
 export function QuickViewModal() {
   const { selectedProduct: product, closeQuickView } = useQuickView();
@@ -13,18 +20,32 @@ export function QuickViewModal() {
   const { toggleWishlist, isInWishlist } = useWishlist();
 
   const [activeImage, setActiveImage] = useState('');
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
   const [qty, setQty] = useState(1);
 
   useEffect(() => {
     if (product) {
-      const firstColor = product.colors && product.colors[0];
-      const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
-      const defaultImg = firstColorImg || product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || '';
-      setActiveImage(defaultImg);
-      setSelectedColor(firstColor ? firstColor.name : '');
-      setSelectedSize(product.sizes && product.sizes[0] ? product.sizes[0] : 'Standard');
+      if (hasProductModelVariants(product)) {
+        const initialVariant =
+          product._preselectedVariant ||
+          (product.variants || []).find(v => (Number(v.stock_quantity) || 0) > 0) ||
+          (product.variants || [])[0];
+        setSelectedVariantId(initialVariant?.id ?? null);
+        setSelectedColor(initialVariant?.color_name || '');
+        const vSize = initialVariant?.size_name ? initialVariant.size_name.trim() : '';
+        setSelectedSize(vSize && !/^(standard|one size)$/i.test(vSize) ? vSize : '');
+        setActiveImage(resolveVariantImage(initialVariant, product));
+      } else {
+        setSelectedVariantId(null);
+        const firstColor = product.colors && product.colors[0];
+        const firstColorImg = (firstColor && (firstColor.img || firstColor.image_url)) || null;
+        const defaultImg = firstColorImg || product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || '';
+        setActiveImage(defaultImg);
+        setSelectedColor(firstColor ? firstColor.name : '');
+        setSelectedSize(product.sizes && product.sizes[0] ? product.sizes[0] : 'Standard');
+      }
       setQty(1);
     }
   }, [product]);
@@ -57,23 +78,32 @@ export function QuickViewModal() {
 
   if (!product) return null;
 
-  const matchedVariant = (product.variants || []).find(v => !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase());
-  const price = matchedVariant?.price !== null && matchedVariant?.price !== undefined
-    ? parseFloat(matchedVariant.price)
-    : (typeof product.price === 'number' ? product.price : parseFloat(product.price || 0));
-  const salePrice = matchedVariant?.sale_price !== null && matchedVariant?.sale_price !== undefined
-    ? parseFloat(matchedVariant.sale_price)
-    : (typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0));
-  const mrp = matchedVariant?.mrp !== null && matchedVariant?.mrp !== undefined
-    ? parseFloat(matchedVariant.mrp)
-    : (typeof product.mrp === 'number' ? product.mrp : parseFloat(product.mrp || 0));
-  const hasSale = salePrice > 0 && salePrice < price;
+  const hasModels = hasProductModelVariants(product);
+
+  const matchedVariant = hasModels
+    ? (product.variants || []).find(v => String(v.id) === String(selectedVariantId)) || (product.variants || [])[0]
+    : (product.variants || []).find(v => !selectedColor || String(v.color_name).toLowerCase() === String(selectedColor).toLowerCase());
+
+  const { price, salePrice, mrp, hasSale, unitPrice: currentUnitPrice } = getVariantPricing(matchedVariant, product);
 
   const activeColorObj = (product.colors || []).find(c => c.name === selectedColor) || (product.colors && product.colors[0]);
-  const currentStock = activeColorObj?.stock_quantity !== undefined
-    ? activeColorObj.stock_quantity
-    : (product.variants?.[0]?.stock_quantity !== undefined ? product.variants[0].stock_quantity : 50);
+  const currentStock = matchedVariant?.stock_quantity !== undefined && matchedVariant?.stock_quantity !== null
+    ? Number(matchedVariant.stock_quantity)
+    : (activeColorObj?.stock_quantity !== undefined
+        ? activeColorObj.stock_quantity
+        : (product.variants?.[0]?.stock_quantity !== undefined ? product.variants[0].stock_quantity : 50));
   const isOutOfStock = currentStock <= 0;
+
+  const handleVariantSelect = (variant) => {
+    if (!variant) return;
+    setSelectedVariantId(variant.id);
+    setSelectedColor(variant.color_name || '');
+    const vSize = variant.size_name ? variant.size_name.trim() : '';
+    setSelectedSize(vSize && !/^(standard|one size)$/i.test(vSize) ? vSize : '');
+    const targetImg = resolveVariantImage(variant, product);
+    if (targetImg) setActiveImage(targetImg);
+    setQty(1);
+  };
 
   const handleColorChange = (colorObj) => {
     if (!colorObj) return;
@@ -115,14 +145,27 @@ export function QuickViewModal() {
     setActiveImage(imgUrl);
     if (!product) return;
 
+    if (hasModels) {
+      const matchedModelVariant = (product.variants || []).find(
+        v => v.image_url === imgUrl || resolveVariantImage(v, product) === imgUrl
+      );
+      if (matchedModelVariant) {
+        setSelectedVariantId(matchedModelVariant.id);
+        setSelectedColor(matchedModelVariant.color_name || '');
+        const vSize = matchedModelVariant.size_name ? matchedModelVariant.size_name.trim() : '';
+        setSelectedSize(vSize && !/^(standard|one size)$/i.test(vSize) ? vSize : '');
+        return;
+      }
+    }
+
     const matchedColor = (product.colors || []).find(c => (c.img === imgUrl || c.image_url === imgUrl));
     if (matchedColor && matchedColor.name) {
       setSelectedColor(matchedColor.name);
       return;
     }
-    const matchedVariant = (product.variants || []).find(v => v.image_url === imgUrl);
-    if (matchedVariant && matchedVariant.color_name) {
-      setSelectedColor(matchedVariant.color_name);
+    const matchedVariantByImg = (product.variants || []).find(v => v.image_url === imgUrl);
+    if (matchedVariantByImg && matchedVariantByImg.color_name) {
+      setSelectedColor(matchedVariantByImg.color_name);
       return;
     }
     const matchedDetail = (product.images_detailed || []).find(img => img.image_url === imgUrl && img.color_name);
@@ -134,10 +177,20 @@ export function QuickViewModal() {
 
   const handleAdd = () => {
     if (isOutOfStock) return;
+    const modelName = matchedVariant?.model_name ? String(matchedVariant.model_name).trim() : '';
+    const subLabel = matchedVariant ? getVariantSubLabel(matchedVariant) : '';
+    const variantInfo = [modelName, subLabel].filter(Boolean).join(' · ')
+      || [selectedColor && !/^standard$/i.test(selectedColor) ? selectedColor : null, selectedSize].filter(Boolean).join(' · ')
+      || selectedColor
+      || '';
     addToCart(
       { ...product, price, sale_price: salePrice, mrp },
       {
         qty,
+        variant_id: matchedVariant?.id || null,
+        model_name: modelName,
+        sku: matchedVariant?.sku || '',
+        variant_info: variantInfo,
         size: selectedSize,
         color: selectedColor,
         image: activeImage
@@ -199,51 +252,93 @@ export function QuickViewModal() {
               </div>
 
               <div className="qv-price-wrap">
-                <span className="qv-price">₹{(hasSale ? salePrice : price).toFixed(2)}</span>
+                <span className="qv-price">₹{currentUnitPrice.toFixed(2)}</span>
                 {hasSale && <span className="qv-price-del">₹{price.toFixed(2)}</span>}
                 {hasSale && <span className="qv-badge-sale">SAVE {Math.round(((price - salePrice) / price) * 100)}%</span>}
               </div>
 
               <p className="qv-description">{product.tagline || product.description || ''}</p>
 
-              {product.colors && product.colors.length > 0 && (
+              {hasModels ? (
                 <div className="qv-option-group">
                   <div className="qv-option-label">
-                    Colour: <span id="qv-active-color-txt">{selectedColor}</span>
+                    Model / Variant:{' '}
+                    <span>
+                      {getVariantDisplayLabel(matchedVariant)}
+                      {getVariantSubLabel(matchedVariant) ? ` · ${getVariantSubLabel(matchedVariant)}` : ''}
+                    </span>
                   </div>
-                  <div className="qv-colors" id="qv-swatches">
-                    {product.colors.map((c, i) => (
-                      <button
-                        key={c.name || i}
-                        type="button"
-                        className={`qv-color-swatch ${selectedColor === c.name ? 'is-active' : ''}`}
-                        style={{ backgroundColor: c.hex }}
-                        onClick={() => handleColorChange(c)}
-                        aria-label={c.name}
-                      />
-                    ))}
+                  <div className="qv-model-grid">
+                    {(product.variants || []).map((v, vIdx) => {
+                      const isSelected = String(v.id) === String(matchedVariant?.id);
+                      const vImg = resolveVariantImage(v, product);
+                      const vLabel = getVariantDisplayLabel(v, vIdx);
+                      const vSub = getVariantSubLabel(v);
+                      const vStock = Number(v.stock_quantity ?? 0);
+                      return (
+                        <button
+                          key={v.id || vIdx}
+                          type="button"
+                          className={`qv-model-card ${isSelected ? 'is-active' : ''} ${vStock <= 0 ? 'is-oos' : ''}`}
+                          onClick={() => handleVariantSelect(v)}
+                          title={`${vLabel}${vSub ? ` (${vSub})` : ''}`}
+                        >
+                          <img
+                            src={vImg}
+                            alt={vLabel}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = '/assets/brand-logo.png';
+                            }}
+                          />
+                          <span className="qv-model-card__name">{vLabel}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  {product.colors && product.colors.length > 0 && (
+                    <div className="qv-option-group">
+                      <div className="qv-option-label">
+                        Colour: <span id="qv-active-color-txt">{selectedColor}</span>
+                      </div>
+                      <div className="qv-colors" id="qv-swatches">
+                        {product.colors.map((c, i) => (
+                          <button
+                            key={c.name || i}
+                            type="button"
+                            className={`qv-color-swatch ${selectedColor === c.name ? 'is-active' : ''}`}
+                            style={{ backgroundColor: c.hex }}
+                            onClick={() => handleColorChange(c)}
+                            aria-label={c.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              {product.sizes && product.sizes.length > 0 && (
-                <div className="qv-option-group">
-                  <div className="qv-option-label">
-                    Size: <span id="qv-active-size-txt">{selectedSize}</span>
-                  </div>
-                  <div className="qv-sizes" id="qv-size-chips">
-                    {product.sizes.map((s, i) => (
-                      <button
-                        key={s || i}
-                        type="button"
-                        className={`qv-size-chip ${selectedSize === s ? 'is-active' : ''}`}
-                        onClick={() => setSelectedSize(s)}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  {product.sizes && product.sizes.length > 0 && (
+                    <div className="qv-option-group">
+                      <div className="qv-option-label">
+                        Size: <span id="qv-active-size-txt">{selectedSize}</span>
+                      </div>
+                      <div className="qv-sizes" id="qv-size-chips">
+                        {product.sizes.map((s, i) => (
+                          <button
+                            key={s || i}
+                            type="button"
+                            className={`qv-size-chip ${selectedSize === s ? 'is-active' : ''}`}
+                            onClick={() => setSelectedSize(s)}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', margin: '4px 0 12px' }}>

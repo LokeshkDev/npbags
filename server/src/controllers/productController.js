@@ -240,14 +240,26 @@ async function getAllProducts(req, res, next) {
     }
 
     if (search) {
-      const term = `%${search}%`;
+      const term = `%${String(search).trim()}%`;
       sql += ` AND (
-        p.name LIKE ? OR p.tagline LIKE ? OR p.description LIKE ?
-        OR p.brand LIKE ? OR p.barcode_short_name LIKE ? OR c.name LIKE ?
-        OR EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND pb.barcode LIKE ?)
-        OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.sku LIKE ?)
+        LOWER(COALESCE(p.name, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.slug, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.tagline, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.description, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.brand, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.barcode_short_name, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(c.name, '')) LIKE LOWER(?)
+        OR EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND LOWER(pb.barcode) LIKE LOWER(?))
+        OR EXISTS (
+          SELECT 1 FROM product_variants pv
+          WHERE pv.product_id = p.id AND (
+            LOWER(COALESCE(pv.sku, '')) LIKE LOWER(?)
+            OR LOWER(COALESCE(pv.model_name, '')) LIKE LOWER(?)
+            OR LOWER(COALESCE(pv.color_name, '')) LIKE LOWER(?)
+          )
+        )
       )`;
-      params.push(term, term, term, term, term, term, term, term);
+      params.push(term, term, term, term, term, term, term, term, term, term, term);
     }
 
     // Sorting
@@ -268,29 +280,67 @@ async function getAllProducts(req, res, next) {
         sql += ` ORDER BY p.is_featured DESC, p.created_at DESC`;
     }
 
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const parsedLimit = Math.min(1000, Math.max(1, parseInt(limit, 10) || 24));
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const offset = (parsedPage - 1) * parsedLimit;
     sql += ` LIMIT ? OFFSET ?`;
-    params.push(parseInt(limit, 10), offset);
+    params.push(parsedLimit, offset);
 
     const products = await query(sql, params);
 
-    // Fetch primary images and images for each product
+    // Batch fetch images and variants across all returned products to eliminate N+1 DB round-trips
+    const imagesByProd = new Map();
+    const variantsByProd = new Map();
+    if (products.length > 0) {
+      const prodIds = products.map(p => p.id);
+      const idPlaceholders = prodIds.map(() => '?').join(',');
+      const [allImages, allVariants] = await Promise.all([
+        query(
+          `SELECT id, product_id, image_url, color_name, is_primary, display_order FROM product_images WHERE product_id IN (${idPlaceholders}) ORDER BY is_primary DESC, display_order ASC, id ASC`,
+          prodIds
+        ),
+        query(
+          `SELECT pv.id, pv.product_id, pv.color_name, pv.color_hex, pv.model_name, pv.size_name, pv.stock_quantity, pv.purchase_price, pv.price, pv.sale_price, pv.mrp, pv.sku, pv.image_url,
+                  (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
+           FROM product_variants pv
+           WHERE pv.product_id IN (${idPlaceholders})`,
+          prodIds
+        )
+      ]);
+      for (const img of allImages) {
+        if (!imagesByProd.has(img.product_id)) imagesByProd.set(img.product_id, []);
+        imagesByProd.get(img.product_id).push(img);
+      }
+      for (const v of allVariants) {
+        if (!variantsByProd.has(v.product_id)) variantsByProd.set(v.product_id, []);
+        variantsByProd.get(v.product_id).push(v);
+      }
+    }
+
+    // Attach primary images, images, and variants for each product
     for (const prod of products) {
-      const images = await query(
-        `SELECT id, image_url, color_name, is_primary, display_order FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, display_order ASC, id ASC`,
-        [prod.id]
-      );
+      const images = imagesByProd.get(prod.id) || [];
       prod.images = images.map(img => img.image_url);
       prod.primary_image = images.length > 0 ? images[0].image_url : null;
       prod.images_detailed = images;
 
-      const variants = await query(
-        `SELECT pv.id, pv.color_name, pv.color_hex, pv.model_name, pv.size_name, pv.stock_quantity, pv.purchase_price, pv.price, pv.sale_price, pv.mrp, pv.sku, pv.image_url,
-                (SELECT barcode FROM product_barcodes WHERE variant_id = pv.id AND status = 'active' LIMIT 1) AS barcode
-         FROM product_variants pv
-         WHERE pv.product_id = ?`,
-        [prod.id]
-      );
+      const variants = variantsByProd.get(prod.id) || [];
+
+      // Resolve fallback image for each variant from product_images if variant.image_url is blank
+      variants.forEach(v => {
+        if (!v.image_url || !String(v.image_url).trim()) {
+          const matchedImg = images.find(img =>
+            img.color_name && (
+              (v.model_name && img.color_name.trim().toLowerCase() === v.model_name.trim().toLowerCase()) ||
+              (v.color_name && v.color_name.trim().toLowerCase() !== 'standard' && img.color_name.trim().toLowerCase() === v.color_name.trim().toLowerCase())
+            )
+          );
+          if (matchedImg && matchedImg.image_url) {
+            v.image_url = matchedImg.image_url;
+          }
+        }
+      });
+
       prod.variants = variants;
 
       // Fallback primary_image from variants if product_images has no rows
@@ -418,6 +468,21 @@ async function getProductByIdentifier(req, res, next, { includeOffline = false }
        WHERE product_id = ?`,
       [product.id]
     );
+
+    // Resolve fallback image for each variant from product_images if variant.image_url is blank
+    variants.forEach(v => {
+      if (!v.image_url || !String(v.image_url).trim()) {
+        const matchedImg = images.find(img =>
+          img.color_name && (
+            (v.model_name && img.color_name.trim().toLowerCase() === v.model_name.trim().toLowerCase()) ||
+            (v.color_name && v.color_name.trim().toLowerCase() !== 'standard' && img.color_name.trim().toLowerCase() === v.color_name.trim().toLowerCase())
+          )
+        );
+        if (matchedImg && matchedImg.image_url) {
+          v.image_url = matchedImg.image_url;
+        }
+      }
+    });
 
     // Attach allocated branch stocks for each variant
     try {
@@ -998,7 +1063,7 @@ async function updateProduct(req, res, next) {
          category_id = COALESCE(?, category_id),
          price = COALESCE(?, price),
          sale_price = COALESCE(?, sale_price),
-         badge = ?,
+         badge = IF(? IS NOT NULL, ?, badge),
          tagline = COALESCE(?, tagline),
          description = COALESCE(?, description),
          features = COALESCE(?, features),
@@ -1036,7 +1101,8 @@ async function updateProduct(req, res, next) {
         category_id || null,
         price ? parseFloat(price) : null,
         sale_price !== undefined ? parseFloat(sale_price) : null,
-        badge !== undefined ? badge : null,
+        badge !== undefined ? 1 : null,
+        badge !== undefined ? (badge || null) : null,
         tagline || null,
         description || null,
         features ? (typeof features === 'string' ? features : JSON.stringify(features)) : null,

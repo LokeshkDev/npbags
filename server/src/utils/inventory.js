@@ -18,6 +18,7 @@ async function deductInventoryForOrder(items = [], reference = '', pool) {
     const productName = (item.product_name || item.name || '').trim();
     const size = item.size || item.size_name || null;
     const color = item.color || item.color_name || null;
+    const modelName = item.model_name || item.model || null;
 
     try {
       let targetProduct = null;
@@ -43,8 +44,9 @@ async function deductInventoryForOrder(items = [], reference = '', pool) {
       const variants = await pool.query('SELECT * FROM product_variants WHERE product_id = ?', [pId]);
       if (variants && variants.length > 0) {
         let targetVariant = (variantId && variants.find(v => String(v.id) === String(variantId)))
+          || (sku && variants.find(v => v.sku === sku))
+          || (modelName && variants.find(v => v.model_name && String(v.model_name).trim().toLowerCase() === String(modelName).trim().toLowerCase()))
           || variants.find(v => {
-          if (sku && v.sku === sku) return true;
           if (size && color && String(v.size_name).toLowerCase() === String(size).toLowerCase() && String(v.color_name).toLowerCase() === String(color).toLowerCase()) return true;
           if (size && String(v.size_name).toLowerCase() === String(size).toLowerCase()) return true;
           return false;
@@ -116,6 +118,7 @@ async function restoreInventoryForOrder(items = [], reference = '', pool) {
     const productName = (item.product_name || item.name || '').trim();
     const size = item.size || item.size_name || null;
     const color = item.color || item.color_name || null;
+    const modelName = item.model_name || item.model || null;
 
     try {
       let targetProduct = null;
@@ -138,8 +141,9 @@ async function restoreInventoryForOrder(items = [], reference = '', pool) {
       const variants = await pool.query('SELECT * FROM product_variants WHERE product_id = ?', [pId]);
       if (variants && variants.length > 0) {
         let targetVariant = (variantId && variants.find(v => String(v.id) === String(variantId)))
+          || (sku && variants.find(v => v.sku === sku))
+          || (modelName && variants.find(v => v.model_name && String(v.model_name).trim().toLowerCase() === String(modelName).trim().toLowerCase()))
           || variants.find(v => {
-          if (sku && v.sku === sku) return true;
           if (size && color && String(v.size_name).toLowerCase() === String(size).toLowerCase() && String(v.color_name).toLowerCase() === String(color).toLowerCase()) return true;
           if (size && String(v.size_name).toLowerCase() === String(size).toLowerCase()) return true;
           return false;

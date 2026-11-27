@@ -1,10 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useCart } from '../../lib/cart-context';
 import { useWishlist } from '../../lib/wishlist-context';
 import { useQuickView } from '../../lib/quickview-context';
+import {
+  hasProductModelVariants,
+  resolveVariantImage,
+  getVariantDisplayLabel,
+  getVariantSubLabel,
+  getVariantPricing
+} from '../../lib/variant-utils';
 
 export function ProductCard({
   product,
@@ -17,13 +24,42 @@ export function ProductCard({
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { openQuickView } = useQuickView();
 
-  const mainImg = product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || (product.colors && product.colors[0]?.img) || product.image || '/assets/brand-logo.png';
-  const price = typeof product.price === 'number' ? product.price : parseFloat(product.price || 0);
-  const salePrice = typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0);
-  const hasSale = salePrice > 0 && salePrice < price;
+  const preselected = product._preselectedVariant || null;
+  const hasModels = !preselected && hasProductModelVariants(product);
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const defaultVariant = preselected || (hasModels
+    ? (variants.find(v => (Number(v.stock_quantity) || 0) > 0) || variants[0])
+    : null);
+
+  const [selectedVariantId, setSelectedVariantId] = useState(defaultVariant?.id ?? null);
+
+  const activeVariant = preselected || (hasModels
+    ? (variants.find(v => String(v.id) === String(selectedVariantId)) || defaultVariant)
+    : null);
+
+  const detailHref = activeVariant
+    ? `/product/${product.slug || product.id}?model=${encodeURIComponent(activeVariant.model_name || activeVariant.id)}`
+    : `/product/${product.slug || product.id}`;
+
+  const fallbackImg = product.primary_image || (product.gallery && product.gallery[0]) || (product.images && product.images[0]) || (product.colors && product.colors[0]?.img) || product.image || '/assets/brand-logo.png';
+  const mainImg = activeVariant ? resolveVariantImage(activeVariant, product) : fallbackImg;
+
+  const { price, salePrice, mrp, hasSale, unitPrice } = activeVariant
+    ? getVariantPricing(activeVariant, product)
+    : {
+        price: typeof product.price === 'number' ? product.price : parseFloat(product.price || 0),
+        salePrice: typeof product.sale_price === 'number' ? product.sale_price : parseFloat(product.sale_price || 0),
+        mrp: typeof product.mrp === 'number' ? product.mrp : parseFloat(product.mrp || 0),
+        hasSale: (parseFloat(product.sale_price || 0) > 0 && parseFloat(product.sale_price || 0) < parseFloat(product.price || 0)),
+        unitPrice: (parseFloat(product.sale_price || 0) > 0 && parseFloat(product.sale_price || 0) < parseFloat(product.price || 0))
+          ? parseFloat(product.sale_price || 0)
+          : parseFloat(product.price || 0)
+      };
 
   const inWish = isInWishlist(product.id);
   const ratingVal = product.rating ? Number(product.rating).toFixed(1) : '4.8';
+  const visibleModelVariants = variants.slice(0, 4);
+  const extraModelCount = Math.max(0, variants.length - visibleModelVariants.length);
 
   return (
     <article
@@ -72,7 +108,7 @@ export function ProductCard({
         className="product-media"
         style={fullImage || isShop ? { background: '#ffffff', padding: '6px' } : undefined}
       >
-        <Link href={`/product/${product.slug || product.id}`} className="product-card__img-link" aria-label={`View details for ${product.name}`}>
+        <Link href={detailHref} className="product-card__img-link" aria-label={`View details for ${product.name}`}>
           {mainImg ? (
             <img
               src={mainImg}
@@ -94,11 +130,49 @@ export function ProductCard({
       {/* Product Info */}
       <div className="product-info">
         <h3 className="product-title">
-          <Link href={`/product/${product.slug || product.id}`}>{product.name}</Link>
+          <Link href={detailHref}>{product.name}</Link>
         </h3>
+
+        {hasModels && visibleModelVariants.length > 0 && (
+          <div className="product-card__models" aria-label="Available models">
+            {visibleModelVariants.map((v, vIdx) => {
+              const isSelected = String(v.id) === String(activeVariant?.id);
+              const vImg = resolveVariantImage(v, product);
+              const vLabel = getVariantDisplayLabel(v, vIdx);
+              return (
+                <button
+                  key={v.id || vIdx}
+                  type="button"
+                  className={`product-card__model-chip ${isSelected ? 'is-active' : ''}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedVariantId(v.id);
+                  }}
+                  title={vLabel}
+                >
+                  <img
+                    src={vImg}
+                    alt={vLabel}
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = '/assets/brand-logo.png';
+                    }}
+                  />
+                  <span>{vLabel}</span>
+                </button>
+              );
+            })}
+            {extraModelCount > 0 && (
+              <Link href={`/product/${product.slug || product.id}`} className="product-card__model-more">
+                +{extraModelCount}
+              </Link>
+            )}
+          </div>
+        )}
         
         <div className="product-price">
-          <span>₹{hasSale ? salePrice.toFixed(2) : price.toFixed(2)}</span>
+          <span>₹{unitPrice.toFixed(2)}</span>
           {hasSale && <del style={{ color: '#9a9a9a', fontSize: '13px', fontWeight: 400, marginLeft: '6px' }}>₹{price.toFixed(2)}</del>}
         </div>
 
@@ -113,7 +187,28 @@ export function ProductCard({
         <button
           type="button"
           className="add-cart-btn"
-          onClick={() => addToCart(product, { qty: 1, image: mainImg })}
+          onClick={() => {
+            if (activeVariant) {
+              const modelName = activeVariant.model_name ? String(activeVariant.model_name).trim() : '';
+              const subLabel = getVariantSubLabel(activeVariant);
+              const variantInfo = [modelName, subLabel].filter(Boolean).join(' · ') || activeVariant.color_name || '';
+              addToCart(
+                { ...product, name: product._baseProductName || product.name, price, sale_price: salePrice, mrp },
+                {
+                  qty: 1,
+                  variant_id: activeVariant.id,
+                  model_name: modelName,
+                  sku: activeVariant.sku || '',
+                  variant_info: variantInfo,
+                  color: activeVariant.color_name || '',
+                  size: activeVariant.size_name && !/^(standard|one size)$/i.test(activeVariant.size_name) ? activeVariant.size_name : '',
+                  image: mainImg
+                }
+              );
+            } else {
+              addToCart(product, { qty: 1, image: mainImg });
+            }
+          }}
         >
           Add to Cart
         </button>
