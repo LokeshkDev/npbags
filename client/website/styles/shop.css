@@ -1121,3 +1121,181 @@
   }
 }
 
+/* =========================================================
+   Mobile & Tablet Blinkit / Amazon Clean Product Card UI
+   Strictly: Product Image, Title (with model if added),
+   Price (with strike-through if offer), Add to Cart button
+   ========================================================= */
+@media (max-width: 1024px) {
+  .bestsellers-grid,
+  .product-grid:not(.arrivals-carousel-track) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  .product-card,
+  .shop-grid .product-card,
+  .product-card--shop {
+    background: #ffffff !important;
+    border: 1px solid #e6e8ec !important;
+    border-radius: 12px !important;
+    padding: 8px !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    transform: none !important;
+  }
+
+  .product-card:hover,
+  .shop-grid .product-card:hover {
+    transform: none !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  /* Hide non-essential overlays, ratings & chip strips on Mobile/Tab for crisp Blinkit/Amazon look */
+  .product-card .wishlist-btn,
+  .product-card .quickview-btn,
+  .product-card .product-badge,
+  .product-card .product-rating,
+  .product-card .product-card__models {
+    display: none !important;
+  }
+
+  /* 1. Product Image */
+  .product-card .product-media,
+  .shop-grid .product-card .product-media,
+  .product-card--shop .product-media {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1 !important;
+    background: #f7f8fa !important;
+    border-radius: 8px !important;
+    padding: 8px !important;
+    margin: 0 0 8px 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+
+  .product-card .product-media img,
+  .shop-grid .product-card .product-media img,
+  .product-card--shop .product-media img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    transform: none !important;
+  }
+
+  /* Card Body */
+  .product-card .product-info,
+  .shop-grid .product-card .product-info,
+  .product-card--shop .product-info {
+    padding: 0 2px 2px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    gap: 6px !important;
+    min-width: 0 !important;
+  }
+
+  /* 2. Product Title (+ Model Name when present) */
+  .product-card .product-title,
+  .shop-grid .product-card .product-title,
+  .product-card--shop .product-title {
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    line-height: 1.32 !important;
+    color: #1f2937 !important;
+    margin: 0 !important;
+    min-height: 33px !important;
+    max-height: 33px !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: normal !important;
+  }
+
+  /* 3. Price (+ Strike Price if Offer) */
+  .product-card .product-price,
+  .shop-grid .product-card .product-price,
+  .product-card--shop .product-price {
+    margin: auto 0 2px 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: baseline !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    line-height: 1.2 !important;
+    color: #111827 !important;
+    font-size: 14.5px !important;
+  }
+
+  .product-card .product-price__current {
+    font-size: 14.5px !important;
+    font-weight: 800 !important;
+    color: #111827 !important;
+  }
+
+  .product-card .product-price__strike {
+    font-size: 11.5px !important;
+    font-weight: 500 !important;
+    color: #8b949e !important;
+    text-decoration: line-through !important;
+    margin-left: 0 !important;
+  }
+
+  /* 4. Add to Cart Button (Blinkit Style) */
+  .product-card .add-cart-btn,
+  .shop-grid .product-card .add-cart-btn {
+    width: 100% !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 10px !important;
+    margin-top: 2px !important;
+    border-radius: 8px !important;
+    border: 1.5px solid #0c831f !important;
+    background-color: #f7fff9 !important;
+    color: #0c831f !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.02em !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  .product-card .add-cart-btn::before {
+    display: none !important;
+  }
+
+  .product-card .add-cart-btn:hover,
+  .product-card .add-cart-btn:active,
+  .shop-grid .product-card .add-cart-btn:hover,
+  .shop-grid .product-card .add-cart-btn:active {
+    background-color: #0c831f !important;
+    color: #ffffff !important;
+    border-color: #0c831f !important;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .bestsellers-grid,
+  .product-grid:not(.arrivals-carousel-track),
+  .shop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
+

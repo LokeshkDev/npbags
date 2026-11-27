@@ -53,8 +53,15 @@ export function ProductCard({
         hasSale: (parseFloat(product.sale_price || 0) > 0 && parseFloat(product.sale_price || 0) < parseFloat(product.price || 0)),
         unitPrice: (parseFloat(product.sale_price || 0) > 0 && parseFloat(product.sale_price || 0) < parseFloat(product.price || 0))
           ? parseFloat(product.sale_price || 0)
-          : parseFloat(product.price || 0)
+          : (parseFloat(product.sale_price || 0) > 0 && parseFloat(product.price || 0) === 0 ? parseFloat(product.sale_price || 0) : parseFloat(product.price || 0))
       };
+
+  const strikePrice = (hasSale && price > unitPrice) ? price : (mrp > unitPrice ? mrp : 0);
+  const hasStrikeOffer = strikePrice > unitPrice;
+  const formatCardPrice = (num) => {
+    const n = Number(num || 0);
+    return Number.isInteger(n) ? String(n) : n.toFixed(2);
+  };
 
   const inWish = isInWishlist(product.id);
   const ratingVal = product.rating ? Number(product.rating).toFixed(1) : '4.8';
@@ -172,8 +179,10 @@ export function ProductCard({
         )}
         
         <div className="product-price">
-          <span>₹{unitPrice.toFixed(2)}</span>
-          {hasSale && <del style={{ color: '#9a9a9a', fontSize: '13px', fontWeight: 400, marginLeft: '6px' }}>₹{price.toFixed(2)}</del>}
+          <span className="product-price__current">₹{formatCardPrice(unitPrice)}</span>
+          {hasStrikeOffer && (
+            <del className="product-price__strike">₹{formatCardPrice(strikePrice)}</del>
+          )}
         </div>
 
         {/* Product Rating (Hidden on Shop pages) */}
